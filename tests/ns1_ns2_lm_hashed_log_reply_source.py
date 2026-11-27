@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 R = Path(__file__).resolve().parents[1]
-selected = (R / "encore-active/ns2-runtime/hle/core/hle/service/lm/lm.cpp").read_text()
+selected = (R / "encore-active/eden/src/core/hle/service/lm/lm.cpp").read_text()
 shared = (R / "encore-active/eden/src/core/hle/service/service.cpp").read_text()
 assert selected.count('{2, &ILogger::TransmitHashedLog, "TransmitHashedLog"}') == 1
 assert selected.count('void TransmitHashedLog(HLERequestContext& ctx) {') == 1

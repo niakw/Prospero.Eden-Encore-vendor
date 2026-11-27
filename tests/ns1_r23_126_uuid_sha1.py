@@ -28,7 +28,7 @@ sha=hashlib.sha1(b"blob "+str(len(recovered)).encode()+bytes([0])+recovered).hex
 assert sha=="6f80d50d4c732004bef6ff387dbbc68e0778d1e3",sha
 assert "R_UNLESS(ok && hash_len == 20, ResultUnknown);" in new
 assert "R_UNLESS(ctx != nullptr, ResultUnknown);" in new
-selected=root/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp"
+selected=root/"encore-active/eden/src/core/hle/service/am/service/application_functions.cpp"
 selected_bytes=selected.read_bytes()
 selected_blob=hashlib.sha1(b"blob "+str(len(selected_bytes)).encode()+bytes([0])+selected_bytes).hexdigest()
 # The selected AM unit also carries the independently reviewed NS2 CMIF
