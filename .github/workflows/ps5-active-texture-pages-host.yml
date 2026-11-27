@@ -7,7 +7,7 @@ on:
       - 'tests/ps5_active_texture_page_publication_source.py'
       - 'tests/fc27_vic_texture_invalidation_source.py'
       - 'encore-active/eden/src/video_core/host1x/vic.cpp'
-      - 'encore-active/eden-core/overrides/core/guest_memory.h'
+      - 'encore-active/eden/src/core/guest_memory.h'
       - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
       - '.github/workflows/ps5-active-texture-pages-host.yml'
   workflow_dispatch:
