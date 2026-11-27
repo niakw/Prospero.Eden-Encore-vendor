@@ -16,10 +16,10 @@ for rel,(pre,post) in files.items():
  assert blob(ROOT/"sources/eden/src/dynarmic/src/dynarmic"/rel)==pre,rel
  assert blob(ROOT/"encore-active/eden/src/dynarmic"/rel)==post,rel
  print("R23_A32_FULL_SOURCE_BLOB_PASS",rel)
-inc=(ROOT/"encore-active/eden/src/dynarmic/frontend/A32/decoder/asimd.inc").read_text()
-header=(ROOT/"encore-active/eden/src/dynarmic/frontend/A32/translate/impl/a32_translate_impl.h").read_text()
-three=(ROOT/"encore-active/eden/src/dynarmic/frontend/A32/translate/impl/asimd_three_regs.cpp").read_text()
-two=(ROOT/"encore-active/eden/src/dynarmic/frontend/A32/translate/impl/asimd_two_regs_misc.cpp").read_text()
+inc=(ROOT/"encore-active/eden/src/dynarmic/src/dynarmic/frontend/A32/decoder/asimd.inc").read_text()
+header=(ROOT/"encore-active/eden/src/dynarmic/src/dynarmic/frontend/A32/translate/impl/a32_translate_impl.h").read_text()
+three=(ROOT/"encore-active/eden/src/dynarmic/src/dynarmic/frontend/A32/translate/impl/asimd_three_regs.cpp").read_text()
+two=(ROOT/"encore-active/eden/src/dynarmic/src/dynarmic/frontend/A32/translate/impl/asimd_two_regs_misc.cpp").read_text()
 for op in ("SHA1C","SHA1P","SHA1M","SHA1H","SHA1SU0","SHA1SU1"):
  assert inc.count("INST(v8_"+op+",")==1,op
  assert header.count("bool v8_"+op+"(")==1,op

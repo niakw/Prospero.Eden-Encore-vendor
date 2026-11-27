@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-jit-constant-pool-20261111
   pull_request:
     paths:
-      - "encore-active/eden/src/dynarmic/backend/x64/constant_pool.cpp"
+      - "encore-active/eden/src/dynarmic/src/dynarmic/backend/x64/constant_pool.cpp"
       - "encore-active/eden/include/dynarmic/backend/x64/constant_pool.h"
       - "tests/ns1_r23_33_cpool_host.py"
       - ".github/workflows/ns1-r23-33-cpool.yml"

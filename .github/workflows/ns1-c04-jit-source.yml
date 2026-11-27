@@ -6,7 +6,7 @@ on:
   pull_request:
     paths:
       - "encore-active/eden-header-hygiene/include/common/page_table.h"
-      - "encore-active/eden/src/dynarmic/backend/x64/**"
+      - "encore-active/eden/src/dynarmic/src/dynarmic/backend/x64/**"
       - "tests/c04_jit_page_source.py"
       - ".github/workflows/ns1-c04-jit-source.yml"
   workflow_dispatch:

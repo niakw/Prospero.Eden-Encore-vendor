@@ -12,7 +12,7 @@ import hashlib
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "sources/eden/src/dynarmic/src/dynarmic/frontend/A64"
 ACTIVE = ROOT / "encore-active/eden/src/dynarmic/src/dynarmic/frontend/A64"
-TRANSLATOR = ROOT / "encore-active/eden/src/dynarmic/frontend/A64/translate/a64_translate.cpp"
+TRANSLATOR = ROOT / "encore-active/eden/src/dynarmic/src/dynarmic/frontend/A64/translate/a64_translate.cpp"
 
 def git_blob(path: Path) -> str:
     data = path.read_bytes()

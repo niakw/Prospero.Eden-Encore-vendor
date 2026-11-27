@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-active = root / "encore-active/eden/src/dynarmic/backend/x64"
+active = root / "encore-active/eden/src/dynarmic/src/dynarmic/backend/x64"
 pinned = root / "sources/eden/src/dynarmic/src/dynarmic/backend/x64/emit_x64.cpp"
 assert_header = root / "sources/eden/src/common/assert.h"
 def blob(path):

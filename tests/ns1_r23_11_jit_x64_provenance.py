@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE=ROOT/"encore-active/eden/src/dynarmic/backend/x64"
+BASE=ROOT/"encore-active/eden/src/dynarmic/src/dynarmic/backend/x64"
 def gitblob(s):
  b=s.encode()
  return hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
