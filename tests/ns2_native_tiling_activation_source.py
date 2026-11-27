@@ -9,7 +9,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 pinned = (root / "sources/eden/src/video_core/memory_manager.h").read_text()
-overlay = (root / "encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h").read_text()
+overlay = (root / "encore-active/eden/src/video_core/memory_manager.h").read_text()
 nvhost = (root / "encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 channel = (root / "encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp").read_text()
 i2m = (root / "encore-active/eden/src/video_core/engines/engine_upload.cpp").read_text()
