@@ -34,13 +34,13 @@ Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, �
 | `eden-threading/src/core/hle/kernel/k_scheduler.cpp`, `k_thread.h`, `k_slab_heap.h` | Overrides coordonnés du threading |
 | `eden-threading/src/core/hle/kernel/k_address_arbiter.cpp`, `k_condition_variable.cpp` | Sources HLE natives |
 | `eden-threading/src/core/hle/kernel/svc/*.cpp` | Sources SVC natives |
-| `eden-sync/src/core/hle/kernel/k_synchronization_object.h` | En-tête natif de synchronisation, aliasing corrigé |
+| `eden/src/core/hle/kernel/k_synchronization_object.h` | En-tête natif de synchronisation, aliasing corrigé |
 | `eden-threading/native-hle-overrides.cmake` | Sélection de sources CMake, **pas** un correctif C++ généré |
 | `eden-core/src/core/hle/service/nvdrv/core/container.cpp` | Session nvdrv : acquisition/libération du processus avec verrou relâché avant fermeture |
 | `eden-core/src/hid_core/frontend/emulated_controller.cpp` | Vibrations virtuelles : source maintenue en remplacement du générateur CMake |
 | `eden-core/src/core/memory.cpp` | A32 fastmem source issue du backport de production ; garde explicite 32 bits, activation conditionnelle |
 | `compiler-rt/emutls.c` | Source du runtime TLS natif maintenue, `EMUTLS_SKIP_DESTRUCTOR_ROUNDS=1`, sans génération CMake |
-| `eden-build/src/CMakeLists.txt` | Configuration de build maintenue copiée avant compilation |
+| `eden/src/CMakeLists.txt` | Configuration de build maintenue copiée avant compilation |
 | `eden-core/src/common/thread.cpp`, `src/common/fs/fs.cpp` | Sources runtime natives maintenues ; noms de workers et énumération des répertoires |
 | `eden-core/src/common/cpu_features.cpp`, `src/common/fs/path_util.cpp` | Détection de fréquence TSC et racines utilisateur/cache natives, auparavant générées par CMake |
 | `eden-core/src/video_core/renderer_opengl/gl_texture_cache.cpp` | Diagnostic de copie GL en profil DEV, source C++ maintenue |
@@ -53,7 +53,7 @@ Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, �
 | `eden-core/src/core/internal_network/network_interface.cpp` | Choix de la branche FreeBSD pour l'énumération des interfaces, sans génération CMake |
 | `eden-core/src/core/hle/kernel/svc/svc_ipc.cpp`, `src/core/hle/service/service.cpp` | Mesures IPC/HLE du profil diagnostic, sélectionnées sans génération CMake |
 | `eden-core/src/core/hle/service/{filesystem,nvdrv,nvnflinger}/` | Sources diagnostiques de fichiers, événements NVDRV et files de présentation |
-| `eden-gpu`, `eden-vulkan`, `eden-core`, `ps5-mesa` et autres dossiers | Autres adaptations maintenues ; voir `docs/EDEN_OVERRIDE_MIGRATION_INVENTORY.md` |
+| `eden`, `eden-vulkan`, `eden-core`, `ps5-mesa` et autres dossiers | Autres adaptations maintenues ; voir `docs/EDEN_OVERRIDE_MIGRATION_INVENTORY.md` |
 
 | `eden-core/src/video_core/buffer_cache/buffer_cache.h` | Header GPU R437 complet et maintenu ; sélection PS5 par copie sans réécriture CMake |
 
@@ -77,7 +77,7 @@ Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, �
 
 | `eden-core/src/video_core/engines/fermi_2d_{observed,experimental}.cpp` | Deux variantes GPU complètes ; profil expérimental OFF par défaut, sélecteur CMake sans génération |
 
-| `eden-build/third_party/xbyak/xbyak.h` | En-tête Xbyak 7.40.1 complet avec huit adaptations d'alias, copié sans transformations CMake (X09 reste indirect) |
+| `eden-cpm/xbyak/v7.40.1/xbyak/xbyak.h` | En-tête Xbyak 7.40.1 complet avec huit adaptations d'alias, copié sans transformations CMake (X09 reste indirect) |
 
 | `eden-core/src/core/hle/kernel/k_process.cpp` | Finalisation du processus DEV : cinq étapes chronométrées, sélection directe, comparaison du résultat historique |
 

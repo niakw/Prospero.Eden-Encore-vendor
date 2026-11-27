@@ -526,11 +526,10 @@ assert release.index("if (FindChannel(channel_id) != owner)") < release.index(
     "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
     "std::scoped_lock lock{channel_mutex};") < release.index(
     "if (it != channels.end() && it->second == owner)") < release.index("channels.erase(it);")
-worker_header=(R/"encore-active/eden-gpu/include/video_core/gpu_thread.h").read_text()
+worker_header=(R/"encore-active/eden/src/video_core/gpu_thread.h").read_text()
 assert "GPUTickCommand, RetireChannelCommand>" in worker_header
-for variant in ("quiet", "dev"):
-    worker_cpp=(R/f"encore-active/eden-gpu/gpu_thread_{variant}.cpp").read_text()
-    assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
+worker_cpp=(R/"encore-active/eden/src/video_core/gpu_thread.cpp").read_text()
+assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
     assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
         "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
         "retire->action();") < worker_cpp.index(

@@ -20,12 +20,11 @@ RASTER = ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp"
 DEVICE_H = ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.h"
 DEVICE_INC = ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.inc"
 WORD = ROOT / "encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h"
-GPU_THREAD_H = ROOT / "encore-active/eden-gpu/include/video_core/gpu_thread.h"
-GPU_THREAD_QUIET = ROOT / "encore-active/eden-gpu/gpu_thread_quiet.cpp"
-GPU_THREAD_DEV = ROOT / "encore-active/eden-gpu/gpu_thread_dev.cpp"
+GPU_THREAD_H = ROOT / "encore-active/eden/src/video_core/gpu_thread.h"
+GPU_THREAD_QUIET = ROOT / "encore-active/eden/src/video_core/gpu_thread.cpp"
 
 for p in (RASTER, DEVICE_H, DEVICE_INC, WORD, GPU_THREAD_H,
-          GPU_THREAD_QUIET, GPU_THREAD_DEV):
+          GPU_THREAD_QUIET):
     assert p.exists(), p
 
 raster = RASTER.read_text()
@@ -34,7 +33,6 @@ device_inc = DEVICE_INC.read_text()
 word = WORD.read_text()
 gpu_thread_h = GPU_THREAD_H.read_text()
 gpu_thread_quiet = GPU_THREAD_QUIET.read_text()
-gpu_thread_dev = GPU_THREAD_DEV.read_text()
 
 # The maintained PS5 header owns the epoch; no dormant side header/flag.
 for marker in (
@@ -89,7 +87,7 @@ for marker in (
     "bool IsWorkerThread() noexcept",
 ):
     assert marker in gpu_thread_h, marker
-for owner in (gpu_thread_quiet, gpu_thread_dev):
+for owner in (gpu_thread_quiet,):
     run = owner.split("void ThreadManager::RunWorker(", 1)[1].split(
         "void ThreadManager::SubmitList(", 1
     )[0]
