@@ -146,9 +146,9 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     assert shutdown.index("gpu_core.reset();") < shutdown.index("services.reset();")
     return source.replace(early, legacy, 1).replace(late, old_late, 1)
 cores = {
-    "encore-active/eden-core/src/core/core_standard.cpp":
+    "encore-active/eden/src/core/core_standard.cpp":
         "5fbd4b90de30d20bff7a9fe07be85e4fc187fa93",
-    "encore-active/eden-core/src/core/core_native.cpp":
+    "encore-active/eden/src/core/core_native.cpp":
         "ba5b2cf06c5885bafc2e16c424bc146e24455b00",
     "encore-active/ns2-runtime/process/core/core.cpp":
         "7e3159eb648e92cca3543cfd01bcfd26a0caa135",

@@ -5,7 +5,7 @@ R=Path(__file__).resolve().parents[1]
 pinned=(R/"sources/eden/src/core/device_memory_manager.h").read_text()
 assert "physical_max_bits = 33;" in pinned
 assert "physical_max_bits = 34;" not in pinned
-active=(R/"encore-active/eden-backports/src/core/device_memory_manager.h").read_text()
+active=(R/"encore-active/eden/src/core/device_memory_manager.h").read_text()
 assert "physical_max_bits = 34;" in active
 assert "physical_max_bits = 33;" not in active
 # PS5 must size reverse mappings from actual configured DRAM, not reserve a

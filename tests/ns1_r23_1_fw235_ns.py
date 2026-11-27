@@ -4,7 +4,7 @@ from pathlib import Path
 import hashlib
 import re
 root=Path(__file__).resolve().parents[1]
-base=root/"encore-active/eden-backports/src/core/hle/service/ns"
+base=root/"encore-active/eden/src/core/hle/service/ns"
 cpp=(base/"application_manager_interface.cpp").read_text()
 header=(base/"application_manager_interface.h").read_text()
 expected={

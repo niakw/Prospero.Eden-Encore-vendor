@@ -7,19 +7,19 @@ import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 files={
- "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"1e04b2e1877d781db79f9933d55e8087ebb42d1e",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"58303a0bd66387244c44968a0878e2f7c821bc9f",
- "encore-active/eden-core/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
- "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
+ "encore-active/eden/src/core/hle/service/ngc/ngc.cpp":"1e04b2e1877d781db79f9933d55e8087ebb42d1e",
+ "encore-active/eden/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"58303a0bd66387244c44968a0878e2f7c821bc9f",
+ "encore-active/eden/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
+ "encore-active/eden/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()
  assert sha==expected,(file,sha)
-ngc=(ROOT/"encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp").read_text()
-fsp=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
-ipch=(ROOT/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
-profile=(ROOT/"encore-active/eden-core/include/core/hle/service/acc/profile_manager.h").read_text()
+ngc=(ROOT/"encore-active/eden/src/core/hle/service/ngc/ngc.cpp").read_text()
+fsp=(ROOT/"encore-active/eden/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
+ipch=(ROOT/"encore-active/eden/include/core/hle/service/ipc_helpers.h").read_text()
+profile=(ROOT/"encore-active/eden/include/core/hle/service/acc/profile_manager.h").read_text()
 assert 'RegisterNamedService("stpl:u"' in ngc
 assert 'RegisterNamedService("stpl:sys"' in ngc
 assert "#if !defined(EDEN_NATIVE_SHARED_NS2_STPL_OWNER)" in ngc

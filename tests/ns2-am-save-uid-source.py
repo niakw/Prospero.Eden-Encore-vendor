@@ -15,7 +15,7 @@ rel = "encore-active/ns2-runtime/am/core/hle/service/am/service/"
 header = (root / (rel + "application_functions.h")).read_text()
 source = (root / (rel + "application_functions.cpp")).read_text()
 common = (root / "sources/eden/src/common/common_types.h").read_text()
-uuid = (root / "encore-active/eden-core/include/common/uuid.h").read_text()
+uuid = (root / "encore-active/eden/include/common/uuid.h").read_text()
 
 # Verify the actual type definitions that produce the CMIF alignment rule.
 assert "using u128 = std::array<std::uint64_t, 2>;" in common
