@@ -121,7 +121,7 @@ jobs:
           python3 -B tests/ns2_getinfo_page_size_source.py
           python3 -B tests/ns2_getinfo_vamm_region_source.py
           python3 -B tests/ns2_smmu_34bit_capacity_source.py
-          python3 -B tests/ns2_backport_manifest_preserved_source.py
+          python3 -B tests/ns2_ro_nrr_v1_source.py
           python3 -B tests/ns2_syncpoint_shim_source.py
           python3 -B tests/ns2_font_service_source.py
           python3 -B tests/ns2_dynamic_texture_found_bit_limit_host.py
