@@ -98,6 +98,10 @@ public:
     };
     static constexpr std::size_t MaxSemaphoreRegions = 4096;
     static constexpr std::size_t MaxSemaphoreDirectWords = 1024;
+    // Best-effort provenance for values published by a real retired GPU
+    // fence. A miss is treated as CPU/unknown by the command-fetch policy,
+    // so bounded eviction can only make Encore fall back to live reads.
+    static constexpr std::size_t MaxGpuSemaphoreValues = 2048;
 
     [[nodiscard]] bool RegisterSemaphoreRegion(
         Kernel::KProcess* process, std::uint64_t start, std::uint64_t size) {
@@ -141,6 +145,15 @@ public:
             } else {
                 ++i;
             }
+        }
+        // A recycled GPU semaphore region must never inherit the producer
+        // identity of its previous mapping, even when the physical page and
+        // payload value happen to be reused.
+        for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
+            auto& published = entry.gpu_semaphore_values[i];
+            if (published.gpu_page == start ||
+                published.gpu_page == start + 0x1000)
+                published.valid = false;
         }
     }
 
@@ -253,6 +266,70 @@ public:
         }
         return std::nullopt;
     }
+
+    // Remember the exact logical value that became visible only after a real
+    // backend GPU fence retired. This is not guest state: it lets the native
+    // command fetcher distinguish GPU->GPU dependencies from semaphores that
+    // the guest CPU released after SubmitGPFIFO/Present.
+    void RecordGpuSemaphoreValue(
+        const Ticket& ticket, std::uint64_t gpu_address,
+        std::uint64_t device_address, std::uint32_t value) {
+        if (!ticket.process || !ticket.generation) return;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return;
+        auto& entry = owner->second;
+        const auto word = device_address & ~std::uint64_t{3};
+        const auto page = gpu_address & ~std::uint64_t{0xfff};
+        for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
+            auto& published = entry.gpu_semaphore_values[i];
+            if (published.valid && published.device_address == word &&
+                published.gpu_page == page) {
+                published.value = value;
+                return;
+            }
+        }
+        const std::size_t slot =
+            entry.gpu_semaphore_value_next++ % MaxGpuSemaphoreValues;
+        entry.gpu_semaphore_values[slot] =
+            GpuSemaphoreValue{word, page, value, true};
+        if (entry.gpu_semaphore_value_count < MaxGpuSemaphoreValues)
+            ++entry.gpu_semaphore_value_count;
+    }
+
+    // True only while the currently observed logical word still equals the
+    // last value published by a real GPU retirement for this process/page.
+    // A mismatch revokes stale provenance immediately. Absence/eviction is
+    // deliberately conservative and returns false.
+    [[nodiscard]] bool IsGpuProducedSemaphoreValue(
+        const Ticket& ticket, std::uint64_t gpu_address,
+        std::uint64_t device_address, std::uint32_t observed) {
+        if (!ticket.process || !ticket.generation) return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return false;
+        auto& entry = owner->second;
+        const auto word = device_address & ~std::uint64_t{3};
+        const auto page = gpu_address & ~std::uint64_t{0xfff};
+        for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
+            auto& published = entry.gpu_semaphore_values[i];
+            if (!published.valid || published.device_address != word ||
+                published.gpu_page != page)
+                continue;
+            if (published.value != observed) {
+                published.valid = false;
+                return false;
+            }
+            return true;
+        }
+        return false;
+    }
     // libounce GSV/NvRm contract: command 33 creates an opaque VM id,
     // root 434 registers that id, and only a later nvhost-as-gpu ioctl
     // imports it. VM ids are therefore never NVDRV file descriptors.
@@ -324,6 +401,12 @@ private:
         std::uint32_t guest{};
         bool has_shadow{};
     };
+    struct GpuSemaphoreValue {
+        std::uint64_t device_address{};
+        std::uint64_t gpu_page{};
+        std::uint32_t value{};
+        bool valid{};
+    };
     mutable std::mutex mutex;
     struct VmEntry {
         std::uint32_t id{};
@@ -338,6 +421,9 @@ private:
         std::size_t semaphore_region_count{};
         std::array<SemaphoreShadowWord, MaxSemaphoreDirectWords> semaphore_words{};
         std::size_t semaphore_word_count{};
+        std::array<GpuSemaphoreValue, MaxGpuSemaphoreValues> gpu_semaphore_values{};
+        std::size_t gpu_semaphore_value_count{};
+        std::size_t gpu_semaphore_value_next{};
     };
     [[nodiscard]] static bool HasSemaphoreRegion(
         const Entry& entry, std::uint64_t start) {
