@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 R = Path(__file__).resolve().parents[1]
-hdr = (R / "encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h").read_text()
+hdr = (R / "encore-active/eden/src/core/loader/ns2_svc_trace.h").read_text()
 svc = (R / "encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp").read_text()
 std = (R / "encore-active/eden/src/core/hle/kernel/physical_core_standard.cpp").read_text()
 dev = (R / "encore-active/eden/src/core/hle/kernel/physical_core_dev.cpp").read_text()
@@ -143,7 +143,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-svc-ring-outcome-") as d:
             subprocess.run(
                 [cc, "-std=c++20", opt, "-Wall", "-Wextra", "-Werror",
                  "-pthread", *defines,
-                 "-I", str(R / "encore-active/ns2-helpers/include"),
+                 "-I", str(R / "encore-active/eden/src"),
                  str(src), "-o", str(exe)],
                 check=True, capture_output=True, text=True, timeout=60)
             subprocess.run([str(exe)], check=True, timeout=10)

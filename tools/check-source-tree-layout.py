@@ -45,7 +45,7 @@ active_roots = git_tree_dirs("encore-active")
 
 migration_debt_roots = {
     "eden-core", "eden-vulkan", "ns2-runtime",
-    "ns2-helpers", "ns2-astc", "amd-fsr31",
+    "ns2-astc", "amd-fsr31",
 }
 
 unknown_active_roots = active_roots - source_roots - migration_debt_roots

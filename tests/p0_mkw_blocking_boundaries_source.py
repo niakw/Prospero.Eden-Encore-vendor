@@ -5,7 +5,7 @@ import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp"
-TRACE = ROOT / "encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h"
+TRACE = ROOT / "encore-active/eden/src/core/loader/ns2_svc_trace.h"
 SVC = ROOT / "encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp"
 
 def blob(path: Path) -> str:

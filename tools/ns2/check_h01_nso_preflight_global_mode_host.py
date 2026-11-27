@@ -32,7 +32,7 @@ assert prelude.index('dir = patch_manager.PatchExeFS(dir);') < prelude.index(
     'metadata.Reload(npdm)')
 assert prelude.index('metadata.Reload(npdm)') < prelude.index(
     'if (metadata.IsSwitch2() && !dir->GetFile("main"))')
-helper=ROOT/"encore-active/ns2-helpers/include"
+helper=ROOT/"encore-active/eden/src"
 cpp=r"""
 #include <algorithm>
 #include <array>

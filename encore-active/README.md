@@ -29,7 +29,7 @@ Le second est l'owner final compilé.
 
 ## Migration en cours
 
-Les racines historiques encore présentes (eden-core, eden-vulkan, ns2-runtime, ns2-helpers, ns2-astc, amd-fsr31) sont de la dette de structure. Elles doivent être repliées vers la dépendance correspondante sous encore-active/<dépendance>/, puis supprimées. Aucun nouvel owner ne doit y être ajouté.
+Les racines historiques encore présentes (eden-core, eden-vulkan, ns2-runtime, ns2-astc, amd-fsr31) sont de la dette de structure. Elles doivent être repliées vers la dépendance correspondante sous encore-active/<dépendance>/, puis supprimées. Aucun nouvel owner ne doit y être ajouté.
 
 La cible finale est simple : même dépendance, même chemin logique, un seul owner actif.
 
