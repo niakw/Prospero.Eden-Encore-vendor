@@ -17,9 +17,9 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 RASTER = ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp"
-DEVICE_H = ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.h"
-DEVICE_INC = ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.inc"
-WORD = ROOT / "encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h"
+DEVICE_H = ROOT / "encore-active/eden/src/core/device_memory_manager.h"
+DEVICE_INC = ROOT / "encore-active/eden/src/core/device_memory_manager.inc"
+WORD = ROOT / "encore-active/eden/src/video_core/buffer_cache/word_manager.h"
 GPU_THREAD_H = ROOT / "encore-active/eden/src/video_core/gpu_thread.h"
 GPU_THREAD_QUIET = ROOT / "encore-active/eden/src/video_core/gpu_thread.cpp"
 
@@ -43,7 +43,7 @@ for marker in (
     "std::atomic<u32> deferred_cached_updates{};",
 ):
     assert marker in device_h, marker
-assert not (ROOT / "encore-active/eden-core/overrides/core/deferred_cached_updates.h").exists()
+assert not (ROOT / "encore-active/eden/src/core/deferred_cached_updates.h").exists()
 
 # Unmap invalidates cache ownership first, then waits for page-count publication,
 # then takes mapping_guard and recycles the backing.
