@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # this independent GPU/GMMU lifetime fix: undo only its exact source delta
 # before comparing the original predecessor SHA.
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
-    if relative != "encore-active/ns2-runtime/process/core/core.cpp":
+    if relative != "encore-active/eden/src/core/core.cpp":
         return source
     # NS2 NUP process tracing is post-loader only. Historical provenance
     # must compare the predecessor C++ without this new diagnostic/handoff.
@@ -151,7 +151,7 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     assert shutdown.index("gpu_core.reset();") < shutdown.index("services.reset();")
     return source.replace(early, legacy, 1).replace(late, old_late, 1)
 # Current PS5 host-service lifetime contract, independent of historical replay.
-active_core = (ROOT / "encore-active/ns2-runtime/process/core/core.cpp").read_text()
+active_core = (ROOT / "encore-active/eden/src/core/core.cpp").read_text()
 active_shutdown = active_core.split("    void ShutdownMainProcess() {", 1)[1].split(
     "\n    bool IsShuttingDown()", 1)[0]
 assert active_shutdown.index("service_manager->Close();") < active_shutdown.index(
@@ -185,7 +185,7 @@ cores = {
         "2085b5e5751669e9d3885e80c95cab8bf28dd24e",
     "encore-active/eden/src/core/core_native.cpp":
         "ddfc45e5d66578728d13f468e668d2c136f92ef3",
-    "encore-active/ns2-runtime/process/core/core.cpp":
+    "encore-active/eden/src/core/core.cpp":
         "ac37dcd3d33373d6f5189dc4963f3dfbce898391",
 }
 early = """        Settings::values.use_squashed_iterated_blend = false;
