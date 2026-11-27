@@ -33,6 +33,7 @@
 #include "native_ampere_semaphore.h"
 #include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
 #include "video_core/gpu.h"
+#include "video_core/host1x/host1x.h"
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/native_qmd.h"
@@ -332,9 +333,19 @@ void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
             dma_pusher.FailNativeSubmission("Native GPFIFO FENCE_ACTION acquire unsupported");
         }
 #endif
-        // UNIMPLEMENTED_MSG("Channel Scheduling pending.");
-        // WaitFence(regs.fence_action.syncpoint_id, regs.fence_value);
-        dma_pusher.rasterizer->ReleaseFences();
+        // A completed host syncpoint is an already-retired dependency.
+        // Draining every Vulkan fence again only serializes unrelated work.
+        // Keep the historical full drain for an unresolved Maxwell/NS1
+        // acquire; native NS2 was rejected above and retains its own parking
+        // contract.
+        {
+            auto& syncpoints = dma_pusher.system.Host1x().GetSyncpointManager();
+            const u32 syncpoint_id =
+                static_cast<u32>(regs.fence_action.syncpoint_id.Value());
+            if (!syncpoints.IsReadyHost(syncpoint_id, regs.fence_value)) {
+                dma_pusher.rasterizer->ReleaseFences();
+            }
+        }
         break;
     case Puller::FenceOperation::Increment:
 #ifdef PS5_NATIVE
