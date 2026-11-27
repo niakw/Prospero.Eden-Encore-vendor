@@ -25,6 +25,8 @@
 #include "core/hle/service/acc/errors.h"
 #include "core/hle/service/acc/profile_manager.h"
 #include "core/hle/service/cmif_serialization.h"
+#include "core/hle/kernel/k_event.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/glue/glue_manager.h"
 #include "core/hle/service/server_manager.h"
 #include "core/loader/loader.h"
@@ -680,6 +682,68 @@ protected:
     }
 };
 
+class IAsyncNetworkServiceLicenseKindContext final
+    : public ServiceFramework<IAsyncNetworkServiceLicenseKindContext> {
+public:
+    explicit IAsyncNetworkServiceLicenseKindContext(Core::System& system_, Common::UUID = {})
+        : ServiceFramework{system_, "IAsyncNetworkServiceLicenseKindContext"},
+          service_context{system_, "IAsyncNetworkServiceLicenseKindContext"} {
+        // clang-format off
+        static const FunctionInfo functions[] = {
+            {0, &IAsyncNetworkServiceLicenseKindContext::GetSystemEvent, "GetSystemEvent"},
+            {1, &IAsyncNetworkServiceLicenseKindContext::Cancel, "Cancel"},
+            {2, &IAsyncNetworkServiceLicenseKindContext::HasDone, "HasDone"},
+            {3, &IAsyncNetworkServiceLicenseKindContext::GetResult, "GetResult"},
+            {100, &IAsyncNetworkServiceLicenseKindContext::GetNetworkServiceLicenseKind, "GetNetworkServiceLicenseKind"},
+        };
+        // clang-format on
+
+        RegisterHandlers(functions);
+
+        completion_event =
+            service_context.CreateEvent("IAsyncNetworkServiceLicenseKindContext:Done");
+        completion_event->Signal(system_.Kernel());
+    }
+
+    ~IAsyncNetworkServiceLicenseKindContext() override {
+        service_context.CloseEvent(completion_event);
+    }
+
+private:
+    void GetSystemEvent(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2, 1};
+        rb.Push(ResultSuccess);
+        rb.PushCopyObjects(ctx, completion_event->GetReadableEvent());
+    }
+
+    void Cancel(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void HasDone(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(true);
+    }
+
+    void GetResult(HLERequestContext& ctx) {
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultSuccess);
+    }
+
+    void GetNetworkServiceLicenseKind(HLERequestContext& ctx) {
+        // An offline local emulator cannot assert an online subscription.
+        constexpr u32 Subscribed = 0;
+        IPC::ResponseBuilder rb{ctx, 3};
+        rb.Push(ResultSuccess);
+        rb.Push(Subscribed);
+    }
+
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* completion_event{};
+};
+
 class IManagerForApplication final : public ServiceFramework<IManagerForApplication> {
 public:
     explicit IManagerForApplication(Core::System& system_,
@@ -696,9 +760,9 @@ public:
             {4, &IManagerForApplication::LoadIdTokenCache, "LoadIdTokenCache"},
             {130, &IManagerForApplication::GetNintendoAccountUserResourceCacheForApplication, "GetNintendoAccountUserResourceCacheForApplication"},
             {136, &IManagerForApplication::GetNintendoAccountUserResourceCacheForApplication, "GetNintendoAccountUserResourceCache"}, // 19.0.0+
-            {150, nullptr, "CreateAuthorizationRequest"},
+            {150, &IManagerForApplication::StubReplyInterface, "CreateAuthorizationRequest"},
             {160, &IManagerForApplication::StoreOpenContext, "StoreOpenContext"},
-            {170, nullptr, "LoadNetworkServiceLicenseKindAsync"},
+            {170, &IManagerForApplication::LoadNetworkServiceLicenseKindAsync, "LoadNetworkServiceLicenseKindAsync"},
         };
         // clang-format on
 
@@ -763,6 +827,13 @@ private:
         rb.PushRaw<u64>(profile_manager->GetLastOpenedUser().Hash());
     }
 
+    void LoadNetworkServiceLicenseKindAsync(HLERequestContext& ctx) {
+        // Fully constructed, completed guest IPC context; subscription remains offline.
+        IPC::ResponseBuilder rb{ctx, 2, 0, 1};
+        rb.Push(ResultSuccess);
+        rb.PushIpcInterface<IAsyncNetworkServiceLicenseKindContext>(ctx, system);
+    }
+
     void StoreOpenContext(HLERequestContext& ctx) {
         LOG_DEBUG(Service_ACC, "called");
 
@@ -777,25 +848,6 @@ private:
 };
 
 // 6.0.0+
-class IAsyncNetworkServiceLicenseKindContext final
-    : public ServiceFramework<IAsyncNetworkServiceLicenseKindContext> {
-public:
-    explicit IAsyncNetworkServiceLicenseKindContext(Core::System& system_, Common::UUID)
-        : ServiceFramework{system_, "IAsyncNetworkServiceLicenseKindContext"} {
-        // clang-format off
-        static const FunctionInfo functions[] = {
-            {0, nullptr, "GetSystemEvent"},
-            {1, nullptr, "Cancel"},
-            {2, nullptr, "HasDone"},
-            {3, nullptr, "GetResult"},
-            {4, nullptr, "GetNetworkServiceLicenseKind"},
-        };
-        // clang-format on
-
-        RegisterHandlers(functions);
-    }
-};
-
 // 8.0.0+
 class IOAuthProcedureForUserRegistration final
     : public ServiceFramework<IOAuthProcedureForUserRegistration> {
