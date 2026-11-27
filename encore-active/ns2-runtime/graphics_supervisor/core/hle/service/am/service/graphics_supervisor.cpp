@@ -756,8 +756,6 @@ public:
         return system.IsPoweredOn()?ctx.WriteToOutgoingCommandBuffer():ResultSuccess;
     }
 private:
-    static constexpr u64 DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL;
-
     void CancelPresentFenceWait() {
         if (m_present_wait_handle == 0) return;
         system.Host1x().GetSyncpointManager().DeregisterGuestAction(
@@ -767,13 +765,14 @@ private:
             Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS;
     }
 
-    // Bananza's native channels wait on each other each frame. Returning VI2
-    // PresentClientBuffer before the current producer fence lets the guest
-    // rewrite command memory that the GPU thread has not consumed yet.
-    // Lichii/Eglantine therefore keep this title behind its current frame.
-    // Suspend the guest service thread on a kernel event instead of blocking a
-    // host core, and retain the upstream four-second fail-safe.
-    bool WaitForBananzaPresentFence(u32 fence_id, u32 fence_value) {
+    // Present must protect guest frame-owned memory without encoding title
+    // IDs. Wait for the current GPU fence while all parked channels have a
+    // backend GPU producer. If a native acquire has no GPU producer in flight,
+    // the guest CPU may be the producer and cannot run until Present returns:
+    // escape that current-frame wait after a short grace period. The caller
+    // then waits the previous frame instead, keeping at most one frame ahead.
+    bool WaitForPresentFence(
+        u32 fence_id, u32 fence_value, bool escape_cpu_dependency) {
         auto& syncpoints = system.Host1x().GetSyncpointManager();
         if (fence_id >= Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS ||
             syncpoints.IsReadyGuest(fence_id, fence_value)) {
@@ -781,7 +780,8 @@ private:
         }
         if (!m_present_wait_event) {
             try {
-                m_present_wait_event = m_context.CreateEvent("nx2:vi2 present fence");
+                m_present_wait_event =
+                    m_context.CreateEvent("nx2:vi2 present fence");
             } catch (const std::bad_alloc&) {
                 return false;
             }
@@ -801,15 +801,26 @@ private:
         if (syncpoints.IsReadyGuest(fence_id, fence_value)) return true;
         Kernel::KSynchronizationObject* event =
             &m_present_wait_event->GetReadableEvent();
-        const auto deadline =
-            std::chrono::steady_clock::now() + std::chrono::seconds{4};
+        const auto start = std::chrono::steady_clock::now();
+        const auto cpu_escape = start + std::chrono::milliseconds{3};
+        const auto deadline = start + std::chrono::seconds{4};
         while (!syncpoints.IsReadyGuest(fence_id, fence_value) &&
                system.IsPoweredOn() &&
                std::chrono::steady_clock::now() < deadline) {
+            if (escape_cpu_dependency &&
+                std::chrono::steady_clock::now() >= cpu_escape &&
+                system.GPU().HasCpuBlockedNativeChannels()) {
+                return false;
+            }
             s32 index = -1;
-            const auto timeout = kernel.HardwareTimer().GetTick() + 50'000'000;
+            // Current-frame waits need to notice a CPU dependency promptly;
+            // previous-frame waits can use the same bounded poll without
+            // spinning a host core.
+            const auto timeout =
+                kernel.HardwareTimer().GetTick() + 1'000'000;
             const Result result =
-                Kernel::KSynchronizationObject::Wait(kernel, &index, &event, 1, timeout);
+                Kernel::KSynchronizationObject::Wait(
+                    kernel, &index, &event, 1, timeout);
             if (result == Kernel::ResultTerminationRequested) break;
         }
         return syncpoints.IsReadyGuest(fence_id, fence_value);
@@ -1396,11 +1407,21 @@ private:
                             if(p[23]==0&&p[25]==0&&
                                 (fence==~u32{0}||
                                  nv.GetSyncpointManager().IsSyncpointAllocated(fence))){
-                                if (fence != ~u32{0} &&
-                                    system.GetApplicationProcessProgramID() ==
-                                        DonkeyKongBananzaProgramId) {
-                                    static_cast<void>(
-                                        WaitForBananzaPresentFence(fence, p[24]));
+                                if (fence != ~u32{0}) {
+                                    const bool current_ready =
+                                        WaitForPresentFence(
+                                            fence, p[24], true);
+                                    if (!current_ready &&
+                                        m_previous_present_fence_id !=
+                                            ~u32{0}) {
+                                        static_cast<void>(
+                                            WaitForPresentFence(
+                                                m_previous_present_fence_id,
+                                                m_previous_present_fence_value,
+                                                false));
+                                    }
+                                    m_previous_present_fence_id = fence;
+                                    m_previous_present_fence_value = p[24];
                                 }
                                 if(!c->producer){
                                     // A stored producer means the complete VI2 setup succeeded.
@@ -1551,6 +1572,8 @@ private:
     Kernel::KEvent* m_present_wait_event{};
     Tegra::Host1x::SyncpointManager::ActionHandle m_present_wait_handle{};
     u32 m_present_wait_syncpoint{Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS};
+    u32 m_previous_present_fence_id{~u32{0}};
+    u32 m_previous_present_fence_value{};
     struct VsyncState {
         std::mutex mutex;
         std::vector<Kernel::KEvent*> events;
