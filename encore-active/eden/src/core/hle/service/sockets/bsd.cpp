@@ -1,3 +1,4 @@
+#include "network_audit.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -731,6 +732,11 @@ Errno BSD_USA::ConnectImpl(s32 fd, std::span<const u8> addr) {
     auto addr_in = GetValue<SockAddrIn>(addr);
 
     const Errno result = Translate(file_descriptors[fd]->socket->Connect(Translate(addr_in)));
+    if ((result == Errno::SUCCESS || result == Errno::ISCONN) && eden_network_audit_active()) {
+        const auto peer = Translate(addr_in);
+        const std::string host = Network::IPv4AddressToString(peer.ip) + ":" + std::to_string(peer.portno);
+        eden_network_audit_event("guest", "connect", host.c_str(), 0, 0);
+    }
 
     if (result == Errno::ISCONN) {
         LOG_DEBUG(Service, "returned ISCONN - socket already connected");
@@ -958,6 +964,10 @@ std::pair<s32, Errno> BSD_USA::RecvImpl(s32 fd, u32 flags, std::vector<u8>& mess
     }
 
     const auto [ret, bsd_errno] = Translate(descriptor.socket->Recv(flags, message));
+    if (ret > 0 && eden_network_audit_active()) {
+        const std::string descriptor = "fd:" + std::to_string(fd);
+        eden_network_audit_event("guest", "rx", descriptor.c_str(), ret, 0);
+    }
 
     // Restore original state
     if ((descriptor.flags & FLAG_O_NONBLOCK) == 0) {
@@ -995,6 +1005,10 @@ std::pair<s32, Errno> BSD_USA::RecvFromImpl(s32 fd, u32 flags, std::vector<u8>& 
     }
 
     const auto [ret, bsd_errno] = Translate(descriptor.socket->RecvFrom(flags, message, p_addr_in));
+    if (ret > 0 && eden_network_audit_active()) {
+        const std::string target = p_addr_in ? Network::IPv4AddressToString(p_addr_in->ip) + ":" + std::to_string(p_addr_in->portno) : "fd:" + std::to_string(fd);
+        eden_network_audit_event("guest", "rx", target.c_str(), ret, 0);
+    }
 
     // Restore original state
     if ((descriptor.flags & FLAG_O_NONBLOCK) == 0) {
@@ -1022,7 +1036,12 @@ std::pair<s32, Errno> BSD_USA::SendImpl(s32 fd, u32 flags, std::span<const u8> m
         LOG_WARNING(Service, "Uninitialized socket");
         return {-1, Errno::BADF};
     }
-    return Translate(file_descriptors[fd]->socket->Send(message, flags));
+    const auto send_result = Translate(file_descriptors[fd]->socket->Send(message, flags));
+    if (send_result.first > 0 && eden_network_audit_active()) {
+        const std::string descriptor = "fd:" + std::to_string(fd);
+        eden_network_audit_event("guest", "tx", descriptor.c_str(), send_result.first, 0);
+    }
+    return send_result;
 }
 
 std::pair<s32, Errno> BSD_USA::SendToImpl(s32 fd, u32 flags, std::span<const u8> message,
@@ -1044,7 +1063,12 @@ std::pair<s32, Errno> BSD_USA::SendToImpl(s32 fd, u32 flags, std::span<const u8>
         p_addr_in = &addr_in;
     }
 
-    return Translate(file_descriptors[fd]->socket->SendTo(flags, message, p_addr_in));
+    const auto sent = Translate(file_descriptors[fd]->socket->SendTo(flags, message, p_addr_in));
+    if (sent.first > 0 && eden_network_audit_active()) {
+        const std::string target = p_addr_in ? Network::IPv4AddressToString(p_addr_in->ip) + ":" + std::to_string(p_addr_in->portno) : "fd:" + std::to_string(fd);
+        eden_network_audit_event("guest", "tx", target.c_str(), sent.first, 0);
+    }
+    return sent;
 }
 
 Errno BSD_USA::CloseImpl(s32 fd) {
@@ -1164,29 +1188,30 @@ BSD_USA::BSD_USA(Core::System& system_, const char* name, bool is_user_)
         {20, &BSD_USA::Fcntl, "Fcntl"},
         {21, &BSD_USA::SetSockOpt, "SetSockOpt"},
         {22, &BSD_USA::Shutdown, "Shutdown"},
-        {23, nullptr, "ShutdownAllSockets"},
+        {23, &BSD_USA::StubReplyZeroed, "ShutdownAllSockets"},
         {24, &BSD_USA::Write, "Write"},
         {25, &BSD_USA::Read, "Read"},
         {26, &BSD_USA::Close, "Close"},
         {27, &BSD_USA::DuplicateSocket, "DuplicateSocket"},
-        {28, nullptr, "GetResourceStatistics"},
+        {28, &BSD_USA::StubReplyZeroed, "GetResourceStatistics"},
         {29, nullptr, "RecvMMsg"}, //3.0.0+
         {30, nullptr, "SendMMsg"}, //3.0.0+
         {31, &BSD_USA::EventFd, "EventFd"}, //7.0.0+
-        {32, nullptr, "RegisterResourceStatisticsName"}, //7.0.0+
-        {33, nullptr, "RegisterClientShared"}, //10.0.0+
-        {34, nullptr, "GetSocketStatistics"}, //15.0.0+
-        {35, nullptr, "NifIoctl"}, //17.0.0+
-        {36, nullptr, "Unknown36"}, //18.0.0+
-        {37, nullptr, "Unknown37"}, //18.0.0+
-        {38, nullptr, "Unknown38"}, //18.0.0+
-        {39, nullptr, "Unknown39"}, //20.0.0+
-        {40, nullptr, "Unknown40"}, //20.0.0+
-        {41, nullptr, "Unknown41"}, //21.0.0+
-        {42, nullptr, "Unknown42"}, //21.0.0+
-        {43, nullptr, "Unknown43"}, //21.0.0+
-        {200, nullptr, "SetThreadCoreMask"}, //15.0.0+
-        {201, nullptr, "GetThreadCoreMask"}, //15.0.0+
+        {32, &BSD_USA::StubReplyZeroed, "RegisterResourceStatisticsName"}, //7.0.0+
+        {33, &BSD_USA::StubReplyZeroed, "RegisterClientShared"}, //10.0.0+
+        {34, &BSD_USA::StubReplyZeroed, "GetSocketStatistics"}, //15.0.0+
+        {35, &BSD_USA::StubReplyZeroed, "NifIoctl"}, //17.0.0+
+        {36, &BSD_USA::RegisterClient, "RegisterClientSwitch2"}, //18.0.0+
+        {37, &BSD_USA::StubReplyZeroed, "Unknown37"}, //18.0.0+
+        {38, &BSD_USA::StubReplyZeroed, "Unknown38"}, //18.0.0+
+        {39, &BSD_USA::StubReplyZeroed, "Unknown39"}, //20.0.0+
+        {40, &BSD_USA::StubReplyZeroed, "Unknown40"}, //20.0.0+
+        {41, &BSD_USA::StubReplyEvent, "Unknown41"}, //21.0.0+
+        {42, &BSD_USA::StubReplyZeroed, "Unknown42"}, //21.0.0+
+        {43, &BSD_USA::StubReplyZeroed, "Unknown43"}, //21.0.0+
+        {200, &BSD_USA::StubReplyZeroed, "SetThreadCoreMask"}, //15.0.0+
+        {201, &BSD_USA::StubReplyZeroed, "GetThreadCoreMask"}, //15.0.0+
+        {44, &BSD_USA::StubReplyZeroed, "Unknown44"},
     };
     // clang-format on
 
@@ -1215,21 +1240,26 @@ BSDCFG::BSDCFG(Core::System& system_, const char *name)
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, nullptr, "SetIfUp"},
-        {1, nullptr, "SetIfUpWithEvent"},
-        {2, nullptr, "CancelIf"},
-        {3, nullptr, "SetIfDown"},
-        {4, nullptr, "GetIfState"},
-        {5, nullptr, "DhcpRenew"},
-        {6, nullptr, "AddStaticArpEntry"},
-        {7, nullptr, "RemoveArpEntry"},
-        {8, nullptr, "LookupArpEntry"},
-        {9, nullptr, "LookupArpEntry2"},
-        {10, nullptr, "ClearArpEntries"},
-        {11, nullptr, "ClearArpEntries2"},
-        {12, nullptr, "PrintArpEntries"},
-        {13, nullptr, "Unknown13"},
-        {14, nullptr, "Unknown14"},
-        {15, nullptr, "Unknown15"},
+        {1, &BSDCFG::StubReplyZeroed, "SetIfUpWithEvent"},
+        {2, &BSDCFG::StubReplyZeroed, "CancelIf"},
+        {3, &BSDCFG::StubReplyZeroed, "SetIfDown"},
+        {4, &BSDCFG::StubReplyZeroed, "GetIfState"},
+        {5, &BSDCFG::StubReplyZeroed, "DhcpRenew"},
+        {6, &BSDCFG::StubReplyZeroed, "AddStaticArpEntry"},
+        {7, &BSDCFG::StubReplyZeroed, "RemoveArpEntry"},
+        {8, &BSDCFG::StubReplyZeroed, "LookupArpEntry"},
+        {9, &BSDCFG::StubReplyZeroed, "LookupArpEntry2"},
+        {10, &BSDCFG::StubReplyZeroed, "ClearArpEntries"},
+        {11, &BSDCFG::StubReplyZeroed, "ClearArpEntries2"},
+        {12, &BSDCFG::StubReplyZeroed, "PrintArpEntries"},
+        {13, &BSDCFG::StubReplyZeroed, "Unknown13"},
+        {14, &BSDCFG::StubReplyZeroed, "Unknown14"},
+        {15, &BSDCFG::StubReplyZeroed, "Unknown15"},
+        {100, &BSDCFG::StubReplyZeroed, "Unknown100"},
+        {101, &BSDCFG::StubReplyZeroed, "Unknown101"},
+        {102, &BSDCFG::StubReplyZeroed, "Unknown102"},
+        {103, &BSDCFG::StubReplyZeroed, "Unknown103"},
+        {104, &BSDCFG::StubReplyZeroed, "Unknown104"},
     };
     // clang-format on
 
