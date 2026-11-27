@@ -6,7 +6,7 @@ import os
 import subprocess
 import tempfile
 
-ROOT=Path(__file__).resolve().parents[1]/"encore-active/eden-core/src"
+ROOT=Path(__file__).resolve().parents[1]/"encore-active/eden/src"
 factory=ROOT/"core/file_sys/savedata_factory.cpp"
 controller=ROOT/"core/hle/service/filesystem/filesystem.cpp"
 f=factory.read_text()
