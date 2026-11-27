@@ -3,7 +3,7 @@
 **Code imported and maintained on a feature branch; no PS5 validation yet.**
 
 Source provenance:
-- AMD MIT subset `encore-active/amd-fsr31/`: upstream
+- AMD MIT subset `encore-active/eden/externals/amd-fsr31/`: upstream
   GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, tag v1.1.4,
   original commit `c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`.
   Includes `LICENSE.txt` and unmodified AMD GPU source/pass shaders.
