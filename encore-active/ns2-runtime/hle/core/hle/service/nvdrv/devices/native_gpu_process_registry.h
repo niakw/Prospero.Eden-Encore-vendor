@@ -152,8 +152,10 @@ public:
         for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
             auto& published = entry.gpu_semaphore_values[i];
             if (published.gpu_page == start ||
-                published.gpu_page == start + 0x1000)
+                published.gpu_page == start + 0x1000) {
                 published.valid = false;
+                published.pending_releases = 0;
+            }
         }
     }
 
@@ -292,12 +294,123 @@ public:
                 return;
             }
         }
-        const std::size_t slot =
-            entry.gpu_semaphore_value_next++ % MaxGpuSemaphoreValues;
+        std::size_t slot{};
+        if (entry.gpu_semaphore_value_count < MaxGpuSemaphoreValues) {
+            slot = entry.gpu_semaphore_value_count++;
+        } else {
+            // Provenance is advisory. Never evict an in-flight producer;
+            // replacing an older retired value only makes future reads fall
+            // back to the conservative CPU/unknown path.
+            bool found = false;
+            for (std::size_t probe = 0; probe < MaxGpuSemaphoreValues; ++probe) {
+                const auto candidate =
+                    (entry.gpu_semaphore_value_next + probe) %
+                    MaxGpuSemaphoreValues;
+                if (entry.gpu_semaphore_values[candidate].pending_releases == 0) {
+                    slot = candidate;
+                    entry.gpu_semaphore_value_next = candidate + 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return;
+        }
         entry.gpu_semaphore_values[slot] =
-            GpuSemaphoreValue{word, page, value, true};
-        if (entry.gpu_semaphore_value_count < MaxGpuSemaphoreValues)
-            ++entry.gpu_semaphore_value_count;
+            GpuSemaphoreValue{word, page, value, true, 0};
+    }
+
+    // Register a backend GPU producer before its fence callback can retire.
+    // VI2 uses this only to avoid returning Present while a suspended native
+    // channel has a producer already in flight. Failure is conservative.
+    [[nodiscard]] bool BeginGpuSemaphoreRelease(
+        const Ticket& ticket, std::uint64_t gpu_address,
+        std::uint64_t device_address) {
+        if (!ticket.process || !ticket.generation) return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return false;
+        auto& entry = owner->second;
+        const auto word = device_address & ~std::uint64_t{3};
+        const auto page = gpu_address & ~std::uint64_t{0xfff};
+        for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
+            auto& published = entry.gpu_semaphore_values[i];
+            if (published.device_address == word && published.gpu_page == page) {
+                if (published.pending_releases ==
+                    std::numeric_limits<std::uint32_t>::max())
+                    return false;
+                ++published.pending_releases;
+                return true;
+            }
+        }
+        std::size_t slot{};
+        if (entry.gpu_semaphore_value_count < MaxGpuSemaphoreValues) {
+            slot = entry.gpu_semaphore_value_count++;
+        } else {
+            bool found = false;
+            for (std::size_t probe = 0; probe < MaxGpuSemaphoreValues; ++probe) {
+                const auto candidate =
+                    (entry.gpu_semaphore_value_next + probe) %
+                    MaxGpuSemaphoreValues;
+                if (entry.gpu_semaphore_values[candidate].pending_releases == 0) {
+                    slot = candidate;
+                    entry.gpu_semaphore_value_next = candidate + 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        entry.gpu_semaphore_values[slot] =
+            GpuSemaphoreValue{word, page, 0, false, 1};
+        return true;
+    }
+
+    void EndGpuSemaphoreRelease(
+        const Ticket& ticket, std::uint64_t gpu_address,
+        std::uint64_t device_address) {
+        if (!ticket.process || !ticket.generation) return;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return;
+        auto& entry = owner->second;
+        const auto word = device_address & ~std::uint64_t{3};
+        const auto page = gpu_address & ~std::uint64_t{0xfff};
+        for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
+            auto& published = entry.gpu_semaphore_values[i];
+            if (published.device_address == word &&
+                published.gpu_page == page) {
+                if (published.pending_releases != 0)
+                    --published.pending_releases;
+                return;
+            }
+        }
+    }
+
+    [[nodiscard]] bool HasPendingGpuSemaphoreRelease(
+        const Ticket& ticket, std::uint64_t gpu_address,
+        std::uint64_t device_address) const {
+        if (!ticket.process || !ticket.generation) return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return false;
+        const auto word = device_address & ~std::uint64_t{3};
+        const auto page = gpu_address & ~std::uint64_t{0xfff};
+        for (std::size_t i = 0; i < owner->second.gpu_semaphore_value_count; ++i) {
+            const auto& published = owner->second.gpu_semaphore_values[i];
+            if (published.device_address == word &&
+                published.gpu_page == page)
+                return published.pending_releases != 0;
+        }
+        return false;
     }
 
     // True only while the currently observed logical word still equals the
@@ -406,6 +519,7 @@ private:
         std::uint64_t gpu_page{};
         std::uint32_t value{};
         bool valid{};
+        std::uint32_t pending_releases{};
     };
     mutable std::mutex mutex;
     struct VmEntry {
