@@ -2,13 +2,13 @@ name: PS5 GPU dirty cross-page owner host regression
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h'
+      - 'encore-active/eden/src/core/gpu_dirty_memory_manager.h'
       - 'tools/check-gpu-dirty-cross-page-host.py'
       - '.github/workflows/ps5-gpu-dirty-cross-page-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h'
+      - 'encore-active/eden/src/core/gpu_dirty_memory_manager.h'
       - 'tools/check-gpu-dirty-cross-page-host.py'
       - '.github/workflows/ps5-gpu-dirty-cross-page-host.yml'
   workflow_dispatch:
