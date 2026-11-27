@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 root = pathlib.Path(__file__).resolve().parents[1]
-source = (root / "encore-active/eden-core/src/video_core/shader_environment.cpp").read_text()
+source = (root / "encore-active/eden/src/video_core/shader_environment.cpp").read_text()
 enum = (root / "encore-active/eden/src/shader_recompiler/shader_info.h").read_text()
 enum = re.search(r"enum class TextureType\s*:\s*u32\s*\{.*?\};", enum, re.S).group()
 helpers = source[source.index("constexpr u64 NULL_TEXTURE_2D_KEY"):source.index("static Shader::TextureType ConvertTextureType")]

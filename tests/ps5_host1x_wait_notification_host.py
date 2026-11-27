@@ -2,7 +2,7 @@
 from pathlib import Path
 import shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
-SRC=(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
+SRC=(ROOT/"encore-active/eden/src/video_core/host1x/syncpoint_manager.cpp").read_text()
 HDR=(ROOT/"encore-active/eden-core/overrides/video_core/host1x/syncpoint_manager.h").read_text()
 assert "using ActionHandle = u64;" in HDR
 assert "GuestMirror" in HDR and "WithGuestValuesStable" in HDR
@@ -156,7 +156,7 @@ with tempfile.TemporaryDirectory(prefix="host1x-action-") as d:
                     "-I",str(t),
                     "-I",str(ROOT/"encore-active/eden-core/overrides"),
                     "-I",str(ROOT/"sources/eden/src"),
-                    str(ROOT/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp"),
+                    str(ROOT/"encore-active/eden/src/video_core/host1x/syncpoint_manager.cpp"),
                     str(t/"test.cpp"),"-o",str(exe)],check=True,timeout=60)
     subprocess.run([str(exe)],check=True,timeout=15)
 print("HOST1X_COUNTER_NOTIFY_PASS numeric_handles=1 running_cancel=1 throwing_action_cleanup=1 native_retire_mirror=1")

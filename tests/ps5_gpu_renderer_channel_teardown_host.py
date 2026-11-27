@@ -14,11 +14,11 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNERS = {
-    "vulkan": ROOT / "encore-active/eden-core/src/video_core/gpu_vulkan.cpp",
-    "gl_native": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_native.cpp",
-    "gl_host": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_host.cpp",
-    "gl_native_dev": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp",
-    "gl_host_dev": ROOT / "encore-active/eden-core/src/video_core/gpu_gl_host_dev.cpp",
+    "vulkan": ROOT / "encore-active/eden/src/video_core/gpu_vulkan.cpp",
+    "gl_native": ROOT / "encore-active/eden/src/video_core/gpu_gl_native.cpp",
+    "gl_host": ROOT / "encore-active/eden/src/video_core/gpu_gl_host.cpp",
+    "gl_native_dev": ROOT / "encore-active/eden/src/video_core/gpu_gl_native_dev.cpp",
+    "gl_host_dev": ROOT / "encore-active/eden/src/video_core/gpu_gl_host_dev.cpp",
 }
 BASE = ROOT / "sources/eden/src/video_core/gpu.cpp"
 historic=BASE.read_text()

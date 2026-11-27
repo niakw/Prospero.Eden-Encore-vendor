@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 ROOT = Path(__file__).resolve().parents[1]
-path = ROOT/"encore-active/eden-core/src/core/file_sys/fssystem"
+path = ROOT/"encore-active/eden/src/core/file_sys/fssystem"
 def extract(name, start, end):
     src = (path/name).read_text()
     assert src.count(start) == 1
