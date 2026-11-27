@@ -11,7 +11,7 @@ import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "sources/eden/src/dynarmic/src/dynarmic/frontend/A64"
-ACTIVE = ROOT / "encore-active/ns2-runtime/ldapr/maintained/dynarmic/frontend/A64"
+ACTIVE = ROOT / "encore-active/eden/src/dynarmic/src/dynarmic/frontend/A64"
 TRANSLATOR = ROOT / "encore-active/eden/src/dynarmic/frontend/A64/translate/a64_translate.cpp"
 
 def git_blob(path: Path) -> str:

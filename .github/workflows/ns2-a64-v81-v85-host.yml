@@ -3,7 +3,7 @@ name: NS2 A64 ARMv8.1-8.5 source provenance (host)
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-runtime/ldapr/maintained/**'
+      - 'encore-active/eden/src/dynarmic/src/dynarmic/frontend/A64/**'
       - 'encore-active/eden/src/dynarmic/frontend/A64/translate/a64_translate.cpp'
       - 'tests/ns2_a64_v81_v85_source.py'
       - '.github/workflows/ns2-a64-v81-v85-host.yml'

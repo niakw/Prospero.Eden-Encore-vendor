@@ -70,17 +70,6 @@ bool TranslatorVisitor::RET(Reg Rn) {
     return false;
 }
 
-// Switch 2 experiment only. Matches Eden-NS2's no-PAC-authentication model:
- // SCTLR.EnIA/EnIB disabled; both RETAA and RETAB use raw X30.
- // This is NOT pointer-authentication verification or key emulation.
-bool TranslatorVisitor::RETA([[maybe_unused]] bool M) {
-#if defined(EDEN_NS2_A64_EXPERIMENTAL)
-    return RET(Reg::R30);
-#else
-    return UnallocatedEncoding();
-#endif
-}
-
 bool TranslatorVisitor::CBZ(bool sf, Imm<19> imm19, Reg Rt) {
     const size_t datasize = sf ? 64 : 32;
     const s64 offset = concatenate(imm19, Imm<2>{0}).SignExtend<s64>();
