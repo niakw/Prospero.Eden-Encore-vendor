@@ -51,6 +51,7 @@
 #include "video_core/host1x/host1x.h"
 #include "video_core/host1x/syncpoint_manager.h"
 #include "core/hle/kernel/k_readable_event.h"
+#include "core/hle/kernel/k_synchronization_object.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/hle/service/nvnflinger/buffer_queue_producer.h"
 #include "core/hle/service/nvnflinger/ui/graphic_buffer.h"
@@ -717,6 +718,8 @@ public:
         RegisterHandlersTipc(f);
     }
     ~IVi2Session() override {
+        CancelPresentFenceWait();
+        if (m_present_wait_event) m_context.CloseEvent(m_present_wait_event);
         if (m_vsync_timer) system.CoreTiming().UnscheduleEvent(m_vsync_timer);
         // The CoreTiming callback may have entered on another worker before
         // UnscheduleEvent returned: do not close kernel events it can see.
@@ -752,6 +755,65 @@ public:
         return system.IsPoweredOn()?ctx.WriteToOutgoingCommandBuffer():ResultSuccess;
     }
 private:
+    static constexpr u64 DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL;
+
+    void CancelPresentFenceWait() {
+        if (m_present_wait_handle == 0) return;
+        system.Host1x().GetSyncpointManager().DeregisterGuestAction(
+            m_present_wait_syncpoint, m_present_wait_handle);
+        m_present_wait_handle = 0;
+        m_present_wait_syncpoint =
+            Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS;
+    }
+
+    // Bananza's native channels wait on each other each frame. Returning VI2
+    // PresentClientBuffer before the current producer fence lets the guest
+    // rewrite command memory that the GPU thread has not consumed yet.
+    // Lichii/Eglantine therefore keep this title behind its current frame.
+    // Suspend the guest service thread on a kernel event instead of blocking a
+    // host core, and retain the upstream four-second fail-safe.
+    bool WaitForBananzaPresentFence(u32 fence_id, u32 fence_value) {
+        auto& syncpoints = system.Host1x().GetSyncpointManager();
+        if (fence_id >= Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS ||
+            syncpoints.IsReadyGuest(fence_id, fence_value)) {
+            return true;
+        }
+        if (!m_present_wait_event) {
+            try {
+                m_present_wait_event = m_context.CreateEvent("nx2:vi2 present fence");
+            } catch (const std::bad_alloc&) {
+                return false;
+            }
+            if (!m_present_wait_event) return false;
+        }
+
+        CancelPresentFenceWait();
+        m_present_wait_event->Clear(kernel);
+        m_present_wait_syncpoint = fence_id;
+        m_present_wait_handle = syncpoints.RegisterGuestAction(
+            fence_id, fence_value,
+            [event = m_present_wait_event, kernel_ptr = &kernel] {
+                event->Signal(*kernel_ptr);
+            });
+        SCOPE_EXIT { CancelPresentFenceWait(); };
+
+        if (syncpoints.IsReadyGuest(fence_id, fence_value)) return true;
+        Kernel::KSynchronizationObject* event =
+            &m_present_wait_event->GetReadableEvent();
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds{4};
+        while (!syncpoints.IsReadyGuest(fence_id, fence_value) &&
+               system.IsPoweredOn() &&
+               std::chrono::steady_clock::now() < deadline) {
+            s32 index = -1;
+            const auto timeout = kernel.HardwareTimer().GetTick() + 50'000'000;
+            const Result result =
+                Kernel::KSynchronizationObject::Wait(kernel, &index, &event, 1, timeout);
+            if (result == Kernel::ResultTerminationRequested) break;
+        }
+        return syncpoints.IsReadyGuest(fence_id, fence_value);
+    }
+
     void Unsupported(HLERequestContext& ctx) {
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(Kernel::ResultNotImplemented.raw);
@@ -1333,6 +1395,12 @@ private:
                             if(p[23]==0&&p[25]==0&&
                                 (fence==~u32{0}||
                                  nv.GetSyncpointManager().IsSyncpointAllocated(fence))){
+                                if (fence != ~u32{0} &&
+                                    system.GetApplicationProcessProgramID() ==
+                                        DonkeyKongBananzaProgramId) {
+                                    static_cast<void>(
+                                        WaitForBananzaPresentFence(fence, p[24]));
+                                }
                                 if(!c->producer){
                                     // A stored producer means the complete VI2 setup succeeded.
                                     // Do not let an IPC retry skip Connect/OpenLayer after failure.
@@ -1479,6 +1547,9 @@ private:
     std::array<u32,32> m_notes{};
     KernelHelpers::ServiceContext m_context;
     Kernel::KEvent* m_event{};
+    Kernel::KEvent* m_present_wait_event{};
+    Tegra::Host1x::SyncpointManager::ActionHandle m_present_wait_handle{};
+    u32 m_present_wait_syncpoint{Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS};
     struct VsyncState {
         std::mutex mutex;
         std::vector<Kernel::KEvent*> events;

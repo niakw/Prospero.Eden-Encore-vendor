@@ -632,5 +632,29 @@ with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
     assert _compile.returncode == 0, _compile.stderr[-5000:]
     _run = _subprocess.run([str(_output)], capture_output=True, text=True, timeout=15)
     assert _run.returncode == 0, _run.stderr[-5000:]
+
+# Bananza must not receive VI2 PresentClientBuffer completion while the
+# current frame's command memory can still be consumed by the GPU thread.
+# The wait is title-specific, event-backed and bounded; never regress to an
+# unbounded host WaitGuest() on this service path.
+_vi2 = cpp.split("class IVi2Session final", 1)[1].split(
+    "class INativeChatGsvSession final", 1)[0]
+for marker in (
+    "DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL",
+    "bool WaitForBananzaPresentFence(u32 fence_id, u32 fence_value)",
+    "m_context.CreateEvent(\"nx2:vi2 present fence\")",
+    "syncpoints.RegisterGuestAction(",
+    "DeregisterGuestAction(",
+    "std::chrono::seconds{4}",
+    "Kernel::KSynchronizationObject::Wait(",
+    "WaitForBananzaPresentFence(fence, p[24])",
+):
+    assert marker in _vi2, marker
+assert ".WaitGuest(" not in _vi2
+assert _vi2.index("WaitForBananzaPresentFence(fence, p[24])") < _vi2.index("if(!c->producer)")
+assert _vi2.index("CancelPresentFenceWait();") < _vi2.index(
+    "m_context.CloseEvent(m_present_wait_event)")
+print("NS2_DKB_CURRENT_FRAME_FENCE_SOURCE_PASS title=040074A01BF12000 wait=kernel_event deadline=4s")
+
 print("NS2_GPU_TIME_TIPC11_HOST_PASS scheduled_interval=saturated reverse=zero malformed=rejected")
 print("NS2_VI2_FIXED_RATE_CAPABILITY_HOST_PASS commands=107,301,354 supported=60Hz_SDR")
