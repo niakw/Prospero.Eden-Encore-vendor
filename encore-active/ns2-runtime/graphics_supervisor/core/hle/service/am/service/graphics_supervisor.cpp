@@ -50,6 +50,7 @@
 // Keep this dependency direct; do not rely on unrelated transitive GPU headers.
 #include "video_core/host1x/host1x.h"
 #include "video_core/host1x/syncpoint_manager.h"
+#include "core/hle/kernel/k_hardware_timer.h"
 #include "core/hle/kernel/k_readable_event.h"
 #include "core/hle/kernel/k_synchronization_object.h"
 #include "core/hle/kernel/k_transfer_memory.h"
