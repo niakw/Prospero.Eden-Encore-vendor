@@ -102,7 +102,7 @@ for rel, blob in [
  ("src/common/uuid.cpp","4b992c5df89897107226bbfa591ed29b332d968b"),
  ("include/common/uuid.h","465b5be58d7c8a948a2b5acba640ce47bd4bd73b"),
 ]:
-    p=root/"encore-active/eden-core"/rel
+    p=root/"encore-active/eden"/rel
     raw=p.read_bytes()
     actual=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
     assert actual==blob,(rel,actual)
