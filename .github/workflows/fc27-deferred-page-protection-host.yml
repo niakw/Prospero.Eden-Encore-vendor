@@ -1,17 +1,26 @@
-name: FC27 synchronous page-protection rollback (host only)
+name: FC27 deferred page-protection ownership (host only)
 
 on:
   push:
     branches: [main]
     paths:
+      - 'encore-active/eden-core/overrides/core/device_memory_manager.h'
       - 'encore-active/eden-core/overrides/core/device_memory_manager.inc'
+      - 'encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h'
+      - 'encore-active/eden-gpu/include/video_core/gpu_thread.h'
+      - 'encore-active/eden-gpu/gpu_thread_quiet.cpp'
+      - 'encore-active/eden-gpu/gpu_thread_dev.cpp'
       - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
-      - 'encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h'
       - 'tests/fc27_deferred_page_protection_host.py'
       - '.github/workflows/fc27-deferred-page-protection-host.yml'
   pull_request:
     paths:
+      - 'encore-active/eden-core/overrides/core/device_memory_manager.h'
       - 'encore-active/eden-core/overrides/core/device_memory_manager.inc'
+      - 'encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h'
+      - 'encore-active/eden-gpu/include/video_core/gpu_thread.h'
+      - 'encore-active/eden-gpu/gpu_thread_quiet.cpp'
+      - 'encore-active/eden-gpu/gpu_thread_dev.cpp'
       - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
       - 'tests/fc27_deferred_page_protection_host.py'
   workflow_dispatch:
@@ -20,15 +29,15 @@ permissions:
   contents: read
 
 jobs:
-  synchronous-protection-and-unmap:
+  deferred-untrack-and-unmap:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Verify selected cache ownership and compile synchronous method with sanitizers
+      - name: Verify page-untrack ownership and compile host model with sanitizers
         run: python3 -B tests/fc27_deferred_page_protection_host.py
       - name: Record evidence boundary
         run: |
-          printf '%s\n' 'Controlled #194 rollback: host-only; PS5 FC27 image correctness and FPS unverified.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' 'Lichii #1518 page-untrack ownership validated on host; PS5 FC27 image correctness, pause latency and FPS remain unverified.' >> "$GITHUB_STEP_SUMMARY"
