@@ -12,7 +12,7 @@ files={
 "encore-active/eden-vulkan/fixed_pipeline_state.cpp":"71f35e18d4c3cdbfb6d23e065dc98e1d525ad2e4",
 "encore-active/eden-vulkan/vk_texture_cache_cost.cpp":"2b344e2c9adce18a7037194cc4d5f81a5c6df144",
 "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h":"1b725abab76168d9787d9b062d7406df733cf49d",
-"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h":"da6ab6dcea2a1c02fcb2e862d111dc410b025d66",
+"encore-active/eden/src/video_core/texture_cache/texture_cache.h":"da6ab6dcea2a1c02fcb2e862d111dc410b025d66",
 }
 for name,expected in files.items():
  raw=(r/name).read_bytes()
@@ -324,12 +324,12 @@ for name,expected in files.items():
 fixed=(r/"encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
 cost=(r/"encore-active/eden-vulkan/vk_texture_cache_cost.cpp").read_text()
 h=(r/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
-cache=(r/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
+cache=(r/"encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
 # PS5 CMake puts ns2-astc first for video_core. Its active framebuffer ABI
 # adds only the reviewed layer count/accessor used by bounded clears/copies.
 # Strip exactly those two additions on this audit copy and require every
 # other byte to match the shadow Vulkan header.
-unified=(r/"encore-active/ns2-astc/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
+unified=(r/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
 layers_method="    [[nodiscard]] u32 Layers() const noexcept {\n        return layers;\n    }\n\n"
 layers_member="    u32 layers = 1;\n"
 assert unified.count(layers_method)==unified.count(layers_member)==1
