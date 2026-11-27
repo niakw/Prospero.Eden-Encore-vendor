@@ -6,18 +6,18 @@ import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
-cache=(root/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
-base=(root/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
+cache=(root/"encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").read_text()
+base=(root/"encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
 texture=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
 texture_base=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache_base.h").read_text()
 dirty=(root/"encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h").read_text()
 rast=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
-manager=(root/"encore-active/eden-core/src/video_core/memory_manager.cpp").read_text()
+manager=(root/"encore-active/eden/src/video_core/memory_manager.cpp").read_text()
 rast_h=(root/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
 gpu_h=(root/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
 iface=(root/"encore-active/eden-core/overrides/video_core/rasterizer_interface.h").read_text()
 gpu_names=("gpu_vulkan.cpp","gpu_gl_native.cpp","gpu_gl_native_dev.cpp")
-gpus=[(root/f"encore-active/eden-core/src/video_core/{name}").read_text()
+gpus=[(root/f"encore-active/eden/src/video_core/{name}").read_text()
       for name in gpu_names]
 
 # Source ownership: immutable vendor/sources/eden remains untouched; native include override owns the ABI.

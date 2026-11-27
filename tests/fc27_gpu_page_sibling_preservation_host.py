@@ -15,8 +15,8 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
-CACHE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+BASE=(ROOT/"encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
+CACHE=(ROOT/"encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").read_text()
 RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
 # Preserve the immutable upstream snapshot and authenticate the native overlay
 # by reversing only the exact reviewed additions.
@@ -148,8 +148,8 @@ assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
 RASTERS=[
     ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp",
     ROOT/"encore-active/eden-core/guest-bridge/vulkan_rasterizer.cpp",
-    ROOT/"encore-active/eden-core/src/video_core/renderer_opengl/gl_rasterizer.cpp",
-    ROOT/"encore-active/eden-core/src/video_core/renderer_opengl/gl_rasterizer_dev.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer_dev.cpp",
 ]
 
 assert "void WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu_data = true);" in BASE

@@ -6,7 +6,7 @@ from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 upstream_header=root/"sources/eden/src/common/net/net.h"
 upstream_source=root/"sources/eden/src/common/net/net.cpp"
-active=root/"encore-active/eden-backports/src/common/net"
+active=root/"encore-active/eden/src/common/net"
 header=(active/"net.h").read_text()
 source=(active/"net.cpp").read_text()
 manifest=json.loads((root/"encore-active/eden-backports/manifest.json").read_text())

@@ -4,7 +4,7 @@ from pathlib import Path
 import hashlib
 
 ROOT=Path(__file__).resolve().parents[1]
-G11=ROOT/"encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp"
+G11=ROOT/"encore-active/eden/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp"
 CPU6=ROOT/"encore-active/ns2-runtime/cpu6/maintained/core/arm/dynarmic/arm_dynarmic_64.cpp"
 
 def blob(text: str) -> str:
