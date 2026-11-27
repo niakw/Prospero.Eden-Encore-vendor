@@ -1,4 +1,18 @@
-# Encore Active : vrais overrides de sources
+# Encore Active : overrides finaux sélectionnés
+
+> **Contrat de source de vérité — 27 novembre 2026**
+>
+> `vendor/sources/` = **vendor pur / upstream intact**.
+>
+> `vendor/encore-active/` = **override pur Eden Encore et source finale sélectionnable**.
+>
+> Toute modification locale d'un fichier upstream doit être placée dans `encore-active/`, jamais écrite dans `sources/`.
+> Tout nouveau fichier propre à Eden Encore qui n'existe pas dans l'upstream doit lui aussi être créé dans `encore-active/`.
+> Cela inclut C/C++, headers, CMake, runtime PS5, NS1/NS2, backports adaptés, correctifs ABI, instrumentation et optimisations.
+>
+> Lorsqu'un owner maintenu existe dans `encore-active/`, le build doit sélectionner cet owner à la place de la version correspondante de `sources/`. Il ne doit pas reconstruire un override en modifiant, générant ou patchant la source upstream à la volée.
+>
+> `encore-active/` est donc le dossier des **versions finales maintenues par Eden Encore** ; `sources/` ne sert que de base vendor/upstream.
 
 > **Note / 9 November 2026:** maintained, selected source overrides for the shared NS1/NS2 engine. Historical inventories below are owner/source migration records; a file being listed is **not** proof of execution on PS5. Native console build and hardware qualification belong to the engine P5 milestone. Third-party legal attribution, GPU/SDK vocabulary and ABI identifiers are preserved. [Vendor audit](../docs/VENDOR_PRESENTATION_AUDIT_2026-11-09.md).
 
