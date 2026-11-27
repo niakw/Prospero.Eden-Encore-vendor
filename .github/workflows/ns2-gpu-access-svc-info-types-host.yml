@@ -3,14 +3,14 @@ name: NS2 GPU-access SVC / GetInfo enum parity
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-backports/src/core/hle/kernel/svc_types.h'
+      - 'encore-active/eden/src/core/hle/kernel/svc_types.h'
       - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc_types.h'
       - 'tests/ns2_gpu_access_svc_info_types_source.py'
       - '.github/workflows/ns2-gpu-access-svc-info-types-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-backports/src/core/hle/kernel/svc_types.h'
+      - 'encore-active/eden/src/core/hle/kernel/svc_types.h'
       - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc_types.h'
       - 'tests/ns2_gpu_access_svc_info_types_source.py'
       - '.github/workflows/ns2-gpu-access-svc-info-types-host.yml'
