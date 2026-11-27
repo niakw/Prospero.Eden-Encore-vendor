@@ -2,7 +2,7 @@ name: FC27 SPIR-V scalar constant cache source proof
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-shader/include/shader_recompiler/backend/spirv/spirv_emit_context.h'
+      - 'encore-active/eden/src/shader_recompiler/backend/spirv/spirv_emit_context.h'
       - 'tests/fc27_spirv_scalar_cache_source.py'
       - '.github/workflows/fc27-spirv-scalar-cache.yml'
   workflow_dispatch:

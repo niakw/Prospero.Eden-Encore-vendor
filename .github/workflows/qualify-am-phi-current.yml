@@ -7,7 +7,7 @@ on:
       - 'tests/ns1_r23_97_overlay_z.py'
       - 'tests/ns1_r23_58_bindless_phi.py'
       - 'encore-active/eden/src/core/hle/service/am/window_system.cpp'
-      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp'
+      - 'encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp'
       - '.github/workflows/qualify-am-phi-current.yml'
 permissions:
   contents: read

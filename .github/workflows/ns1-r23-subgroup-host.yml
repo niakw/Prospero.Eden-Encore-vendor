@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-subgroup-geometry-fallback-20261112
   pull_request:
     paths:
-      - "encore-active/eden-shader/src/shader_recompiler/**"
+      - "encore-active/eden/src/shader_recompiler/**"
       - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
       - "encore-active/eden-vulkan/include/video_core/vulkan_common/vulkan_device.h"
       - "tests/ns1_r23_72_subgroup_host.py"
