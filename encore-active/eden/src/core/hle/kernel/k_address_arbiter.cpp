@@ -313,7 +313,7 @@ Result KAddressArbiter::WaitIfLessThan(uint64_t addr, s32 value, bool decrement,
     return cur_thread->GetWaitResult();
 }
 
-Result KAddressArbiter::WaitIfEqual(uint64_t addr, s32 value, s64 timeout) {
+Result KAddressArbiter::WaitIfEqual(uint64_t addr, s64 value, s64 timeout, bool is_64_bit) {
     // Prepare to wait.
     KThread* cur_thread = GetCurrentThreadPointer(system.Kernel());
     KHardwareTimer* timer{};
@@ -329,8 +329,21 @@ Result KAddressArbiter::WaitIfEqual(uint64_t addr, s32 value, s64 timeout) {
         }
 
         // Read the value from userspace.
-        s32 user_value{};
-        if (!ReadFromUser(system.Kernel(), std::addressof(user_value), addr)) {
+        s64 user_value{};
+        bool readable{};
+        if (is_64_bit) {
+            // A Switch 2 wait checks the complete 64-bit atomic word.
+            // Never read past the process mapping or silently truncate its
+            // high 32 bits, even when the low word happens to match.
+            auto& memory = GetCurrentMemory(system.Kernel());
+            readable = memory.IsValidVirtualAddressRange(addr, sizeof(s64));
+            if (readable) user_value = static_cast<s64>(memory.Read64(addr));
+        } else {
+            s32 low_word{};
+            readable = ReadFromUser(system.Kernel(), std::addressof(low_word), addr);
+            user_value = low_word;
+        }
+        if (!readable) {
             slp.CancelSleep();
             R_THROW(ResultInvalidCurrentMemory);
         }
