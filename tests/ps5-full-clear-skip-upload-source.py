@@ -8,11 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 paths = [
-    ROOT / "encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h",
+    ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h",
     ROOT / "encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h",
 ]
 bases = [
-    ROOT / "encore-active/ns2-astc/include/video_core/texture_cache/texture_cache_base.h",
+    ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache_base.h",
     ROOT / "encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache_base.h",
 ]
 blocks = []
