@@ -5,8 +5,8 @@ on:
       - research/ns1-r23-rdtsc-ticks-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/common/cpu_features.cpp"
-      - "encore-active/eden-core/include/common/cpu_features.h"
+      - "encore-active/eden/src/common/cpu_features.cpp"
+      - "encore-active/eden/include/common/cpu_features.h"
       - "tests/r23_114_rdtsc_ns_conversion.py"
       - ".github/workflows/ns1-r23-rdtsc-host.yml"
   workflow_dispatch:

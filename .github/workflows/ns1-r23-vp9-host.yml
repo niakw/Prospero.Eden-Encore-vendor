@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-vp9-segmentation-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/video_core/host1x/**"
+      - "encore-active/eden/src/video_core/host1x/**"
       - "tests/ns1_r23_48_vp9_host.py"
       - ".github/workflows/ns1-r23-vp9-host.yml"
   workflow_dispatch:
