@@ -1,4 +1,3 @@
-#include "network_audit.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -55,6 +54,55 @@ enum class NetDbError : s32 {
     NoRecovery = 3,
     NoData = 4,
 };
+
+static const constexpr std::array blockedDomains = {
+    "srv.nintendo.net", //obvious
+    "nintendo.es",
+    "nintendowifi.net",
+    "nintendo-europe.com",
+    "nintendo.com.hk",
+    "nintendo.com.au",
+    "nintendo.co.kr",
+    "nintendo.co.uk",
+    "nintendo.co.jp",
+    "nintendo.co.nz",
+    "nintendo.co.za",
+    "nintendo.com",
+    "nintendo.jp",
+    "nintendo.tw",
+    "nintendo.at",
+    "nintendo.be",
+    "nintendo.dk",
+    "nintendo.de",
+    "nintendo.fi",
+    "nintendo.fr",
+    "nintendo.gr",
+    "nintendo.hu",
+    "nintendo.it",
+    "nintendo.nl",
+    "nintendo.no",
+    "nintendo.pt",
+    "nintendo.ru",
+    "nintendo.ch",
+    "nintendo.se",
+    "nintendoswitch.com.cn",
+    "nintendoswitch.com",
+    "sun.hac.lp1.d4c.nintendo.net",
+    "phoenix-api.wbagora.com", //hogwarts legacy
+    "battle.net",
+    "microsoft.com", // Minecraft dungeons + other games
+    "mojang.com",
+    "xboxlive.com",
+    "api.epicgames.dev", // marvel cosmic invasion +?
+    "minecraftservices.com",
+    "508223012e5a5ff19f30a391b2bdadc0.my.2k.com", // Civilization 5
+};
+
+static bool IsBlockedHost(const std::string& host) {
+    return std::any_of(
+        blockedDomains.begin(), blockedDomains.end(),
+        [&host](const std::string& domain) { return host.find(domain) != std::string::npos; });
+}
 
 static NetDbError GetAddrInfoErrorToNetDbError(GetAddrInfoError result) {
     // These combinations have been verified on console (but are not
@@ -159,15 +207,15 @@ static std::pair<u32, GetAddrInfoError> GetHostByNameRequestImpl(HLERequestConte
     // No host DNS for emulated titles, regardless of destination. The
     // launcher artwork uses Common::Net::MakeRequest, not this guest IPC.
     if (Eden::Encore::kGuestNetworkOffline) return {0, GetAddrInfoError::NODATA};
-    const bool encore_denied = eden_network_host_blocked(host.c_str()) != 0;
-    eden_network_audit_event("guest", encore_denied ? "dns-denied" : "dns-allowed", host.c_str(), 0, encore_denied ? 1 : 0);
-    if (encore_denied) return {0, GetAddrInfoError::NODATA};
+    if (eden_network_host_blocked(host.c_str())) return {0, GetAddrInfoError::NODATA};
+
+    // Prevent resolution of Nintendo servers
+    if (IsBlockedHost(host)) {
+        LOG_WARNING(Network, "Resolution of hostname {} requested, returning EAI_AGAIN", host);
+        return {0, GetAddrInfoError::AGAIN};
+    }
 
     auto res_v = Network::GetAddressInfo(host, /*service*/ std::nullopt);
-    if (eden_network_audit_active()) {
-        const bool found = std::get_if<std::vector<Network::AddrInfo>>(&res_v) != nullptr;
-        eden_network_audit_event("guest", found ? "dns-resolved" : "dns-error", host.c_str(), 0, found ? 0 : 1);
-    }
     if (auto* res = std::get_if<std::vector<Network::AddrInfo>>(&res_v)) {
         const std::vector<u8> data = SerializeAddrInfoAsHostEnt(*res, host);
         const u32 data_size = u32(data.size());
@@ -280,9 +328,13 @@ static std::pair<u32, GetAddrInfoError> GetAddrInfoRequestImpl(HLERequestContext
     // No host DNS for emulated titles, regardless of destination. The
     // launcher artwork uses Common::Net::MakeRequest, not this guest IPC.
     if (Eden::Encore::kGuestNetworkOffline) return {0, GetAddrInfoError::NODATA};
-    const bool encore_denied = eden_network_host_blocked(host.c_str()) != 0;
-    eden_network_audit_event("guest", encore_denied ? "dns-denied" : "dns-allowed", host.c_str(), 0, encore_denied ? 1 : 0);
-    if (encore_denied) return {0, GetAddrInfoError::NODATA};
+    if (eden_network_host_blocked(host.c_str())) return {0, GetAddrInfoError::NODATA};
+
+    // Prevent resolution of Nintendo servers
+    if (IsBlockedHost(host)) {
+        LOG_WARNING(Network, "Resolution of hostname {} requested, returning EAI_AGAIN", host);
+        return {0, GetAddrInfoError::AGAIN};
+    }
 
     std::optional<std::string> service = std::nullopt;
     if (ctx.CanReadBuffer(1)) {
@@ -293,10 +345,6 @@ static std::pair<u32, GetAddrInfoError> GetAddrInfoRequestImpl(HLERequestContext
     // Serialized hints are also passed in a buffer, but are ignored for now.
 
     auto res_v = Network::GetAddressInfo(host, service);
-    if (eden_network_audit_active()) {
-        const bool found = std::get_if<std::vector<Network::AddrInfo>>(&res_v) != nullptr;
-        eden_network_audit_event("guest", found ? "dns-resolved" : "dns-error", host.c_str(), 0, found ? 0 : 1);
-    }
     if (auto* res = std::get_if<std::vector<Network::AddrInfo>>(&res_v)) {
         const std::vector<u8> data = SerializeAddrInfo(*res, host);
         const u32 data_size = u32(data.size());
