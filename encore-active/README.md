@@ -1,18 +1,18 @@
-# Encore Active : overrides finaux sélectionnés
+# Encore Active — overrides finaux Eden Encore
 
 > **Contrat de source de vérité — 27 novembre 2026**
 >
-> `vendor/sources/` = **vendor pur / upstream intact**.
+> `vendor/sources/` = **dépendances vendor/upstream figées**. Elles ne sont modifiées que par une mise à jour vendor manuelle et explicite ; aucun build, script, CI ou correctif Encore ne doit les réécrire.
 >
-> `vendor/encore-active/` = **override pur Eden Encore et source finale sélectionnable**.
+> `vendor/encore-active/` = **override pur Eden Encore** et emplacement de toute source finale maintenue localement.
 >
-> Toute modification locale d'un fichier upstream doit être placée dans `encore-active/`, jamais écrite dans `sources/`.
-> Tout nouveau fichier propre à Eden Encore qui n'existe pas dans l'upstream doit lui aussi être créé dans `encore-active/`.
-> Cela inclut C/C++, headers, CMake, runtime PS5, NS1/NS2, backports adaptés, correctifs ABI, instrumentation et optimisations.
+> Toute modification d'un fichier upstream va dans `encore-active/`, jamais dans `sources/`.
+> Tout nouveau fichier propre à Eden Encore qui n'existe pas dans l'upstream va lui aussi dans `encore-active/`.
+> Cela couvre C/C++, headers, CMake, runtime PS5, NS1/NS2, backports adaptés, correctifs ABI, instrumentation et optimisations.
 >
-> Lorsqu'un owner maintenu existe dans `encore-active/`, le build doit sélectionner cet owner à la place de la version correspondante de `sources/`. Il ne doit pas reconstruire un override en modifiant, générant ou patchant la source upstream à la volée.
+> Lorsqu'un owner maintenu existe dans `encore-active/`, le build doit sélectionner cet owner à la place de la version de base dans `sources/`. Il ne doit pas fabriquer l'override en patchant ou en générant une copie modifiée de la dépendance figée.
 >
-> `encore-active/` est donc le dossier des **versions finales maintenues par Eden Encore** ; `sources/` ne sert que de base vendor/upstream.
+> **Règle pratique : `sources/` est la dépendance ; `encore-active/` est notre code final.**
 
 > **Note / 9 November 2026:** maintained, selected source overrides for the shared NS1/NS2 engine. Historical inventories below are owner/source migration records; a file being listed is **not** proof of execution on PS5. Native console build and hardware qualification belong to the engine P5 milestone. Third-party legal attribution, GPU/SDK vocabulary and ABI identifiers are preserved. [Vendor audit](../docs/VENDOR_PRESENTATION_AUDIT_2026-11-09.md).
 
