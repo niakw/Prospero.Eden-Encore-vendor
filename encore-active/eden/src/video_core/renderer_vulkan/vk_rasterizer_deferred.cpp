@@ -1,0 +1,3479 @@
+#include "gpu_deferred_replay.h"
+#include "video_core/memory_manager.h"
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2019 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include <algorithm>
+#include "performance.h"
+#include "image_pages.h"
+#include "buffer_pages.h"
+#include "dev_vulkan.h"
+#include "diagnostics.h"
+#include <filesystem>
+#include "buffer_write_ahead.h"
+#include <array>
+#include <memory>
+#include <mutex>
+
+#include <fmt/format.h>
+
+#include "video_core/renderer_vulkan/renderer_vulkan.h"
+
+#include "common/assert.h"
+#include "common/logging.h"
+#include "common/scope_exit.h"
+#include "common/settings.h"
+#include "video_core/buffer_cache/buffer_cache.h"
+#include "video_core/gpu_logging/gpu_logging.h"
+#include "video_core/control/channel_state.h"
+#include "video_core/engines/maxwell_3d.h"
+#include "video_core/engines/kepler_compute.h"
+#include "video_core/engines/maxwell_3d.h"
+#include "video_core/host1x/gpu_device_memory_manager.h"
+#include "video_core/renderer_vulkan/blit_image.h"
+#include "video_core/renderer_vulkan/fixed_pipeline_state.h"
+#include "video_core/renderer_vulkan/maxwell_to_vk.h"
+#include "video_core/renderer_vulkan/vk_buffer_cache.h"
+#include "video_core/renderer_vulkan/vk_compute_pipeline.h"
+#include "video_core/renderer_vulkan/vk_descriptor_pool.h"
+#include "video_core/renderer_vulkan/vk_pipeline_cache.h"
+#include "video_core/renderer_vulkan/vk_query_cache.h"
+#include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+#include "video_core/renderer_vulkan/vk_state_tracker.h"
+#include "video_core/renderer_vulkan/vk_texture_cache.h"
+#include "video_core/renderer_vulkan/vk_update_descriptor.h"
+#include "video_core/shader_cache.h"
+#include "video_core/texture_cache/texture_cache_base.h"
+#include "video_core/vulkan_common/vulkan_device.h"
+#include "video_core/vulkan_common/vulkan_wrapper.h"
+
+#ifdef PS5_NATIVE
+#include <stdexcept>
+#include "common/cityhash.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#include "shader_recompiler/frontend/ampere/capture.h"
+#include "shader_recompiler/frontend/ampere/maxwell_environment.h"
+#include "shader_recompiler/frontend/ampere/native_qmd_compute_environment.h"
+#include "shader_recompiler/frontend/ampere/renderer_spirv_bridge.h"
+#include "video_core/native_qmd.h"
+#include "video_core/native_shader_capture.h"
+#include "video_core/texture_cache/format_lookup_table.h"
+#include "video_core/texture_cache/image_info.h"
+#include "video_core/texture_cache/util.h"
+#include <cstring>
+#endif
+
+namespace Vulkan {
+
+using Maxwell = Tegra::Engines::Maxwell3D::Regs;
+using VideoCommon::ImageViewId;
+using VideoCommon::ImageViewType;
+
+
+namespace {
+#ifdef PS5_NATIVE
+// A native TIC/TSC snapshot can read GPU memory while holding the common
+// TextureCache mutex. GPU ReadBlock flushes registered image pages through
+// RasterizerVulkan::FlushRegion, which must not lock that same mutex twice.
+// Thread-local scope is armed only after the outer mutex is acquired.
+thread_local const RasterizerVulkan* native_texture_read_lock_owner{};
+struct NativeTextureReadLockScope {
+    const RasterizerVulkan* previous;
+    explicit NativeTextureReadLockScope(const RasterizerVulkan* owner) noexcept
+        : previous{native_texture_read_lock_owner} {
+        native_texture_read_lock_owner = owner;
+    }
+    ~NativeTextureReadLockScope() {
+        native_texture_read_lock_owner = previous;
+    }
+    NativeTextureReadLockScope(const NativeTextureReadLockScope&) = delete;
+    NativeTextureReadLockScope& operator=(const NativeTextureReadLockScope&) = delete;
+};
+#endif
+struct DrawParams {
+    u32 base_instance;
+    u32 num_instances;
+    u32 base_vertex;
+    u32 num_vertices;
+    u32 first_index;
+    bool is_indexed;
+};
+
+VkViewport GetViewportState(const Device& device, const Maxwell& regs, size_t index, float scale) {
+    const auto& src = regs.viewport_transform[index];
+    const auto conv = [scale](float value) {
+        float new_value = value * scale;
+        if (scale < 1.0f) {
+            const bool sign = std::signbit(value);
+            new_value = std::round(std::abs(new_value));
+            new_value = sign ? -new_value : new_value;
+        }
+        return new_value;
+    };
+    const float x = conv(src.translate_x - src.scale_x);
+    const float width = conv(src.scale_x * 2.0f);
+    float y = conv(src.translate_y - src.scale_y);
+    float height = conv(src.scale_y * 2.0f);
+
+    const bool lower_left = regs.window_origin.mode != Maxwell::WindowOrigin::Mode::UpperLeft;
+    const bool y_negate = !device.IsNvViewportSwizzleSupported() &&
+                          src.swizzle.y == Maxwell::ViewportSwizzle::NegativeY;
+
+    if (lower_left) {
+        // Flip by surface clip height
+        y += conv(static_cast<f32>(regs.surface_clip.height));
+        height = -height;
+    }
+
+    if (y_negate) {
+        // Flip by viewport height
+        y += height;
+        height = -height;
+    }
+
+    const float reduce_z = regs.depth_mode == Maxwell::DepthMode::MinusOneToOne ? 1.0f : 0.0f;
+    VkViewport viewport{
+        .x = x,
+        .y = y,
+        .width = width != 0.0f ? width : 1.0f,
+        .height = height != 0.0f ? height : 1.0f,
+        .minDepth = src.translate_z - src.scale_z * reduce_z,
+        .maxDepth = src.translate_z + src.scale_z,
+    };
+    if (!device.IsExtDepthRangeUnrestrictedSupported()) {
+        viewport.minDepth = std::clamp(viewport.minDepth, 0.0f, 1.0f);
+        viewport.maxDepth = std::clamp(viewport.maxDepth, 0.0f, 1.0f);
+    }
+    return viewport;
+}
+
+VkRect2D GetScissorState(const Maxwell& regs, size_t index, u32 up_scale = 1, u32 down_shift = 0) {
+    const auto& src = regs.scissor_test[index];
+    VkRect2D scissor{};
+    // Handle guest scissor extremes without wrapping signed coordinate
+    // differences. Preserve the existing 32-bit results on ordinary draws.
+    const auto bounded_s32 = [](s64 value) -> s32 {
+        return static_cast<s32>((std::clamp)(
+            value, static_cast<s64>(std::numeric_limits<s32>::min()),
+            static_cast<s64>(std::numeric_limits<s32>::max())));
+    };
+    const auto scale_up = [&](s32 value) -> s32 {
+        if (value == 0) {
+            return 0;
+        }
+        const s64 scaled = static_cast<s64>(value) * static_cast<s64>(up_scale);
+        if (scaled >= std::numeric_limits<s32>::min() &&
+            scaled <= std::numeric_limits<s32>::max() && down_shift < 32) {
+            // Preserve pinned behavior: up_scale is unsigned, so the old
+            // value * up_scale and right shift operated on unsigned bits,
+            // even for negative guest coordinates. Sign-shifting would change
+            // otherwise valid clipping rectangles.
+            const u32 bits = static_cast<u32>(value) * up_scale;
+            const s32 as_i32 = static_cast<s32>(bits);
+            const s64 adjustment = (up_scale >> down_shift) == 0 ? as_i32 % 2 : 0;
+            const s64 shifted = static_cast<s32>(bits >> down_shift);
+            return bounded_s32(value < 0 ? (std::min)(shifted - adjustment, s64{-1})
+                                         : (std::max)(shifted + adjustment, s64{1}));
+        }
+        // Wide fallback for overflow-prone guest data or an oversized shift.
+        const u32 shift = (std::min)(down_shift, 63U);
+        const s64 adjustment = (down_shift >= 32 || (up_scale >> down_shift) == 0)
+                                   ? scaled % 2 : 0;
+        const s64 shifted = scaled >> shift;
+        return bounded_s32(value < 0 ? (std::min)(shifted - adjustment, s64{-1})
+                                     : (std::max)(shifted + adjustment, s64{1}));
+    };
+
+    const bool lower_left = regs.window_origin.mode != Maxwell::WindowOrigin::Mode::UpperLeft;
+    const s32 clip_height = regs.surface_clip.height;
+
+    // Flip coordinates without signed overflow before clamping to the render area.
+    s32 min_y = lower_left
+                    ? bounded_s32(static_cast<s64>(clip_height) - src.max_y)
+                    : src.min_y.Value();
+    s32 max_y = lower_left
+                    ? bounded_s32(static_cast<s64>(clip_height) - src.min_y)
+                    : src.max_y.Value();
+
+    // Bound to render area
+    min_y = (std::max)(min_y, 0);
+    max_y = (std::max)(max_y, 0);
+
+    if (src.enable) {
+        scissor.offset.x = scale_up(src.min_x);
+        scissor.offset.y = scale_up(min_y);
+        scissor.extent.width =
+            scale_up(bounded_s32(static_cast<s64>(src.max_x) - src.min_x));
+        scissor.extent.height =
+            scale_up(bounded_s32(static_cast<s64>(max_y) - min_y));
+    } else {
+        scissor.offset.x = 0;
+        scissor.offset.y = 0;
+        scissor.extent.width = (std::numeric_limits<s32>::max)();
+        scissor.extent.height = (std::numeric_limits<s32>::max)();
+    }
+    return scissor;
+}
+
+DrawParams MakeDrawParams(const Tegra::Engines::Maxwell3D::DrawManager::State& draw_state, u32 num_instances, bool is_indexed) {
+    DrawParams params{
+        .base_instance = draw_state.base_instance,
+        .num_instances = num_instances,
+        .base_vertex = is_indexed ? draw_state.base_index : draw_state.vertex_buffer.first,
+        .num_vertices = is_indexed ? draw_state.index_buffer.count : draw_state.vertex_buffer.count,
+        .first_index = is_indexed ? draw_state.index_buffer.first : 0,
+        .is_indexed = is_indexed,
+    };
+    // 6 triangle vertices per quad, base vertex is part of the index
+    // See BindQuadIndexBuffer for more details
+    if (draw_state.topology == Maxwell::PrimitiveTopology::Quads) {
+        params.num_vertices = (params.num_vertices / 4) * 6;
+        params.base_vertex = 0;
+        params.is_indexed = true;
+    } else if (draw_state.topology == Maxwell::PrimitiveTopology::QuadStrip) {
+        params.num_vertices = params.num_vertices >= 2 ? (params.num_vertices - 2) / 2 * 6 : 0;
+        params.base_vertex = 0;
+        params.is_indexed = true;
+    }
+    return params;
+}
+
+bool SupportsPrimitiveRestart(VkPrimitiveTopology topology) {
+    switch (topology) {
+    case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:
+    case VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY:
+    case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY:
+    case VK_PRIMITIVE_TOPOLOGY_PATCH_LIST:
+        return false;
+    default:
+        return true;
+    }
+}
+
+bool IsPrimitiveRestartSupported(const Device& device, VkPrimitiveTopology topology) {
+    return ((topology != VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
+             device.IsTopologyListPrimitiveRestartSupported()) ||
+            SupportsPrimitiveRestart(topology) ||
+            (topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST &&
+             device.IsPatchListPrimitiveRestartSupported()));
+}
+} // Anonymous namespace
+
+RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra::GPU& gpu_,
+                                   Tegra::MaxwellDeviceMemoryManager& device_memory_,
+                                   const Device& device_, MemoryAllocator& memory_allocator_,
+                                   StateTracker& state_tracker_, Scheduler& scheduler_)
+    : gpu{gpu_}, device_memory{device_memory_}, device{device_},
+      memory_allocator{memory_allocator_}, state_tracker{state_tracker_}, scheduler{scheduler_},
+      staging_pool(device, memory_allocator, scheduler), descriptor_pool(device, scheduler),
+      guest_descriptor_queue(device, UpdateDescriptorQueue::GUEST_FRAME_PAYLOAD_SIZE,
+                             device.IsExtDescriptorBufferSupported()),
+      compute_pass_descriptor_queue(device, UpdateDescriptorQueue::COMPUTE_FRAME_PAYLOAD_SIZE),
+      descriptor_buffer_ring(device, memory_allocator),
+      blit_image(device, scheduler, state_tracker, descriptor_pool), render_pass_cache(device),
+      texture_cache_runtime{
+          device,     scheduler,         memory_allocator, staging_pool,
+          blit_image, render_pass_cache, descriptor_pool,  compute_pass_descriptor_queue},
+      texture_cache(texture_cache_runtime, device_memory),
+      buffer_cache_runtime(device, memory_allocator, scheduler, staging_pool,
+                           guest_descriptor_queue, compute_pass_descriptor_queue, descriptor_pool),
+      buffer_cache(device_memory, buffer_cache_runtime),
+      query_cache_runtime(this, device_memory, buffer_cache, device, memory_allocator, scheduler,
+                          staging_pool, compute_pass_descriptor_queue, descriptor_pool, texture_cache),
+      query_cache(gpu, *this, device_memory, query_cache_runtime),
+      pipeline_cache(device_memory, device, scheduler, descriptor_pool, guest_descriptor_queue,
+                     descriptor_buffer_ring, render_pass_cache, buffer_cache, texture_cache,
+                     gpu.ShaderNotify()),
+      accelerate_dma(buffer_cache, texture_cache, scheduler),
+      fence_manager(*this, gpu, texture_cache, buffer_cache, query_cache, device, scheduler),
+      wfi_event(device.GetLogical().CreateEvent()) {
+    scheduler.SetQueryCache(query_cache);
+#ifdef PS5_NATIVE
+    native_compute_device_limits = device.GetPhysical().GetProperties().limits;
+#endif
+}
+
+RasterizerVulkan::~RasterizerVulkan() {
+    scheduler.WaitWorker();
+    scheduler.Finish();
+}
+
+namespace {
+// GPU thread only: the pipeline PrepareDraw refreshed for the draw in progress.
+GraphicsPipeline* prepared_pipeline = nullptr;
+// The pipeline of the last prepared draw, for the development fault probe.
+GraphicsPipeline* probe_pipeline = nullptr;
+bool SyncProbeActive() {
+    static unsigned poll = 0;
+    static bool active = false;
+    if (!active && ::Eden::DevVulkan::trace_pipelines && (++poll & 255) == 0)
+        active = std::filesystem::exists("/app0/sync-draws.txt");
+    return active;
+}
+void SyncProbe(Scheduler& scheduler, const char* kind, const void* pipeline) {
+    if (!SyncProbeActive()) return;
+    static unsigned long long sequence = 0;
+    char text[96];
+    std::snprintf(text, sizeof(text), "%s #%llu p=%p", kind, ++sequence, pipeline);
+    ::Eden::Report("sync", text);
+    scheduler.Finish();
+}
+} // namespace
+
+template <typename Func>
+void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func) {
+
+    SCOPE_EXIT {
+        gpu.TickWork();
+    };
+    if (::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed))
+        ::Eden::Performance::rasterizer_draw.calls.fetch_add(1, std::memory_order_relaxed);
+    FlushWork();
+#ifdef PS5_NATIVE
+    // Pre-dispatch a nearly full command chunk before cache acquisition.
+    // This is an ordinary FIFO dispatch, NOT a fence wait.
+    if (scheduler.PreflightDrawCommands() &&
+        ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)) {
+        ::Eden::Performance::scheduler_preflight_dispatches.fetch_add(
+            1, std::memory_order_relaxed);
+    }
+#endif
+    gpu_memory->FlushCaching();
+    GraphicsPipeline* pipeline{pipeline_cache.CurrentGraphicsPipeline()};
+    if (!pipeline) {
+        ::Eden::Performance::RecordGraphicsDrawDrop(
+            ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+        return;
+    }
+#ifdef PS5_NATIVE
+    // Select the actual shader first: the old 1024-entry preflight could
+    // wait for the GPU worker even when this pipeline writes zero descriptors.
+    // Never hold guest cache locks while waiting. The worker may publish guest
+    // remaps and change the selected pipeline, so reselect after a real drain.
+    bool initial_descriptor_drain = false;
+    if (pipeline->HasDescriptorEntries() &&
+        guest_descriptor_queue.PreflightGuestDraw([this] { scheduler.WaitWorker(); },
+                                                pipeline->DescriptorEntryReservation())) {
+        initial_descriptor_drain = true;
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        if (!pipeline) {
+            ::Eden::Performance::RecordGraphicsDrawDrop(
+                ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+            return;
+        }
+    }
+#endif
+#ifdef PS5_NATIVE
+    for (unsigned preflight = 0; preflight != 2; ++preflight) {
+        // The initial exact-capacity check already passed without a drain.
+        // Without a worker wait there was no shader reselection, so a second
+        // identical capacity probe cannot change its answer on this draw.
+        if (preflight == 0 && !initial_descriptor_drain) break;
+        if (!pipeline->HasDescriptorEntries() ||
+            !guest_descriptor_queue.PreflightExactGuestDraw(
+                [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation()))
+            break;
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        if (!pipeline) {
+            ::Eden::Performance::RecordGraphicsDrawDrop(
+                ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+            return;
+        }
+    }
+#endif
+#ifdef PS5_NATIVE
+    // Waiting on an eight-frame-old descriptor buffer GPU fence here keeps
+    // guest texture writes unblocked while the Vulkan GPU owner waits.
+    if (pipeline->CanUseDescriptorBuffer() &&
+        descriptor_buffer_ring.PreflightFrameReuse(scheduler)) {
+        // The frame fence can expose pending guest invalidations. Recheck
+        // shader identity before using the pipeline under both cache locks.
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        if (!pipeline) {
+            ::Eden::Performance::RecordGraphicsDrawDrop(
+                ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+            return;
+        }
+        // A newly selected pipeline may reserve more guest descriptors.
+        // Keep any worker wait ahead of the paired cache mutexes.
+        if (pipeline->HasDescriptorEntries() &&
+            guest_descriptor_queue.PreflightExactGuestDraw(
+                [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation())) {
+            gpu_memory->FlushCaching();
+            pipeline = pipeline_cache.CurrentGraphicsPipeline();
+            if (!pipeline) {
+                ::Eden::Performance::RecordGraphicsDrawDrop(
+                    ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+                return;
+            }
+        }
+    }
+#endif
+#ifdef PS5_NATIVE
+    // Pre-drain only when a new payload is GUARANTEED and the last ring
+    // chunk is full. Reusable/uncertain payloads keep the original fallback.
+    if (descriptor_buffer_ring.PreflightCapacity(
+            scheduler, pipeline->DescriptorRingPreflightSize())) {
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+        if (!pipeline) {
+            ::Eden::Performance::RecordGraphicsDrawDrop(
+                ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+            return;
+        }
+        // This GPU drain can change the selected pipeline after the earlier
+        // descriptor preflight. Check its NEW reservation before taking the
+        // buffer/texture mutex pair, so Acquire cannot wait under both locks.
+        if (pipeline->HasDescriptorEntries() &&
+            guest_descriptor_queue.PreflightExactGuestDraw(
+                [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation())) {
+            gpu_memory->FlushCaching();
+            pipeline = pipeline_cache.CurrentGraphicsPipeline();
+            if (!pipeline) {
+                ::Eden::Performance::RecordGraphicsDrawDrop(
+                    ::Eden::Performance::GraphicsDrawDrop::NoPipeline);
+                return;
+            }
+        }
+    }
+#endif
+#ifdef PS5_NATIVE
+    // Only reserve thread-local storage here. Cache descriptors and shader
+    // bindings are still read and validated under the paired cache locks.
+    pipeline->PreflightDescriptorScratch();
+#endif
+    const bool cache_sample = ::Eden::Performance::ShouldSampleCacheDraw();
+    const bool previous_sample = ::Eden::Performance::cache_draw_sample_active;
+    ::Eden::Performance::cache_draw_sample_active = cache_sample;
+    SCOPE_EXIT { ::Eden::Performance::cache_draw_sample_active = previous_sample; };
+    ::Eden::Performance::CachePhaseTimer pair_wait{
+        ::Eden::Performance::CachePhase::PairWait, cache_sample};
+    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+    pair_wait.Stop();
+    ::Eden::Performance::CachePhaseTimer pair_held{
+        ::Eden::Performance::CachePhase::PairHeld, cache_sample};
+    prepared_pipeline = pipeline;
+    probe_pipeline = pipeline;
+    SCOPE_EXIT {
+        prepared_pipeline = nullptr;
+    };
+    // update engine as channel may be different.
+    ::Eden::Performance::CachePhaseTimer configure_phase{
+        ::Eden::Performance::CachePhase::PipelineConfigure, cache_sample};
+    pipeline->SetEngine(maxwell3d, gpu_memory);
+    const bool pipeline_ok = pipeline->Configure(is_indexed);
+    configure_phase.Stop();
+    if (!pipeline_ok) {
+        ::Eden::Performance::RecordGraphicsDrawDrop(
+            ::Eden::Performance::GraphicsDrawDrop::ConfigureRejected);
+        return;
+    }
+
+    ::Eden::Performance::CachePhaseTimer dynamic_phase{
+        ::Eden::Performance::CachePhase::DynamicStates, cache_sample};
+    UpdateDynamicStates();
+    dynamic_phase.Stop();
+
+    ::Eden::Performance::CachePhaseTimer draw_phase{
+        ::Eden::Performance::CachePhase::QueryAndDraw, cache_sample};
+    query_cache.NotifySegment(true);
+    HandleTransformFeedback();
+    query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
+    draw_func();
+    draw_phase.Stop();
+}
+
+void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
+    PrepareDraw(is_indexed, [this, is_indexed, instance_count] {
+        const auto& draw_state = maxwell3d->draw_manager.draw_state;
+        const u32 num_instances{instance_count};
+        const DrawParams draw_params{MakeDrawParams(draw_state, num_instances, is_indexed)};
+
+        scheduler.Record([draw_params, pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
+            if (!pipeline || !pipeline->CanExecuteDraw()) {
+                ::Eden::Performance::RecordGraphicsDrawDrop(
+                    ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
+                return;
+            }
+            if (draw_params.is_indexed) {
+                cmdbuf.DrawIndexed(draw_params.num_vertices, draw_params.num_instances,
+                                   draw_params.first_index, draw_params.base_vertex,
+                                   draw_params.base_instance);
+            } else {
+                cmdbuf.Draw(draw_params.num_vertices, draw_params.num_instances,
+                            draw_params.base_vertex, draw_params.base_instance);
+            }
+        });
+
+        // Log draw call
+        if (GPU::Logging::IsActive() &&
+            Settings::values.gpu_log_vulkan_calls.GetValue()) {
+            const std::string params = is_indexed ?
+                fmt::format("vertices={}, instances={}, firstIndex={}, baseVertex={}, baseInstance={}",
+                    draw_params.num_vertices, draw_params.num_instances,
+                    draw_params.first_index, draw_params.base_vertex, draw_params.base_instance) :
+                fmt::format("vertices={}, instances={}, firstVertex={}, firstInstance={}",
+                    draw_params.num_vertices, draw_params.num_instances,
+                    draw_params.base_vertex, draw_params.base_instance);
+            GPU::Logging::GPULogger::GetInstance().LogVulkanCall(
+                is_indexed ? "vkCmdDrawIndexed" : "vkCmdDraw", params, VK_SUCCESS);
+        }
+    });
+    SyncProbe(scheduler, "draw", probe_pipeline);
+}
+
+void RasterizerVulkan::DrawIndirect() {
+    const auto& params = maxwell3d->draw_manager.indirect_state;
+    buffer_cache.SetDrawIndirect(&params);
+    PrepareDraw(params.is_indexed, [this, &params] {
+        const auto indirect_buffer = buffer_cache.GetDrawIndirectBuffer();
+        const auto& buffer = indirect_buffer.first;
+        const auto& offset = indirect_buffer.second;
+        // UpdateDrawIndirect can deliberately reject an unmapped/overflowing
+        // guest command span. Never record a Vulkan draw with a null buffer.
+        if (!buffer) {
+            return;
+        }
+        if (params.is_byte_count) {
+            scheduler.Record([buffer_obj = buffer->Handle(), offset,
+                              stride = params.stride,
+                              pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
+                if (!pipeline || !pipeline->CanExecuteDraw()) {
+                    ::Eden::Performance::RecordGraphicsDrawDrop(
+                        ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
+                    return;
+                }
+                cmdbuf.DrawIndirectByteCountEXT(1, 0, buffer_obj, offset, 0,
+                                                static_cast<u32>(stride));
+            });
+            return;
+        }
+        if (params.include_count) {
+            const auto count = buffer_cache.GetDrawIndirectCount();
+            const auto& draw_buffer = count.first;
+            const auto& offset_base = count.second;
+            if (!draw_buffer) {
+                return;
+            }
+            scheduler.Record([draw_buffer_obj = draw_buffer->Handle(),
+                              buffer_obj = buffer->Handle(), offset_base, offset,
+                              params, pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
+                if (!pipeline || !pipeline->CanExecuteDraw()) {
+                    ::Eden::Performance::RecordGraphicsDrawDrop(
+                        ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
+                    return;
+                }
+                if (params.is_indexed) {
+                    cmdbuf.DrawIndexedIndirectCount(
+                        buffer_obj, offset, draw_buffer_obj, offset_base,
+                        static_cast<u32>(params.max_draw_counts), static_cast<u32>(params.stride));
+                } else {
+                    cmdbuf.DrawIndirectCount(buffer_obj, offset, draw_buffer_obj, offset_base,
+                                             static_cast<u32>(params.max_draw_counts),
+                                             static_cast<u32>(params.stride));
+                }
+            });
+            return;
+        }
+        scheduler.Record([buffer_obj = buffer->Handle(), offset, params,
+                          pipeline = prepared_pipeline](vk::CommandBuffer cmdbuf) {
+            if (!pipeline || !pipeline->CanExecuteDraw()) {
+                ::Eden::Performance::RecordGraphicsDrawDrop(
+                    ::Eden::Performance::GraphicsDrawDrop::WorkerPipelineFailed);
+                return;
+            }
+            if (params.is_indexed) {
+                cmdbuf.DrawIndexedIndirect(buffer_obj, offset,
+                                           static_cast<u32>(params.max_draw_counts),
+                                           static_cast<u32>(params.stride));
+            } else {
+                cmdbuf.DrawIndirect(buffer_obj, offset, static_cast<u32>(params.max_draw_counts),
+                                    static_cast<u32>(params.stride));
+            }
+        });
+
+        // Log indirect draw call
+        if (GPU::Logging::IsActive() &&
+            Settings::values.gpu_log_vulkan_calls.GetValue()) {
+            const std::string log_params = fmt::format("drawCount={}, stride={}",
+                params.max_draw_counts, params.stride);
+            GPU::Logging::GPULogger::GetInstance().LogVulkanCall(
+                params.is_indexed ? "vkCmdDrawIndexedIndirect" : "vkCmdDrawIndirect",
+                log_params, VK_SUCCESS);
+        }
+    });
+    buffer_cache.SetDrawIndirect(nullptr);
+}
+
+void RasterizerVulkan::DrawTexture() {
+    SCOPE_EXIT { SyncProbe(scheduler, "draw_texture", nullptr); };
+
+    SCOPE_EXIT {
+        gpu.TickWork();
+    };
+    FlushWork();
+    // Apply queued guest page remaps before reading cache-owned texture views.
+    // InnerInvalidation itself locks texture_cache.mutex.
+    gpu_memory->FlushCaching();
+
+    std::scoped_lock l{texture_cache.mutex};
+    texture_cache.SynchronizeDescriptors(false);
+    texture_cache.UpdateRenderTargets(false);
+
+#ifdef PS5_NATIVE
+    // Raw blit uses its own viewport/scissor and pipeline. The next
+    // guest draw restores dynamic state after Scheduler::InvalidateState.
+    // Avoid wasted state setup while texture_cache.mutex is held.
+#else
+    UpdateDynamicStates();
+#endif
+
+    query_cache.NotifySegment(true);
+    query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
+    const auto& draw_texture_state = maxwell3d->draw_manager.draw_texture_state;
+    const auto& sampler = texture_cache.GetSampler(draw_texture_state.src_sampler, false);
+    const auto& texture = texture_cache.GetImageView(draw_texture_state.src_texture);
+    const auto* framebuffer = texture_cache.GetFramebuffer();
+
+    const bool src_rescaling = texture_cache.IsRescaling() && texture.IsRescaled();
+    const bool dst_rescaling = texture_cache.IsRescaling() && framebuffer->IsRescaled();
+
+    const auto ScaleSrc = [&](auto dim_f) -> s32 {
+        auto dim = static_cast<s32>(dim_f);
+        return src_rescaling ? Settings::values.resolution_info.ScaleUp(dim) : dim;
+    };
+
+    const auto ScaleDst = [&](auto dim_f) -> s32 {
+        auto dim = static_cast<s32>(dim_f);
+        return dst_rescaling ? Settings::values.resolution_info.ScaleUp(dim) : dim;
+    };
+
+    Region2D dst_region = {Offset2D{.x = ScaleDst(draw_texture_state.dst_x0),
+                                    .y = ScaleDst(draw_texture_state.dst_y0)},
+                           Offset2D{.x = ScaleDst(draw_texture_state.dst_x1),
+                                    .y = ScaleDst(draw_texture_state.dst_y1)}};
+    Region2D src_region = {Offset2D{.x = ScaleSrc(draw_texture_state.src_x0),
+                                    .y = ScaleSrc(draw_texture_state.src_y0)},
+                           Offset2D{.x = ScaleSrc(draw_texture_state.src_x1),
+                                    .y = ScaleSrc(draw_texture_state.src_y1)}};
+    Extent3D src_size = {static_cast<u32>(ScaleSrc(texture.size.width)),
+                         static_cast<u32>(ScaleSrc(texture.size.height)), texture.size.depth};
+    blit_image.BlitColor(framebuffer, texture.RenderTarget(), texture.ImageHandle(),
+                         sampler->Handle(), dst_region, src_region, src_size);
+#ifdef PS5_NATIVE
+    // Raw-image blit directly binds its own Vulkan graphics pipeline.
+    // It does not invalidate Scheduler's cached guest graphics state.
+    // Ensure the following guest draw rebinds pipeline and descriptors.
+    scheduler.InvalidateState();
+#endif
+}
+
+void RasterizerVulkan::Clear(u32 layer_count) {
+    SCOPE_EXIT { SyncProbe(scheduler, "clear", nullptr); };
+    FlushWork();
+#ifndef PS5_NATIVE
+    gpu_memory->FlushCaching();
+#endif
+
+    auto& regs = maxwell3d->regs;
+    const bool use_color = regs.clear_surface.R || regs.clear_surface.G || regs.clear_surface.B ||
+                           regs.clear_surface.A;
+    const bool use_depth = regs.clear_surface.Z;
+    const bool use_stencil = regs.clear_surface.S;
+    if (!use_color && !use_depth && !use_stencil) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    // An all-masked clear is not a GPU write. Preserve FlushWork and the
+    // debug probe but do not pay for guest remap/invalidation processing here;
+    // the next real rendering operation drains it before reading textures.
+    gpu_memory->FlushCaching();
+#endif
+    std::scoped_lock lock{texture_cache.mutex};
+    texture_cache.UpdateRenderTargets(true);
+    const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
+    const VkExtent2D render_area = framebuffer->RenderArea();
+
+    constexpr bool ENABLE_DEFERRED_CLEAR = true;
+    const bool color_full_channels = regs.clear_surface.R && regs.clear_surface.G &&
+                                     regs.clear_surface.B && regs.clear_surface.A;
+    const bool stencil_partial = use_stencil && framebuffer->HasAspectStencilBit() &&
+                                 regs.stencil_front_mask != 0xFF && regs.stencil_front_mask != 0;
+    const bool ds_used = use_depth || use_stencil;
+    const bool ds_deferrable =
+        !ds_used || ((!framebuffer->HasAspectDepthBit() || use_depth) &&
+                     (!framebuffer->HasAspectStencilBit() || use_stencil) && !stencil_partial);
+    u32 up_scale = 1;
+    u32 down_shift = 0;
+    if (texture_cache.IsRescaling()) {
+        up_scale = Settings::values.resolution_info.up_scale;
+        down_shift = Settings::values.resolution_info.down_shift;
+    }
+    VkRect2D default_scissor{};
+    default_scissor.offset.x = 0;
+    default_scissor.offset.y = 0;
+    default_scissor.extent.width = (std::numeric_limits<s32>::max)();
+    default_scissor.extent.height = (std::numeric_limits<s32>::max)();
+
+    VkClearRect clear_rect{
+        .rect = regs.clear_control.use_scissor ? GetScissorState(regs, 0, up_scale, down_shift)
+                                               : default_scissor,
+        .baseArrayLayer = regs.clear_surface.layer,
+        .layerCount = layer_count,
+    };
+    const auto clamp_rect_to_render_area = [render_area](VkRect2D& rect) -> bool {
+        const auto clamp_axis = [](s32& offset, u32& extent, u32 limit) {
+            auto clamp_offset = [&offset, limit]() {
+                if (limit == 0) {
+                    offset = 0;
+                    return;
+                }
+                offset = std::clamp(offset, 0, static_cast<s32>(limit));
+            };
+
+            if (extent == 0) {
+                clamp_offset();
+                return;
+            }
+            if (offset < 0) {
+                const u32 shrink = (std::min)(extent, static_cast<u32>(-static_cast<s64>(offset)));
+                extent -= shrink;
+                offset = 0;
+            }
+            if (limit == 0) {
+                extent = 0;
+                offset = 0;
+                return;
+            }
+            if (offset >= s32(limit)) {
+                offset = s32(limit);
+                extent = 0;
+                return;
+            }
+            const u64 end_coord = u64(offset) + extent;
+            if (end_coord > limit) {
+                extent = limit - u32(offset);
+            }
+        };
+
+        clamp_axis(rect.offset.x, rect.extent.width, render_area.width);
+        clamp_axis(rect.offset.y, rect.extent.height, render_area.height);
+        return rect.extent.width != 0 && rect.extent.height != 0;
+    };
+    if (!clamp_rect_to_render_area(clear_rect.rect)) {
+        return;
+    }
+
+    const bool clear_covers_render_area =
+        clear_rect.rect.offset.x == 0 && clear_rect.rect.offset.y == 0 &&
+        clear_rect.rect.extent.width >= render_area.width &&
+        clear_rect.rect.extent.height >= render_area.height;
+    const bool can_defer_clear = ENABLE_DEFERRED_CLEAR && !regs.zpass_pixel_count_enable && (!regs.clear_control.use_scissor || clear_covers_render_area) &&
+                                 regs.clear_surface.layer == 0 &&
+                                 !scheduler.IsRenderPassActive() &&
+                                 (!use_color || color_full_channels) && ds_deferrable;
+    if (!can_defer_clear) {
+        scheduler.RequestRenderpass(framebuffer);
+    }
+
+    query_cache.NotifySegment(true);
+    query_cache.CounterEnable(VideoCommon::QueryType::ZPassPixelCount64, maxwell3d->regs.zpass_pixel_count_enable);
+    UpdateViewportsState(regs);
+
+    const u32 color_attachment = regs.clear_surface.RT;
+    if (use_color && framebuffer->HasAspectColorBit(color_attachment)) {
+        const auto format = VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[color_attachment].format);
+        bool is_integer = IsPixelFormatInteger(format);
+        bool is_signed = IsPixelFormatSignedInteger(format);
+        size_t int_size = PixelComponentSizeBitsInteger(format);
+        VkClearValue clear_value{};
+        if (!is_integer) {
+            std::memcpy(clear_value.color.float32, regs.clear_color.data(), regs.clear_color.size() * sizeof(f32));
+        } else if (!is_signed) {
+            for (size_t i = 0; i < 4; i++)
+                clear_value.color.uint32[i] = u32(f32(u64(int_size) << 1U) * regs.clear_color[i]);
+        } else {
+            for (size_t i = 0; i < 4; i++)
+                clear_value.color.int32[i] = s32(f32(s64(int_size - 1) << 1) * (regs.clear_color[i] - 0.5f));
+        }
+
+        if (color_full_channels) {
+            if (can_defer_clear) {
+                scheduler.DeferColorClear(framebuffer, color_attachment, clear_value);
+            } else {
+                scheduler.Record([color_attachment, clear_value, clear_rect](vk::CommandBuffer cmdbuf) {
+                    const VkClearAttachment attachment{
+                        .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                        .colorAttachment = color_attachment,
+                        .clearValue = clear_value,
+                    };
+                    cmdbuf.ClearAttachments(attachment, clear_rect);
+                });
+            }
+        } else {
+            u8 color_mask = u8(regs.clear_surface.R | regs.clear_surface.G << 1 | regs.clear_surface.B << 2 | regs.clear_surface.A << 3);
+            Region2D dst_region = {
+                Offset2D{.x = clear_rect.rect.offset.x, .y = clear_rect.rect.offset.y},
+                Offset2D{.x = clear_rect.rect.offset.x + s32(clear_rect.rect.extent.width),
+                         .y = clear_rect.rect.offset.y + s32(clear_rect.rect.extent.height)}};
+            blit_image.ClearColor(framebuffer, color_mask, regs.clear_color, dst_region);
+        }
+    }
+
+    if (!use_depth && !use_stencil) {
+        return;
+    }
+    VkImageAspectFlags aspect_flags = 0;
+    if (use_depth && framebuffer->HasAspectDepthBit()) {
+        aspect_flags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+    }
+    if (use_stencil && framebuffer->HasAspectStencilBit()) {
+        aspect_flags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
+    if (aspect_flags == 0) {
+        return;
+    }
+
+    if (use_stencil && framebuffer->HasAspectStencilBit() && regs.stencil_front_mask != 0xFF &&
+        regs.stencil_front_mask != 0) {
+        Region2D dst_region = {
+            Offset2D{.x = clear_rect.rect.offset.x, .y = clear_rect.rect.offset.y},
+            Offset2D{.x = clear_rect.rect.offset.x + s32(clear_rect.rect.extent.width),
+                     .y = clear_rect.rect.offset.y + s32(clear_rect.rect.extent.height)}};
+        blit_image.ClearDepthStencil(framebuffer, use_depth, regs.clear_depth,
+                                     u8(regs.stencil_front_mask), regs.clear_stencil,
+                                     regs.stencil_front_func_mask, dst_region);
+    } else if (can_defer_clear) {
+        VkClearValue ds_value{};
+        ds_value.depthStencil.depth = regs.clear_depth;
+        ds_value.depthStencil.stencil = regs.clear_stencil;
+        scheduler.DeferDepthStencilClear(framebuffer, ds_value);
+    } else {
+        scheduler.Record([clear_depth = regs.clear_depth, clear_stencil = regs.clear_stencil,
+                          clear_rect, aspect_flags](vk::CommandBuffer cmdbuf) {
+            VkClearAttachment attachment;
+            attachment.aspectMask = aspect_flags;
+            attachment.colorAttachment = 0;
+            attachment.clearValue.depthStencil.depth = clear_depth;
+            attachment.clearValue.depthStencil.stencil = clear_stencil;
+            cmdbuf.ClearAttachments(attachment, clear_rect);
+        });
+    }
+}
+
+namespace {
+constexpr VkMemoryBarrier COMPUTE_WRITE_BARRIER{
+    .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+    .pNext = nullptr,
+    .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+    .dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_INDEX_READ_BIT |
+                     VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT |
+                     VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+                     VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+};
+constexpr VkMemoryBarrier COMPUTE_INPUT_BARRIER{
+    .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+    .pNext = nullptr,
+    .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+    .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+};
+constexpr VkPipelineStageFlags COMPUTE_CONSUMER_STAGES =
+    VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+    VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+    VK_PIPELINE_STAGE_TRANSFER_BIT;
+} // namespace
+
+
+#ifdef PS5_NATIVE
+namespace {
+// Native QMD shader metadata reads authenticated channel TIC records.
+// Vulkan images/samplers still fail closed until shared TextureCache binding.
+class NativeQmdTextureMetadata final : public Shader::Environment {
+public:
+    NativeQmdTextureMetadata(Tegra::MemoryManager& memory,
+                             const Tegra::Engines::KeplerCompute::Regs& regs,
+                             bool linked)
+        : gpu_memory{memory},
+          tables{.tic_base = regs.tic.Address(),
+                 .tsc_base = regs.tsc.Address(),
+                 .tic_limit = regs.tic.limit,
+                 .tsc_limit = regs.tsc.limit,
+                 .linked_tsc = linked},
+          texture_cbuf{regs.tex_cb_index} {
+        stage = Shader::Stage::Compute;
+        start_address = 0;
+    }
+
+    u64 ReadInstruction(u32) override {
+        throw std::runtime_error{"native code must be translated"};
+    }
+    u32 ReadCbufValue(u32, u32) override {
+        throw std::runtime_error{"QMD CBUF owner missing"};
+    }
+    Shader::TextureType ReadTextureType(u32 handle) override {
+        const auto entry = ReadTic(handle);
+        switch (entry.texture_type) {
+        case Tegra::Texture::TextureType::Texture1D:
+            return Shader::TextureType::Color1D;
+        case Tegra::Texture::TextureType::Texture2D:
+        case Tegra::Texture::TextureType::Texture2DNoMipmap:
+            return entry.normalized_coords ? Shader::TextureType::Color2D
+                                           : Shader::TextureType::Color2DRect;
+        case Tegra::Texture::TextureType::Texture3D:
+            return Shader::TextureType::Color3D;
+        case Tegra::Texture::TextureType::TextureCubemap:
+            return Shader::TextureType::ColorCube;
+        case Tegra::Texture::TextureType::Texture1DArray:
+            return Shader::TextureType::ColorArray1D;
+        case Tegra::Texture::TextureType::Texture2DArray:
+            return Shader::TextureType::ColorArray2D;
+        case Tegra::Texture::TextureType::Texture1DBuffer:
+            return Shader::TextureType::Buffer;
+        case Tegra::Texture::TextureType::TextureCubeArray:
+            return Shader::TextureType::ColorArrayCube;
+        default:
+            throw std::runtime_error{"unsupported native Compute texture type"};
+        }
+    }
+    Shader::TexturePixelFormat ReadTexturePixelFormat(u32 handle) override {
+        const auto format = ReadNativePixelFormat(handle);
+        // Surface and shader formats share the same numeric prefix only.
+        // ETC2/EAC extend Surface before depth formats; a whole-enum cast
+        // would turn valid depth TICs into the wrong shader pixel format.
+        static_assert(static_cast<u32>(VideoCore::Surface::PixelFormat::E5B9G9R9_FLOAT) ==
+                      static_cast<u32>(Shader::TexturePixelFormat::E5B9G9R9_FLOAT));
+        if (format <= VideoCore::Surface::PixelFormat::E5B9G9R9_FLOAT)
+            return static_cast<Shader::TexturePixelFormat>(format);
+        switch (format) {
+        case VideoCore::Surface::PixelFormat::D32_FLOAT:
+            return Shader::TexturePixelFormat::D32_FLOAT;
+        case VideoCore::Surface::PixelFormat::D16_UNORM:
+            return Shader::TexturePixelFormat::D16_UNORM;
+        case VideoCore::Surface::PixelFormat::X8_D24_UNORM:
+            return Shader::TexturePixelFormat::X8_D24_UNORM;
+        case VideoCore::Surface::PixelFormat::S8_UINT:
+            return Shader::TexturePixelFormat::S8_UINT;
+        case VideoCore::Surface::PixelFormat::D24_UNORM_S8_UINT:
+            return Shader::TexturePixelFormat::D24_UNORM_S8_UINT;
+        case VideoCore::Surface::PixelFormat::S8_UINT_D24_UNORM:
+            return Shader::TexturePixelFormat::S8_UINT_D24_UNORM;
+        case VideoCore::Surface::PixelFormat::D32_FLOAT_S8_UINT:
+            return Shader::TexturePixelFormat::D32_FLOAT_S8_UINT;
+        default:
+            throw std::runtime_error{"unsupported native Compute shader pixel format"};
+        }
+    }
+    bool IsTexturePixelFormatInteger(u32 handle) override {
+        // Check the real Surface format, not a shader enum reinterpreted back.
+        return VideoCore::Surface::IsPixelFormatInteger(ReadNativePixelFormat(handle));
+    }
+    u32 ReadViewportTransformState() override { return 0; }
+    u32 TextureBoundBuffer() const override { return texture_cbuf; }
+    u32 LocalMemorySize() const override { return 0; }
+    u32 SharedMemorySize() const override { return 0; }
+    std::array<u32, 3> WorkgroupSize() const override { return {1, 1, 1}; }
+    bool HasHLEMacroState() const override { return false; }
+    std::optional<Shader::ReplaceConstant> GetReplaceConstBuffer(u32, u32) override {
+        return std::nullopt;
+    }
+    void Dump(u64, u64) override {}
+
+private:
+    VideoCore::Surface::PixelFormat ReadNativePixelFormat(u32 handle) const {
+        const auto entry = ReadTic(handle);
+        const auto format = VideoCommon::PixelFormatFromTextureInfo(
+            entry.format, entry.r_type, entry.g_type, entry.b_type,
+            entry.a_type, entry.srgb_conversion);
+        if (format == VideoCore::Surface::PixelFormat::Invalid)
+            throw std::runtime_error{"unsupported native Compute texture format"};
+        return format;
+    }
+
+    Tegra::Texture::TICEntry ReadTic(u32 raw_handle) const {
+        // Shader translation only needs the TIC format/dimension, never a
+        // fabricated Vulkan view. Native channel registers provide the
+        // real table address; the GMMU reader checks the complete 32 bytes.
+        Shader::Ampere::NativeQmdResourcePlan plan{};
+        plan.requires_tic_tsc = true;
+        Shader::Ampere::NativeQmdImageHandle word{};
+        word.kind = Shader::Ampere::NativeQmdImageKind::StorageImage;
+        word.primary_word = raw_handle;
+        plan.image_handles.push_back(word);
+        const auto captured = tables.Capture(
+            plan, [this](u64 address, void* destination, std::size_t bytes) {
+                return VideoCommon::ReadNs2GpuShader(
+                    &gpu_memory, address, destination, bytes);
+            });
+        if (!captured || captured->size() != 1)
+            throw std::runtime_error{"native Compute TIC unavailable or unmapped"};
+        Tegra::Texture::TICEntry entry{};
+        static_assert(sizeof(entry) == sizeof((*captured)[0].tic_words));
+        std::memcpy(&entry, (*captured)[0].tic_words.data(), sizeof(entry));
+        // Shader metadata must not be translated from a TIC the later
+        // shared TextureCache cannot admit. Reject an invalid format layout,
+        // MSAA mode or overflow budget before spending CPU on native SPIR-V.
+        if (!Shader::Ampere::NativeQmdTicLayoutSupported(entry))
+            throw std::runtime_error{"unsupported native Compute TIC layout"};
+        return entry;
+    }
+    Tegra::MemoryManager& gpu_memory;
+    Shader::Ampere::NativeQmdTextureTables tables;
+    u32 texture_cbuf{};
+};
+} // namespace
+
+bool RasterizerVulkan::DispatchNativeCompute(const Tegra::NativeComputeLaunch& launch) {
+    auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+    const auto ticket = registry.CaptureComputeTicket(kepler_compute);
+    if (!ticket) return false;
+
+    // Query physical-device limits once during rasterizer construction.
+    // Refuse invalid local sizes or shared-memory requests before expensive
+    // Ampere capture, SPIR-V compilation and Vulkan pipeline allocation.
+    const auto& limits = native_compute_device_limits;
+    const Tegra::NativeComputeDeviceLimits host_limits{
+        {limits.maxComputeWorkGroupCount[0], limits.maxComputeWorkGroupCount[1],
+         limits.maxComputeWorkGroupCount[2]},
+        {limits.maxComputeWorkGroupSize[0], limits.maxComputeWorkGroupSize[1],
+         limits.maxComputeWorkGroupSize[2]},
+        limits.maxComputeWorkGroupInvocations, limits.maxComputeSharedMemorySize,
+    };
+    if (!Tegra::NativeComputeLaunchWithinDeviceLimits(launch, host_limits))
+        return false;
+    // A native program must be captured through the authenticated GMMU;
+    // never pass Ampere words through CurrentComputePipeline (Maxwell).
+    FlushWork();
+    gpu_memory->FlushCaching();
+    auto cache = registry.AcquireComputeTranslationCache(kepler_compute, *ticket);
+    if (!cache) return false;
+    try {
+        auto captured = Shader::Ampere::CaptureNativeComputeShader(
+            launch.program_address, VideoCommon::ReadNs2GpuShader,
+            gpu_memory, cache.get());
+        if (!captured.Ready() || !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        auto qmd_context = std::make_unique<Shader::Ampere::NativeQmdComputeEnvironment>(
+            launch, VideoCommon::ReadNs2GpuShader, gpu_memory,
+            std::make_unique<NativeQmdTextureMetadata>(
+                *gpu_memory, kepler_compute.regs, launch.linked_tsc));
+        auto* const resource_owner = qmd_context.get();
+        auto environment = Shader::Ampere::NativeMaxwellEnvironment::CreateComputeOwned(
+            std::move(qmd_context), std::move(captured.image));
+        if (!environment) return false;
+        auto compiled = pipeline_cache.CompileNativeComputeSpirv(*environment);
+        if (!compiled.ComputeMetadataReady()) return false;
+        auto resources = resource_owner->BuildResourcePlan(*compiled.info);
+        if (!resources || !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        // The production Vulkan path must enforce the SAME authenticated
+        // atomic byte extents as the captured-QMD compiler. A successful
+        // SPIR-V module alone does not prove a dynamic atomic stays within
+        // its real, writable GMMU-backed SSBO. Reject before any image,
+        // descriptor or pipeline is allocated; never round the offset down.
+        if (!Shader::Ampere::NativeQmdAtomicSpansFitBindings(
+                std::span<const Shader::Ampere::NativeAtomicSpan>{
+                    compiled.native_atomic_spans.data(),
+                    compiled.native_atomic_spans.size()},
+                resources->storage_buffers))
+            return false;
+        // Match the authentic TIC/TSC handle order and write permissions
+        // to the emitted SPIR-V reflection before any Vulkan cache access.
+        if (!Shader::Ampere::NativeQmdImageLayoutMatches(*compiled.info, *resources))
+            return false;
+        std::vector<NativeComputeImageBinding> native_images;
+        std::vector<NativeComputeTexelBinding> native_texels;
+        // Keep the original guest TIC/TSC bytes across descriptor staging.
+        // A channel epoch alone does not protect writable descriptor tables
+        // while ConfigureNative records Vulkan bind operations.
+        std::optional<Shader::Ampere::NativeQmdTextureTables> staged_image_tables;
+        std::optional<std::vector<Shader::Ampere::NativeQmdImageTableRecord>>
+            staged_image_records;
+        // Authenticate the full table records as well as QMD CBUF handles.
+        // This only proves mapped metadata, not usable Vulkan images. Keep
+        // the image path closed until TextureCache owns the views/samplers.
+        if (resources->requires_tic_tsc) {
+            // A reflected TIC/TSC does not waive the real CBUF/SSBO ABI.
+            // Reject unknown bounds and missing guest storage BEFORE any
+            // image-table snapshot. Vulkan image descriptor publication is
+            // still gated on the shared texture-cache GPU lifetime owner.
+            // Match ConfigureNative's actual BufferCache admission:
+            // full 4 KiB GMMU coverage AND one contiguous CPU-backed span.
+            // IsFullyMappedRange alone is insufficient when later Vulkan
+            // staging requires a single real backing allocation.
+            if (!resources->ValidateGpuBufferMappings(
+                    [this](u64 address, u32 bytes) {
+                        return Shader::Ampere::NativeQmdContiguousGpuSpan(
+                            address, bytes, [this](u64 page) {
+                                return gpu_memory->GpuToCpuAddress(page);
+                            });
+                    }))
+                return false;
+            const auto& regs = kepler_compute.regs;
+            const Shader::Ampere::NativeQmdTextureTables tables{
+                .tic_base = regs.tic.Address(),
+                .tsc_base = regs.tsc.Address(),
+                .tic_limit = regs.tic.limit,
+                .tsc_limit = regs.tsc.limit,
+                .linked_tsc = launch.linked_tsc};
+            // Source records are not image views. Admit only guest layouts
+            // with a real, complete 49-bit GMMU backing that the single
+            // TextureCache can eventually own. Do not reuse the NS1-only
+            // IsValidEntry's <40-bit check or GpuToCpuAddress(addr, size),
+            // which can succeed when only ONE page is mapped.
+            auto descriptors = tables.CaptureAdmissible(
+                *resources,
+                [this](u64 address, void* bytes, std::size_t size) {
+                    return VideoCommon::ReadNs2GpuShader(
+                        gpu_memory, address, bytes, size);
+                },
+                [this](const Tegra::Texture::TICEntry& tic) {
+                    // PixelFormat::Invalid must be refused BEFORE ImageInfo
+                    // invokes block-size and mip-stride calculations.
+                    const auto format = VideoCommon::PixelFormatFromTextureInfo(
+                        tic.format, tic.r_type, tic.g_type, tic.b_type,
+                        tic.a_type, tic.srgb_conversion);
+                    if (format == VideoCore::Surface::PixelFormat::Invalid)
+                        return false;
+                    const VideoCommon::ImageInfo info{tic};
+                    if (info.format == VideoCore::Surface::PixelFormat::Invalid ||
+                        !info.resources.levels || !info.resources.layers)
+                        return false;
+                    // CalculateGuestSizeInBytes returns u32, but multiplies
+                    // width/pitch/stride by layers before checking overflow.
+                    // First establish an exact (linear/buffer/layered) or
+                    // conservative minimum (single-layer tiled) byte bound
+                    // in u64, before any 32-bit size arithmetic.
+                    const u64 block_bytes = VideoCore::Surface::BytesPerBlock(info.format);
+                    const u64 block_height = VideoCore::Surface::DefaultBlockHeight(info.format);
+                    const u64 block_width = VideoCore::Surface::DefaultBlockWidth(info.format);
+                    if (!block_bytes || !block_width || !block_height)
+                        return false;
+                    u64 minimum_bytes{};
+                    if (info.type == VideoCommon::ImageType::Buffer) {
+                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                info.size.width, 1, 1, 1, block_bytes))
+                            return false;
+                        minimum_bytes = u64{info.size.width} * block_bytes;
+                    } else if (info.type == VideoCommon::ImageType::Linear) {
+                        const u64 rows = (u64{info.size.height} + block_height - 1) / block_height;
+                        if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                info.pitch, rows, 1, 1, 1))
+                            return false;
+                        minimum_bytes = u64{info.pitch} * rows;
+                    } else {
+                        // Tiled mipmaps accumulate multiple GOB-aligned levels
+                        // in legacy u32 arithmetic. Prove a full-chain u64
+                        // lower bound BEFORE trusting that computed size.
+                        u64 tiled_minimum{};
+                        if (!Shader::Ampere::NativeQmdMipChainMinimumBytes(
+                                info.size.width, info.size.height, info.size.depth,
+                                info.resources.layers, info.resources.levels,
+                                block_width, block_height, block_bytes, tiled_minimum))
+                            return false;
+                        if (info.resources.layers > 1) {
+                            if (!Shader::Ampere::NativeQmdWithinByteBudget(
+                                    info.layer_stride, info.resources.layers, 1, 1, 1))
+                                return false;
+                            minimum_bytes = u64{info.layer_stride} * info.resources.layers;
+                            if (minimum_bytes < tiled_minimum) return false;
+                        } else {
+                            minimum_bytes = tiled_minimum;
+                        }
+                    }
+                    const u64 layer_offset =
+                        u64{tic.BaseLayer()} * info.layer_stride;
+                    // CreateImageView still computes this offset in u32;
+                    // never allow its implicit narrowing to point to a
+                    // different layer or image allocation on 49-bit NS2.
+                    constexpr u64 u32_limit = ~u32{0};
+                    if (layer_offset > u32_limit ||
+                        tic.Address() < layer_offset ||
+                        (info.resources.layers > 1 &&
+                         u64{info.layer_stride} * info.resources.layers > u32_limit))
+                        return false;
+                    const u64 image_base = tic.Address() - layer_offset;
+                    const u32 bytes = VideoCommon::CalculateGuestSizeInBytes(info);
+                    if (!bytes || bytes < minimum_bytes) return false;
+                    return Shader::Ampere::NativeQmdContiguousGpuSpan(
+                        image_base, bytes, [this](u64 address) {
+                            return gpu_memory->GpuToCpuAddress(address);
+                        });
+                });
+            if (!descriptors || !registry.IsComputeCurrent(kepler_compute, *ticket))
+                return false;
+            // A captured array of raw u32s is not yet a cache descriptor.
+            // Decode the real TICEntry/TSCEntry ABI with no slot allocation.
+            // The second guest-table read below still authenticates these
+            // exact bytes under the current TextureCache channel lock.
+            const auto typed_descriptors = tables.DecodeAdmitted(
+                *resources, *descriptors);
+            if (!typed_descriptors ||
+                !Shader::Ampere::NativeQmdTypedImageLayoutMatches(
+                    *compiled.info, *typed_descriptors) ||
+                !registry.IsComputeCurrent(kepler_compute, *ticket))
+                return false;
+            // The native process ticket alone is insufficient: the shared
+            // TextureCache may currently belong to another Maxwell/Ampere
+            // GPU channel or address space. Check the exact cache owner
+            // under its existing mutex; never bind a view from another GMMU.
+            // Registry epoch check remains OUTSIDE this lock to avoid a
+            // potential registry->texture lock inversion on channel teardown.
+            bool same_cache_channel{};
+            {
+                std::scoped_lock lock{texture_cache.mutex};
+                // A reentrant GMMU read can flush this same image cache.
+                // Keep ownership until ALL TIC/TSC checks and leases finish.
+                NativeTextureReadLockScope native_texture_read_scope{this};
+                same_cache_channel = texture_cache.NativeChannelMatches(
+                    kepler_compute, *gpu_memory);
+                // The engine epoch can stay valid while guest code rewrites
+                // TIC/TSC base/limit registers. Never authenticate bytes from
+                // an OLD table and bind them as the currently active one.
+                if (same_cache_channel) {
+                    const auto& live_regs = kepler_compute.regs;
+                    same_cache_channel = tables.SameRegisters(
+                        live_regs.tic.Address(), live_regs.tic.limit,
+                        live_regs.tsc.Address(), live_regs.tsc.limit,
+                        launch.linked_tsc);
+                }
+                // TIC/TSC can be rewritten while the shader is compiled.
+                // Recheck the captured table while the cache's selected
+                // engine/space is stable, before a future binding path is
+                // permitted to acquire or publish any cache slot.
+                if (same_cache_channel) {
+                    same_cache_channel = tables.MatchesSnapshot(
+                        *resources, *descriptors,
+                        [this](u64 address, void* bytes, std::size_t size) {
+                            return VideoCommon::ReadNs2GpuShader(
+                                gpu_memory, address, bytes, size);
+                        });
+                }
+                // A 1D buffer TIC is owned by BufferCache; TextureCache
+                // resolves its typed view metadata, not a fake VkImageView.
+                // Decode under the same channel mutex used for 2D images.
+                if (same_cache_channel) {
+                    native_images.reserve(typed_descriptors->size());
+                    native_texels.reserve(typed_descriptors->size());
+                    size_t position{};
+                    const auto bind_texel = [&](const Shader::Ampere::NativeQmdTypedTextureRecord& item,
+                                                Shader::Ampere::NativeQmdImageKind kind,
+                                                bool written) {
+                        if (item.kind != kind || item.is_written != written ||
+                            !item.tic.IsBuffer())
+                            return false;
+                        const auto id = texture_cache.AcquireNativeImageView(
+                            kepler_compute, *gpu_memory, item.tic, written);
+                        if (id == VideoCommon::NULL_IMAGE_VIEW_ID)
+                            return false;
+                        const auto& view = texture_cache.GetImageView(id);
+                        if (!view.IsBuffer() || !view.GpuAddr() ||
+                            !view.BufferSize() ||
+                            view.format == VideoCore::Surface::PixelFormat::Invalid)
+                            return false;
+                        const auto cpu = gpu_memory->GpuToCpuAddress(view.GpuAddr());
+                        if (!cpu || !Shader::Ampere::NativeQmdContiguousGpuSpan(
+                                view.GpuAddr(), view.BufferSize(), [this](u64 page) {
+                                    return gpu_memory->GpuToCpuAddress(page);
+                                }))
+                            return false;
+                        native_texels.push_back({
+                            .guest_gpu_address = view.GpuAddr(),
+                            .guest_cpu_address = *cpu,
+                            .guest_bytes = view.BufferSize(),
+                            .format = view.format,
+                            .storage = kind == Shader::Ampere::NativeQmdImageKind::ImageBuffer,
+                            .is_written = written,
+                        });
+                        return true;
+                    };
+                    for (const auto& reflection : compiled.info->texture_buffer_descriptors) {
+                        for (u32 index = 0; index < reflection.count; ++index) {
+                            if (position >= typed_descriptors->size() ||
+                                !bind_texel((*typed_descriptors)[position++],
+                                    Shader::Ampere::NativeQmdImageKind::TextureBuffer,
+                                    false)) {
+                                same_cache_channel = false;
+                                break;
+                            }
+                        }
+                        if (!same_cache_channel) break;
+                    }
+                    if (same_cache_channel) {
+                        for (const auto& reflection : compiled.info->image_buffer_descriptors) {
+                            for (u32 index = 0; index < reflection.count; ++index) {
+                                if (position >= typed_descriptors->size() ||
+                                    !bind_texel((*typed_descriptors)[position++],
+                                        Shader::Ampere::NativeQmdImageKind::ImageBuffer,
+                                        reflection.is_written)) {
+                                    same_cache_channel = false;
+                                    break;
+                                }
+                            }
+                            if (!same_cache_channel) break;
+                        }
+                    }
+                    const auto bind = [&](const Shader::Ampere::NativeQmdTypedTextureRecord& item,
+                                          Shader::TextureType type, bool storage,
+                                          Shader::ImageFormat format, bool depth, bool written) {
+                        if (item.kind != (storage
+                                ? Shader::Ampere::NativeQmdImageKind::StorageImage
+                                : Shader::Ampere::NativeQmdImageKind::SampledTexture) ||
+                            item.is_written != written)
+                            return false;
+                        const auto id = texture_cache.AcquireNativeImageView(
+                            kepler_compute, *gpu_memory, item.tic, written);
+                        const auto pinned = texture_cache.PinNativeImageView(id);
+                        if (!pinned) return false;
+                        auto& view = texture_cache.GetImageView(id);
+                        if (view.ImageHandle() == VK_NULL_HANDLE) return false;
+                        const VkImageView handle = storage
+                            ? view.StorageView(type, format) : view.Handle(type);
+                        if (handle == VK_NULL_HANDLE) return false;
+                        // The TIC payload was mapped when its VkImageView
+                        // was acquired. Record the backing physical address
+                        // so a same-bytes GMMU remap during Vulkan staging
+                        // cannot publish the stale image at vkCmdDispatch.
+                        const VideoCommon::ImageInfo pinned_info{item.tic};
+                        const u64 layer_offset =
+                            u64{item.tic.BaseLayer()} * pinned_info.layer_stride;
+                        if (item.tic.Address() < layer_offset) return false;
+                        const u64 guest_base = item.tic.Address() - layer_offset;
+                        const u32 guest_bytes =
+                            VideoCommon::CalculateGuestSizeInBytes(pinned_info);
+                        const auto guest_cpu_base =
+                            gpu_memory->GpuToCpuAddress(guest_base);
+                        if (!guest_bytes || !guest_cpu_base) return false;
+                        NativeComputeImageBinding native{};
+                        native.view = handle;
+                        native.storage = storage;
+                        native.guest_gpu_address = guest_base;
+                        native.guest_cpu_address = *guest_cpu_base;
+                        native.guest_bytes = guest_bytes;
+                        native.image_pin = pinned->backing_image;
+                        native.view_pin = pinned->image_view;
+                        if (!storage) {
+                            if (!item.sampler) return false;
+                            const auto sid = texture_cache.AcquireNativeSampler(
+                                kepler_compute, *gpu_memory, *item.sampler);
+                            native.sampler_pin = texture_cache.PinNativeSampler(sid);
+                            if (!native.sampler_pin) return false;
+                            native.sampler = texture_cache.GetSampler(sid).HandleFor(view, depth);
+                            if (native.sampler == VK_NULL_HANDLE) return false;
+                        }
+                        native_images.push_back(std::move(native));
+                        return true;
+                    };
+                    for (const auto& reflection : compiled.info->texture_descriptors) {
+                        for (u32 index = 0; index < reflection.count; ++index) {
+                            if (position >= typed_descriptors->size() ||
+                                !bind((*typed_descriptors)[position++],
+                                      reflection.type, false, Shader::ImageFormat{},
+                                      reflection.is_depth, false)) {
+                                same_cache_channel = false;
+                                break;
+                            }
+                        }
+                        if (!same_cache_channel) break;
+                    }
+                    if (same_cache_channel) {
+                        for (const auto& reflection : compiled.info->image_descriptors) {
+                            for (u32 index = 0; index < reflection.count; ++index) {
+                                if (position >= typed_descriptors->size() ||
+                                    !bind((*typed_descriptors)[position++],
+                                          reflection.type, true, reflection.format,
+                                          false, reflection.is_written)) {
+                                    same_cache_channel = false;
+                                    break;
+                                }
+                            }
+                            if (!same_cache_channel) break;
+                        }
+                    }
+                    if (same_cache_channel) {
+                        // The selected cache channel can change between the
+                        // individual view and sampler acquisitions, since
+                        // they each release config_mutex. Check the exact
+                        // engine/GMMU AND current TIC/TSC registers again
+                        // while the outer texture mutex is still held.
+                        const auto& live_regs = kepler_compute.regs;
+                        same_cache_channel = position == typed_descriptors->size() &&
+                            texture_cache.NativeChannelMatches(
+                                kepler_compute, *gpu_memory) &&
+                            tables.SameRegisters(
+                                live_regs.tic.Address(), live_regs.tic.limit,
+                                live_regs.tsc.Address(), live_regs.tsc.limit,
+                                launch.linked_tsc) &&
+                            tables.MatchesSnapshot(
+                                *resources, *descriptors,
+                                [this](u64 address, void* bytes, std::size_t size) {
+                                    return VideoCommon::ReadNs2GpuShader(
+                                        gpu_memory, address, bytes, size);
+                                });
+                    }
+                }
+            }
+            if (!same_cache_channel ||
+                !registry.IsComputeCurrent(kepler_compute, *ticket))
+                return false;
+            if (native_images.size() + native_texels.size() !=
+                typed_descriptors->size())
+                return false;
+            // Move, do not re-read or approximate the original table: these
+            // exact records must still match just before vkCmdDispatch.
+            staged_image_tables = tables;
+            staged_image_records = std::move(*descriptors);
+        }
+        if (!(native_images.empty() && native_texels.empty()
+                  ? resources->HasResolvedBufferBindings()
+                  : resources->HasResolvedGpuBufferBindings()))
+            return false;
+
+        const auto bytes = compiled.words.size() * sizeof(u32);
+        const u64 shader_hash = Common::CityHash64(
+            reinterpret_cast<const char*>(compiled.words.data()), bytes) | u64{1};
+        auto owned = pipeline_cache.CreateNativeComputePipeline(compiled, shader_hash);
+        if (!owned || !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        std::shared_ptr<ComputePipeline> pipeline{std::move(owned)};
+        struct NativeComputePinnedLifetime {
+            std::shared_ptr<ComputePipeline> pipeline;
+            std::vector<NativeComputeImageBinding> images;
+        };
+        std::shared_ptr<NativeComputePinnedLifetime> pinned_lifetime;
+        if (!native_images.empty()) {
+            pinned_lifetime = std::make_shared<NativeComputePinnedLifetime>();
+            pinned_lifetime->pipeline = pipeline;
+            pinned_lifetime->images = std::move(native_images);
+        }
+        // ConfigureNative and Scheduler::Record can throw AFTER recording
+        // closures that capture ComputePipeline*. A normal return-false or
+        // exception must not release that owner before its GPU timeline.
+        // The scope guard is armed only after descriptor staging can start.
+        bool native_recording_started = false;
+        auto native_compute_retirement = SCOPE_GUARD {
+            if (!native_recording_started || !pipeline) return;
+            try {
+                if (pinned_lifetime)
+                    Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                        scheduler, fence_manager, pinned_lifetime);
+                else
+                    Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                        scheduler, fence_manager, pipeline);
+            } catch (...) {
+                // The retention helper already waits a submitted tick on
+                // callback-registration failure. Keep this final emergency
+                // drain noexcept while unwinding another exception.
+                try { scheduler.Finish(); } catch (...) {}
+            }
+        };
+        // The native owner must survive GPU completion independently of
+        // immediate guest callbacks. Use the host-tested timeline helper.
+        // ConfigureNative takes BufferCache::mutex. The descriptor queue
+        // and ring can synchronously wait for GPU work, so perform the same
+        // preflight used by Switch 1 BEFORE acquiring that cache mutex.
+        // No native descriptor is published until the epoch is rechecked.
+        const auto preflight_guest = [&] {
+            return pipeline->HasDescriptorEntries() &&
+                guest_descriptor_queue.PreflightExactGuestDraw(
+                    [this] { scheduler.WaitWorker(); },
+                    pipeline->DescriptorEntryReservation());
+        };
+        if (preflight_guest())
+            gpu_memory->FlushCaching();
+        if (pipeline->CanUseDescriptorBuffer() &&
+            descriptor_buffer_ring.PreflightFrameReuse(scheduler)) {
+            gpu_memory->FlushCaching();
+            if (preflight_guest())
+                gpu_memory->FlushCaching();
+        }
+        if (descriptor_buffer_ring.PreflightCapacity(
+                scheduler, pipeline->DescriptorRingPreflightSize())) {
+            gpu_memory->FlushCaching();
+            if (preflight_guest())
+                gpu_memory->FlushCaching();
+        }
+        pipeline->PreflightDescriptorScratch();
+        if (!registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        // The original QMD resource plan was read before shader compilation.
+        // CBUF descriptors are mutable even when both GPU address ranges
+        // remain mapped. Refuse stale/aliased captures before staging Vulkan.
+        const auto before_binding = resource_owner->BuildResourcePlan(*compiled.info);
+        if (!before_binding || !resources->SameBufferBindings(*before_binding) ||
+            !registry.IsComputeCurrent(kepler_compute, *ticket))
+            return false;
+        // Match every actual BufferCache allocation to its physical GMMU
+        // backing before descriptor staging. QMD bytes and GPU addresses
+        // alone cannot detect same-address guest remapping.
+        Shader::Ampere::NativeQmdPhysicalBufferSnapshot staged_buffer_mappings{};
+        if (!staged_buffer_mappings.Capture(
+                *resources, [this](u64 address) {
+                    return gpu_memory->GpuToCpuAddress(address);
+                }))
+            return false;
+        scheduler.RequestOutsideRenderPassOperationContext();
+        native_recording_started = true;
+        {
+            std::scoped_lock lock{buffer_cache.mutex};
+            const std::span<const NativeComputeImageBinding> bindings =
+                pinned_lifetime
+                    ? std::span<const NativeComputeImageBinding>{pinned_lifetime->images}
+                    : std::span<const NativeComputeImageBinding>{};
+            if (!pipeline->ConfigureNative(
+                    *resources, *gpu_memory, scheduler, buffer_cache,
+                    bindings, native_texels))
+                return false;
+        }
+        // ConfigureNative may have recorded descriptor closures already.
+        // Validate CBUF bytes one final time after staging; an inconsistent
+        // dispatch must retain its Vulkan owner until those commands retire.
+        bool current_after_staging = false;
+        try {
+            const auto after_binding = resource_owner->BuildResourcePlan(*compiled.info);
+            current_after_staging = after_binding &&
+                resources->SameBufferBindings(*after_binding);
+        } catch (...) {
+            // A guest CBUF may become unmapped while re-reading it. A failed
+            // read is a refused dispatch, never early pipeline destruction.
+        }
+        // A guest can remap CBUF/SSBO physical backing without altering
+        // the QMD descriptor bytes. Refuse the old Vulkan buffers BEFORE
+        // any native GPU-dirty write publication or vkCmdDispatch enqueue.
+        if (current_after_staging) {
+            current_after_staging = staged_buffer_mappings.Matches(
+                *resources, [this](u64 address) {
+                    return gpu_memory->GpuToCpuAddress(address);
+                });
+        }
+        // A guest can rewrite TIC/TSC after the shared TextureCache pinned
+        // the original view and while BufferCache stages its descriptors.
+        // The CBUF reread above cannot detect that race. Re-authenticate
+        // complete raw TIC/TSC records and channel identity once more AFTER
+        // staging, before any compute Dispatch is recorded. The outer
+        // texture mutex also preserves the scoped reentrant readback lease.
+        if (current_after_staging && staged_image_tables && staged_image_records) {
+            std::scoped_lock lock{texture_cache.mutex};
+            NativeTextureReadLockScope native_texture_read_scope{this};
+            const auto& live_regs = kepler_compute.regs;
+            current_after_staging = texture_cache.NativeChannelMatches(
+                    kepler_compute, *gpu_memory) &&
+                staged_image_tables->SameRegisters(
+                    live_regs.tic.Address(), live_regs.tic.limit,
+                    live_regs.tsc.Address(), live_regs.tsc.limit,
+                    launch.linked_tsc) &&
+                staged_image_tables->MatchesSnapshot(
+                    *resources, *staged_image_records,
+                    [this](u64 address, void* bytes, std::size_t size) {
+                        return VideoCommon::ReadNs2GpuShader(
+                            gpu_memory, address, bytes, size);
+                    });
+            // Unchanged raw TIC/TSC words do not prove unchanged physical
+            // image contents. Recheck the full 4-KiB GMMU span and exact
+            // original CPU backing of every fence-owned VkImage before
+            // publishing any writable guest buffer side effects.
+            if (current_after_staging && pinned_lifetime) {
+                for (const auto& image : pinned_lifetime->images) {
+                    const auto cpu = gpu_memory->GpuToCpuAddress(
+                        image.guest_gpu_address);
+                    if (!cpu || *cpu != image.guest_cpu_address ||
+                        !Shader::Ampere::NativeQmdContiguousGpuSpan(
+                            image.guest_gpu_address, image.guest_bytes,
+                            [this](u64 page) {
+                                return gpu_memory->GpuToCpuAddress(page);
+                            })) {
+                        current_after_staging = false;
+                        break;
+                    }
+                }
+            }
+        }
+        // Texel buffer VkBufferViews live in the shared BufferCache, not
+        // pinned VkImageViews. Reject same-VA GMMU remaps after staging.
+        // Storage writes are still not marked until ALL views pass.
+        if (current_after_staging) {
+            for (const auto& texel : native_texels) {
+                const auto cpu = gpu_memory->GpuToCpuAddress(texel.guest_gpu_address);
+                if (!cpu || *cpu != texel.guest_cpu_address ||
+                    !Shader::Ampere::NativeQmdContiguousGpuSpan(
+                        texel.guest_gpu_address, texel.guest_bytes,
+                        [this](u64 page) {
+                            return gpu_memory->GpuToCpuAddress(page);
+                        })) {
+                    current_after_staging = false;
+                    break;
+                }
+            }
+        }
+        // SPIR-V compilation and descriptor staging can outlast a guest
+        // code rewrite without changing TIC, TSC or QMD CBUF metadata.
+        // Recheck the exact original Ampere words after image admission.
+        if (!current_after_staging ||
+            !captured.ComputeSourceMatches(
+                launch.program_address, VideoCommon::ReadNs2GpuShader,
+                gpu_memory) ||
+            !registry.IsComputeCurrent(kepler_compute, *ticket)) {
+            // Scope retirement also handles this rejection; do not release
+            // already recorded Vulkan descriptor-bind closures early.
+            return false;
+        }
+
+        // Deferred GPU write tracking is a commit, not descriptor staging.
+        // Rejecting a QMD because its guest CBUF or TIC/TSC changed must
+        // never tag unrelated guest RAM as GPU-written: a later CPU read
+        // could otherwise download stale Vulkan storage over newer CPU data.
+        // Keep the existing BufferCache lock and full 49-bit contiguous GMMU
+        // checks, but perform the side effect only after final authentication.
+        {
+            std::scoped_lock lock{buffer_cache.mutex};
+            // A VA can stay mapped while a guest remaps its physical pages.
+            // Recheck the exact pre-staging backing here, under the commit
+            // lock, not merely contiguous coverage. Matches also validates
+            // the full 49-bit span, so no second mapping walk is needed.
+            if (!staged_buffer_mappings.Matches(
+                    *resources, [this](u64 address) {
+                        return gpu_memory->GpuToCpuAddress(address);
+                    }))
+                return false;
+            // Validate every writable VkBuffer BEFORE marking any guest
+            // page GPU-dirty. A null handle discovered on the Nth binding
+            // must not taint earlier buffers when no vkCmdDispatch exists.
+            for (const auto& storage : resources->storage_buffers) {
+                if (!storage.is_written) continue;
+                const auto [buffer, offset] = buffer_cache.ObtainBuffer(
+                    storage.gpu_address, storage.bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::DoNothing);
+                if (!buffer || buffer->Handle() == VK_NULL_HANDLE)
+                    return false;
+                static_cast<void>(offset);
+            }
+            // Validate all writable texel views as well, before any
+            // CBUF/SSBO/image-buffer page is marked GPU-dirty.
+            for (const auto& texel : native_texels) {
+                if (!texel.is_written) continue;
+                const auto [buffer, offset] = buffer_cache.ObtainBuffer(
+                    texel.guest_gpu_address, texel.guest_bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::DoNothing);
+                if (!buffer || buffer->Handle() == VK_NULL_HANDLE)
+                    return false;
+                static_cast<void>(offset);
+            }
+            for (const auto& storage : resources->storage_buffers) {
+                if (!storage.is_written) continue;
+                static_cast<void>(buffer_cache.ObtainBuffer(
+                    storage.gpu_address, storage.bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::MarkAsWritten));
+            }
+            for (const auto& texel : native_texels) {
+                if (!texel.is_written) continue;
+                static_cast<void>(buffer_cache.ObtainBuffer(
+                    texel.guest_gpu_address, texel.guest_bytes,
+                    VideoCommon::ObtainBufferSynchronize::NoSynchronize,
+                    VideoCommon::ObtainBufferOperation::MarkAsWritten));
+            }
+        }
+
+        const auto dim = launch.grid;
+        scheduler.Record([](vk::CommandBuffer cmdbuf) {
+            cmdbuf.PipelineBarrier(
+                vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, COMPUTE_INPUT_BARRIER);
+        });
+        scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+            if (!pipeline->IsBound()) return;
+            cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
+            cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                   COMPUTE_CONSUMER_STAGES, 0, COMPUTE_WRITE_BARRIER);
+        });
+        // Scheduler::Record is deferred, and Vulkan keeps using the pipeline
+        // after vkCmdDispatch. Retain ownership through the GPU fence, not
+        // merely until the C++ renderer returns to the QMD scheduler.
+        // Successful submissions already hold their exact timeline owner.
+        // Cancel exception/early-return recovery before normal retirement.
+        native_compute_retirement.Cancel();
+        if (pinned_lifetime)
+            Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                scheduler, fence_manager, std::move(pinned_lifetime));
+        else
+            Shader::Ampere::RetainNativeComputeUntilGpuTick(
+                scheduler, fence_manager, std::move(pipeline));
+        return true;
+    } catch (const std::exception& error) {
+        LOG_WARNING(Render_Vulkan, "Native QMD3 Compute refused: {}", error.what());
+        return false;
+    }
+}
+#endif
+
+void RasterizerVulkan::DispatchCompute() {
+    FlushWork();
+#ifdef PS5_NATIVE
+    if (scheduler.PreflightDrawCommands() &&
+        ::Eden::Performance::detailed_gpu_profile.load(std::memory_order_relaxed)) {
+        ::Eden::Performance::scheduler_preflight_dispatches.fetch_add(
+            1, std::memory_order_relaxed);
+    }
+#endif
+    gpu_memory->FlushCaching();
+    ComputePipeline* pipeline{pipeline_cache.CurrentComputePipeline()};
+    if (!pipeline) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    // Select first: descriptor-free compute dispatches must not drain the
+    // legacy 1024-entry guest queue. After a real wait, consume guest page
+    // invalidations and reselect the possibly changed compute shader.
+    bool initial_compute_descriptor_drain = false;
+    if (pipeline->HasDescriptorEntries() &&
+        guest_descriptor_queue.PreflightGuestDraw([this] { scheduler.WaitWorker(); },
+                                                pipeline->DescriptorEntryReservation())) {
+        initial_compute_descriptor_drain = true;
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentComputePipeline();
+        if (!pipeline) return;
+    }
+#endif
+#ifdef PS5_NATIVE
+    // Compute reuses same-generation identical descriptor payloads.
+    // Pre-drain guaranteed allocations, not uncertain changed payloads,
+    // while neither guest cache is locked.
+    // Worker drains can publish guest shader/descriptor invalidations.
+    for (unsigned preflight = 0; preflight != 2; ++preflight) {
+        // No preceding worker drain means neither the descriptor cursor nor
+        // the selected shader changed since the first exact-capacity probe.
+        if (preflight == 0 && !initial_compute_descriptor_drain) break;
+        if (!pipeline->HasDescriptorEntries() ||
+            !guest_descriptor_queue.PreflightExactGuestDraw(
+                [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation()))
+            break;
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentComputePipeline();
+        if (!pipeline) return;
+    }
+    if (pipeline->CanUseDescriptorBuffer() &&
+        descriptor_buffer_ring.PreflightFrameReuse(scheduler)) {
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentComputePipeline();
+        if (!pipeline) return;
+        if (pipeline->HasDescriptorEntries() &&
+            guest_descriptor_queue.PreflightExactGuestDraw(
+                [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation())) {
+            gpu_memory->FlushCaching();
+            pipeline = pipeline_cache.CurrentComputePipeline();
+            if (!pipeline) return;
+        }
+    }
+    if (descriptor_buffer_ring.PreflightCapacity(
+            scheduler, pipeline->DescriptorRingPreflightSize())) {
+        gpu_memory->FlushCaching();
+        pipeline = pipeline_cache.CurrentComputePipeline();
+        if (!pipeline) return;
+        if (pipeline->HasDescriptorEntries() &&
+            guest_descriptor_queue.PreflightExactGuestDraw(
+                [this] { scheduler.WaitWorker(); }, pipeline->DescriptorEntryReservation())) {
+            gpu_memory->FlushCaching();
+            pipeline = pipeline_cache.CurrentComputePipeline();
+            if (!pipeline) return;
+        }
+    }
+#endif
+#ifdef PS5_NATIVE
+    // Descriptor storage is bounded by this shader's immutable layout.
+    // Reserve on the GPU owner thread BEFORE cache-pair acquisition.
+    pipeline->PreflightDescriptorScratch();
+#endif
+    SCOPE_EXIT { SyncProbe(scheduler, "dispatch", pipeline); };
+#ifdef PS5_NATIVE
+    // P0.3: sampled compute lock wait versus time spent holding both guest
+    // caches. No fence, shader, descriptor or lock ordering change.
+    const bool compute_sample = ::Eden::Performance::ShouldSampleCacheDraw();
+    ::Eden::Performance::CachePhaseTimer compute_pair_wait{
+        ::Eden::Performance::CachePhase::ComputePairWait, compute_sample};
+#endif
+    std::scoped_lock lock{texture_cache.mutex, buffer_cache.mutex};
+#ifdef PS5_NATIVE
+    compute_pair_wait.Stop();
+    ::Eden::Performance::CachePhaseTimer compute_pair_held{
+        ::Eden::Performance::CachePhase::ComputePairHeld, compute_sample};
+    ::Eden::Performance::CachePhaseTimer compute_configure{
+        ::Eden::Performance::CachePhase::ComputeConfigure, compute_sample};
+#endif
+    if (!pipeline->Configure(*kepler_compute, *gpu_memory, scheduler, buffer_cache,
+                             texture_cache)) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    compute_configure.Stop();
+#endif
+
+    const auto& qmd{kepler_compute->launch_description};
+    auto indirect_address = kepler_compute->GetIndirectComputeAddress();
+    if (indirect_address) {
+        // DispatchIndirect
+        static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
+        const auto post_op = VideoCommon::ObtainBufferOperation::DiscardWrite;
+        const auto [buffer, offset] =
+            buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
+#ifdef PS5_NATIVE
+        // A guest indirect-command address can become unmapped after a
+        // shader/descriptor remap. Reject the missing binding before Vulkan
+        // barriers or a worker lambda captures buffer->Handle().
+        if (!buffer || buffer->Handle() == VK_NULL_HANDLE) {
+            return;
+        }
+#endif
+        scheduler.RequestOutsideRenderPassOperationContext();
+        if (::Eden::DevVulkan::compute_barriers) {
+            scheduler.Record([](vk::CommandBuffer cmdbuf) {
+                cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
+                                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,
+                                       0, COMPUTE_INPUT_BARRIER);
+            });
+        }
+        scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
+                          indirect_offset = offset](vk::CommandBuffer cmdbuf) {
+            if (!pipeline->IsBound()) {
+                return;
+            }
+            cmdbuf.DispatchIndirect(indirect_buffer, indirect_offset);
+            if (::Eden::DevVulkan::compute_barriers)
+                cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, COMPUTE_CONSUMER_STAGES, 0,
+                                       COMPUTE_WRITE_BARRIER);
+        });
+        return;
+    }
+    const std::array<u32, 3> dim{qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z};
+    const std::array<u32, 3> max_dim{device.GetMaxComputeWorkGroupCount()};
+    if (dim[0] > max_dim[0] || dim[1] > max_dim[1] || dim[2] > max_dim[2]) {
+        return;
+    }
+    scheduler.RequestOutsideRenderPassOperationContext();
+    static constexpr VkMemoryBarrier READ_BARRIER{
+        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+        .pNext = nullptr,
+        .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+        .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+    };
+    scheduler.Record([](vk::CommandBuffer cmdbuf) { cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                               0, READ_BARRIER); });
+    scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
+        if (!pipeline->IsBound()) {
+            return;
+        }
+        cmdbuf.Dispatch(dim[0], dim[1], dim[2]);
+        if (::Eden::DevVulkan::compute_barriers)
+            cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, COMPUTE_CONSUMER_STAGES, 0,
+                                   COMPUTE_WRITE_BARRIER);
+    });
+
+    // Log compute dispatch
+    if (GPU::Logging::IsActive() &&
+        Settings::values.gpu_log_vulkan_calls.GetValue()) {
+        const std::string params = fmt::format("groupCountX={}, groupCountY={}, groupCountZ={}",
+            dim[0], dim[1], dim[2]);
+        GPU::Logging::GPULogger::GetInstance().LogVulkanCall(
+            "vkCmdDispatch", params, VK_SUCCESS);
+    }
+}
+
+void RasterizerVulkan::ResetCounter(VideoCommon::QueryType type) {
+    switch (type) {
+    case VideoCommon::QueryType::ZPassPixelCount64:
+    case VideoCommon::QueryType::StreamingByteCount:
+    case VideoCommon::QueryType::StreamingPrimitivesSucceeded:
+    case VideoCommon::QueryType::VtgPrimitivesOut:
+        query_cache.CounterReset(type);
+        return;
+    default:
+        LOG_DEBUG(Render_Vulkan, "Unimplemented counter reset={}", type);
+        return;
+    }
+}
+
+void RasterizerVulkan::Query(GPUVAddr gpu_addr, VideoCommon::QueryType type,
+                             VideoCommon::QueryPropertiesFlags flags, u32 payload, u32 subreport) {
+    query_cache.CounterReport(gpu_addr, type, flags, payload, subreport);
+}
+
+void RasterizerVulkan::BindGraphicsUniformBuffer(size_t stage, u32 index, GPUVAddr gpu_addr,
+                                                 u32 size) {
+    buffer_cache.BindGraphicsUniformBuffer(stage, index, gpu_addr, size);
+}
+
+void Vulkan::RasterizerVulkan::DisableGraphicsUniformBuffer(size_t stage, u32 index) {
+    buffer_cache.DisableGraphicsUniformBuffer(stage, index);
+}
+
+void RasterizerVulkan::FlushAll() {}
+
+void RasterizerVulkan::FlushRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
+    if (addr == 0 || size == 0) {
+        return;
+    }
+    // No guest image ever overlapped these CPU pages: no texture readback.
+    // Unknown, large or previously registered pages keep the original lock.
+    if (True(which & VideoCommon::CacheType::TextureCache) &&
+        !::Eden::ImagePages::NeverHeld(addr, size)) {
+#ifdef PS5_NATIVE
+        if (native_texture_read_lock_owner == this) {
+            // Our caller already holds texture_cache.mutex. Preserve the
+            // exact GPU-dirty readback, but never recursively lock a
+            // non-recursive shared cache mutex on a native TIC/TSC read.
+            texture_cache.DownloadMemory(addr, size);
+        } else
+#endif
+        {
+            std::scoped_lock lock{texture_cache.mutex};
+            texture_cache.DownloadMemory(addr, size);
+        }
+    }
+    // DownloadMemory visits registered buffers only. Pages with no
+    // registration history cannot require a buffer readback or mutex.
+    // Unknown/large spans conservatively execute the original path.
+    if (True(which & VideoCommon::CacheType::BufferCache) &&
+        !::Eden::BufferPages::NeverRegistered(addr, size)) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.DownloadMemory(addr, size);
+    }
+    if ((True(which & VideoCommon::CacheType::QueryCache))) {
+        query_cache.FlushRegion(addr, size);
+    }
+}
+
+bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
+    // A buffer GPU-dirty range requires a registered buffer. Never skip
+    // the test for an unknown or formerly registered CPU page.
+    if (True(which & VideoCommon::CacheType::BufferCache) &&
+        !::Eden::BufferPages::NeverRegistered(addr, size)) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        if (buffer_cache.IsRegionGpuModified(addr, size)) {
+            return true;
+        }
+    }
+    if (!Settings::IsGPULevelHigh()) {
+        return false;
+    }
+    // Zero-size queries preserve old behavior; known-empty valid pages
+    // cannot contain any GPU-modified texture requiring a guest readback.
+    if (True(which & VideoCommon::CacheType::TextureCache) &&
+        (size == 0 || !::Eden::ImagePages::NeverHeld(addr, size))) {
+        std::scoped_lock lock{texture_cache.mutex};
+        return texture_cache.IsRegionGpuModified(addr, size);
+    }
+    return false;
+}
+
+VideoCore::RasterizerDownloadArea RasterizerVulkan::GetFlushArea(DAddr addr, u64 size) {
+    ::Eden::Performance::DiagnosticTimer guest_read_timer(::Eden::Performance::guest_cpu_read);
+    const VideoCore::RasterizerDownloadArea clean_area{
+        .start_address = Common::AlignDown(addr, Core::DEVICE_PAGESIZE),
+        .end_address = Common::AlignUp(addr + size, Core::DEVICE_PAGESIZE),
+        .preemtive = true,
+    };
+    // A clean/never-held texture page does not prove that a GPU-written
+    // storage buffer is current in guest memory. Query each cache independently:
+    // never-owned pages remain lock-free, and no two cache locks are nested.
+    std::optional<VideoCore::RasterizerDownloadArea> texture_area;
+    if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        ::Eden::Performance::GuestCacheLock texture_wait(texture_cache.mutex, true);
+        std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
+        texture_area = texture_cache.GetFlushArea(addr, size);
+    }
+    if (texture_area && !texture_area->preemtive) {
+        // The existing GPU sync flushes both cache domains.
+        return *texture_area;
+    }
+    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+        ::Eden::Performance::GuestCacheLock buffer_wait(buffer_cache.mutex, true);
+        std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
+        if (buffer_cache.IsRegionGpuModified(
+                clean_area.start_address, clean_area.end_address - clean_area.start_address)) {
+            // GPU::OnCPURead must not return early for buffer-only GPU writes.
+            // Keep any texture-covered extent, including its sibling bytes.
+            return VideoCore::RasterizerDownloadArea{
+                .start_address = texture_area
+                    ? (std::min)(texture_area->start_address, clean_area.start_address)
+                    : clean_area.start_address,
+                .end_address = texture_area
+                    ? (std::max)(texture_area->end_address, clean_area.end_address)
+                    : clean_area.end_address,
+                .preemtive = false,
+            };
+        }
+    }
+    return texture_area.value_or(clean_area);
+}
+
+void RasterizerVulkan::InvalidateRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
+    if (addr == 0 || size == 0) {
+        return;
+    }
+    // The monotonic image page map is published before registration.
+    // Only bypass the texture mutex when the range never held an image.
+    if (True(which & VideoCommon::CacheType::TextureCache) &&
+        !::Eden::ImagePages::NeverHeld(addr, size)) {
+        std::scoped_lock lock{texture_cache.mutex};
+        texture_cache.WriteMemory(addr, size);
+    }
+    // A buffer cannot have GPU-owned content before its first registration.
+    // NeverRegistered fails closed for unknown or large ranges; future buffer
+    // registrations start CPU-dirty, so their first upload is unaffected.
+    if (True(which & VideoCommon::CacheType::BufferCache) &&
+        !::Eden::BufferPages::NeverRegistered(addr, size)) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.WriteMemory(addr, size);
+    }
+    if ((True(which & VideoCommon::CacheType::QueryCache))) {
+        query_cache.InvalidateRegion(addr, size);
+    }
+    if ((True(which & VideoCommon::CacheType::ShaderCache))) {
+        pipeline_cache.InvalidateRegion(addr, size);
+    }
+}
+
+void RasterizerVulkan::InnerInvalidation(std::span<const std::pair<DAddr, std::size_t>> sequences) {
+    // One owner-witness traversal for the whole batch. Texture and buffer
+    // page occupancy are monotonic, independently published before cache
+    // registration. Preserve the original texture -> buffer -> shader order.
+    // Stop probing a domain once an overlapping range is known.
+    bool texture_may_overlap = false;
+    bool buffer_may_overlap = false;
+    for (const auto& [addr, size] : sequences) {
+        if (!texture_may_overlap && !::Eden::ImagePages::NeverHeld(addr, size))
+            texture_may_overlap = true;
+        if (!buffer_may_overlap && !::Eden::BufferPages::NeverRegistered(addr, size))
+            buffer_may_overlap = true;
+        if (texture_may_overlap && buffer_may_overlap) break;
+    }
+    if (texture_may_overlap) {
+        std::scoped_lock lock{texture_cache.mutex};
+        for (const auto& [addr, size] : sequences) {
+            // Recheck under the texture mutex, so a concurrent registration
+            // cannot be mistaken for an image-free page in a mixed batch.
+            if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+                texture_cache.WriteMemory(addr, size);
+            }
+        }
+    }
+    // BufferPages::Mark publishes before insertion; a future registration
+    // begins CPU-dirty. The shared preflight above still fails closed for
+    // unknown/large ranges. Keep rechecks under the original cache mutex.
+    if (buffer_may_overlap) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        for (const auto& [addr, size] : sequences) {
+            if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+                buffer_cache.WriteMemory(addr, size);
+            }
+        }
+    }
+    {
+        for (const auto& [addr, size] : sequences) {
+            query_cache.InvalidateRegion(addr, size);
+            pipeline_cache.InvalidateRegion(addr, size);
+        }
+    }
+}
+
+bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
+    const bool defer_candidate =
+        ::Eden::GpuDeferredWrite::kNativePostStorePublicationReady &&
+        ::Eden::Performance::cpu_write_defer.load(std::memory_order_relaxed) &&
+        ::Eden::GpuDeferredWrite::guest_write_origin_core < ::Eden::GpuDeferredWrite::Queue::Cores &&
+        ::Eden::GpuDeferredWrite::guest_write_intent ==
+            ::Eden::GpuDeferredWrite::GuestWriteIntent::StoreFollows &&
+        !::Eden::GpuDeferredWrite::replaying_guest_write;
+    ::Eden::Performance::BatchedGuestWriteTimer guest_write_timer;
+    const bool sample_guest_write = ::Eden::Performance::ShouldSampleGuestWrite();
+    DEBUG_ASSERT(addr != 0 || size != 0);
+    // Buffer and texture page evidence independently guards their mutexes.
+    // Shader invalidation always runs, even if neither cache ever owned a page.
+    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+        ::Eden::Performance::CachePhaseTimer buffer_wait{
+            ::Eden::Performance::CachePhase::GuestWriteBufferWait, sample_guest_write};
+
+        if (!defer_candidate) {
+            ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
+        } else if (!buffer_cache.mutex.try_lock()) {
+            if (gpu_memory->EnqueueDeferredCPUWrite(addr, size)) return false;
+            ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
+        }
+        buffer_wait.Stop();
+        std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
+        ::Eden::Performance::CachePhaseTimer buffer_work{
+            ::Eden::Performance::CachePhase::GuestWriteBufferWork, sample_guest_write};
+        if (buffer_cache.OnCPUWrite(addr, size)) {
+            return true;
+        }
+        (void)::Eden::BufferWriteAhead::MarkFollowingPages(
+            static_cast<std::uint64_t>(addr), static_cast<std::uint64_t>(size),
+            ::Eden::Performance::cpu_write_ahead.load(std::memory_order_relaxed),
+            [&](std::uint64_t page, std::uint64_t span) {
+                return buffer_cache.IsRegionRegistered(static_cast<DAddr>(page), span);
+            },
+            [&](std::uint64_t page, std::uint64_t span) {
+                return buffer_cache.OnCPUWrite(static_cast<DAddr>(page), span);
+            });
+    }
+    // ImagePages is monotonically published before texture slot insertion.
+    // Only never-held small ranges may skip the texture-cache mutex; unknown
+    // and previously registered pages retain the full invalidation path.
+    if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        ::Eden::Performance::CachePhaseTimer texture_wait{
+            ::Eden::Performance::CachePhase::GuestWriteTextureWait, sample_guest_write};
+        ::Eden::Performance::GuestCacheLock(texture_cache.mutex, true);
+        texture_wait.Stop();
+        std::lock_guard lock{texture_cache.mutex, std::adopt_lock};
+        ::Eden::Performance::CachePhaseTimer texture_work{
+            ::Eden::Performance::CachePhase::GuestWriteTextureWork, sample_guest_write};
+        texture_cache.WriteMemory(addr, size);
+    }
+    ::Eden::Performance::CachePhaseTimer shader_invalidate{
+        ::Eden::Performance::CachePhase::GuestWriteShaderInvalidate, sample_guest_write};
+    pipeline_cache.InvalidateRegion(addr, size);
+    return false;
+}
+
+void RasterizerVulkan::OnCacheInvalidation(DAddr addr, u64 size) {
+    if (addr == 0 || size == 0) {
+        return;
+    }
+
+    // A never-owned image page cannot have texture descriptors to evict.
+    // Unknown, large and previously mapped spans still acquire the mutex.
+    if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        std::scoped_lock lock{texture_cache.mutex};
+        texture_cache.WriteMemory(addr, size);
+    }
+    // Unowned pages cannot contain stale buffer data. Preserve the
+    // shader invalidation regardless of buffer ownership.
+    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.WriteMemory(addr, size);
+    }
+    pipeline_cache.InvalidateRegion(addr, size);
+}
+
+void RasterizerVulkan::InvalidateGPUCache() {
+    gpu.InvalidateGPUCache();
+}
+
+void RasterizerVulkan::UnmapMemory(DAddr addr, u64 size) {
+    // ImagePages tracks CPU-addressed registered images monotonically.
+    // Do not contend on the texture mutex if this unmapped CPU range
+    // could never own an image; unknown/large ranges retain full work.
+    if (!::Eden::ImagePages::NeverHeld(addr, size)) {
+        std::scoped_lock lock{texture_cache.mutex};
+        texture_cache.UnmapMemory(addr, size);
+    }
+    // A never-registered CPU page cannot reference a cached GPU buffer.
+    // The monotonic owner witness fails closed on unknown or large ranges;
+    // a buffer registered later begins CPU-dirty and uploads normally.
+    if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
+        std::scoped_lock lock{buffer_cache.mutex};
+        buffer_cache.WriteMemory(addr, size, false);
+    }
+    pipeline_cache.OnCacheInvalidation(addr, size);
+}
+
+void RasterizerVulkan::ModifyGPUMemory(size_t as_id, GPUVAddr addr, u64 size) {
+    {
+        std::scoped_lock lock{texture_cache.mutex};
+        texture_cache.UnmapGPUMemory(as_id, addr, size);
+    }
+    buffer_cache.UnmapGPUMemory(as_id, addr, size);
+}
+
+void RasterizerVulkan::SignalFence(std::function<void()>&& func) {
+    fence_manager.SignalFence(std::move(func));
+}
+
+void RasterizerVulkan::SyncOperation(std::function<void()>&& func) {
+    fence_manager.SyncOperation(std::move(func));
+}
+
+void RasterizerVulkan::SignalSyncPoint(u32 value) {
+    fence_manager.SignalSyncPoint(value);
+}
+
+void RasterizerVulkan::SignalReference() {
+    fence_manager.SignalReference();
+}
+
+void RasterizerVulkan::ReleaseFences(bool force) {
+    if (force) {
+        ::Eden::Performance::DiagnosticTimer drain_timer(::Eden::Performance::gpu_fence_drain);
+        fence_manager.WaitPendingFences(force);
+    } else {
+        fence_manager.WaitPendingFences(force);
+    }
+}
+
+void RasterizerVulkan::FlushAndInvalidateRegion(DAddr addr, u64 size,
+                                                VideoCommon::CacheType which) {
+    if (Settings::IsGPULevelHigh()) {
+        FlushRegion(addr, size, which);
+    }
+    InvalidateRegion(addr, size, which);
+}
+
+void RasterizerVulkan::WaitForIdle() {
+    // Everything but wait pixel operations. This intentionally includes FRAGMENT_SHADER_BIT because
+    // fragment shaders can still write storage buffers.
+    VkPipelineStageFlags flags =
+        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+        VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+        VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+    if (device.IsExtTransformFeedbackSupported()) {
+        flags |= VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT;
+    }
+
+    query_cache.NotifyWFI();
+
+    scheduler.RequestOutsideRenderPassOperationContext();
+    scheduler.Record([event = *wfi_event, flags](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetEvent(event, flags);
+        cmdbuf.WaitEvents(event, flags, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, {}, {}, {});
+    });
+    fence_manager.SignalOrdering();
+}
+
+void RasterizerVulkan::FragmentBarrier() {
+    // We already put barriers when a render pass finishes
+    scheduler.RequestOutsideRenderPassOperationContext();
+}
+
+void RasterizerVulkan::TiledCacheBarrier() {
+    // TODO: Implementing tiled barriers requires rewriting a good chunk of the Vulkan backend
+}
+
+void RasterizerVulkan::FlushCommands() {
+    if (draw_counter == 0) {
+        return;
+    }
+    draw_counter = 0;
+    scheduler.Flush();
+}
+
+void RasterizerVulkan::TickFrame() {
+    draw_counter = 0;
+    guest_descriptor_queue.TickFrame();
+    compute_pass_descriptor_queue.TickFrame();
+    descriptor_buffer_ring.TickFrame();
+    fence_manager.TickFrame();
+    staging_pool.TickFrame();
+#ifdef PS5_NATIVE
+    // C01/C03: identify who holds the cache lock during frame housekeeping.
+    // One of 16 frames with detailed logging; no clocks or changed locks in
+    // quiet release. Wait and held intervals use disjoint timer scopes.
+    const bool frame_sample = ::Eden::Performance::ShouldSampleCacheFrame();
+#endif
+    {
+#ifdef PS5_NATIVE
+        ::Eden::Performance::CachePhaseTimer texture_wait{
+            ::Eden::Performance::CachePhase::FrameTextureWait, frame_sample};
+#endif
+        std::scoped_lock lock{texture_cache.mutex};
+#ifdef PS5_NATIVE
+        texture_wait.Stop();
+        ::Eden::Performance::CachePhaseTimer texture_held{
+            ::Eden::Performance::CachePhase::FrameTextureHeld, frame_sample};
+#endif
+        texture_cache.TickFrame();
+    }
+    {
+#ifdef PS5_NATIVE
+        ::Eden::Performance::CachePhaseTimer buffer_wait{
+            ::Eden::Performance::CachePhase::FrameBufferWait, frame_sample};
+#endif
+        std::scoped_lock lock{buffer_cache.mutex};
+#ifdef PS5_NATIVE
+        buffer_wait.Stop();
+        ::Eden::Performance::CachePhaseTimer buffer_held{
+            ::Eden::Performance::CachePhase::FrameBufferHeld, frame_sample};
+#endif
+        buffer_cache.TickFrame();
+    }
+}
+
+bool RasterizerVulkan::AccelerateConditionalRendering() {
+    gpu_memory->FlushCaching();
+    return query_cache.AccelerateHostConditionalRendering();
+}
+
+bool RasterizerVulkan::HasDrawTransformFeedback() {
+    return device.IsTransformFeedbackDrawSupported();
+}
+
+bool RasterizerVulkan::AccelerateSurfaceCopy(const Tegra::Engines::Fermi2D::Surface& src,
+                                             const Tegra::Engines::Fermi2D::Surface& dst,
+                                             const Tegra::Engines::Fermi2D::Config& copy_config) {
+    std::scoped_lock lock{texture_cache.mutex};
+    return texture_cache.BlitImage(dst, src, copy_config);
+}
+
+Tegra::Engines::AccelerateDMAInterface& RasterizerVulkan::AccessAccelerateDMA() {
+    return accelerate_dma;
+}
+
+void RasterizerVulkan::AccelerateInlineToMemory(GPUVAddr address, size_t copy_size,
+                                                std::span<const u8> memory) {
+    auto cpu_addr = gpu_memory->GpuToCpuAddress(address);
+    if (!cpu_addr) [[unlikely]] {
+        gpu_memory->WriteBlock(address, memory.data(), copy_size);
+        return;
+    }
+#ifdef PS5_NATIVE
+    // One GPU VA range can cross discontiguous device-memory pages. InlineMemory,
+    // texture invalidation and shader/query invalidation accept ONE CPU span:
+    // their first translated DAddr must never stand in for later GMMU pages.
+    // Single device-page writes keep the existing O(1) hot path. For fragmented
+    // but fully mapped spans, WriteBlock invalidates EACH translated physical
+    // segment before writing; it owns the same normal cache notifications.
+    if (!gpu_memory->IsGranularRange(address, copy_size) &&
+        !gpu_memory->IsContinuousRange(address, copy_size)) {
+        if (!gpu_memory->IsFullyMappedRange(address, copy_size)) {
+            return; // No partial writes into an invalid guest DMA mapping.
+        }
+        gpu_memory->WriteBlock(address, memory.data(), copy_size);
+        return;
+    }
+#endif
+    gpu_memory->WriteBlockUnsafe(address, memory.data(), copy_size);
+    // P0.3: an unregistered page has no buffer-backed GPU dirty bytes.
+    // Unknown, large and previously owned spans retain the original lock.
+    if (!::Eden::BufferPages::NeverRegistered(*cpu_addr, copy_size)) {
+        std::unique_lock<std::recursive_mutex> lock{buffer_cache.mutex};
+        if (!buffer_cache.InlineMemory(*cpu_addr, copy_size, memory)) {
+            buffer_cache.WriteMemory(*cpu_addr, copy_size);
+        }
+    }
+    // DMA inline writes do not need the texture mutex when these CPU pages
+    // have never belonged to an image. Unknown and large ranges fail closed.
+    if (!::Eden::ImagePages::NeverHeld(*cpu_addr, copy_size)) {
+        std::scoped_lock lock_texture{texture_cache.mutex};
+        texture_cache.WriteMemory(*cpu_addr, copy_size);
+    }
+    pipeline_cache.InvalidateRegion(*cpu_addr, copy_size);
+    query_cache.InvalidateRegion(*cpu_addr, copy_size);
+}
+
+std::optional<FramebufferTextureInfo> RasterizerVulkan::AccelerateDisplay(
+    const Tegra::FramebufferConfig& config, DAddr framebuffer_addr, u32 pixel_stride) {
+    if (!framebuffer_addr) {
+        return {};
+    }
+#ifdef PS5_NATIVE
+    // Present may run after a guest page remap without another draw.
+    // Commit queued guest-memory invalidations before reading cached image
+    // flags, never while holding texture_cache.mutex (invalidation takes it).
+    gpu_memory->FlushCaching();
+#endif
+    std::scoped_lock lock{texture_cache.mutex};
+    const auto [image_view, scaled] =
+        texture_cache.TryFindFramebufferImageView(config, framebuffer_addr);
+    if (!image_view) {
+        return {};
+    }
+
+    FramebufferTextureInfo info{};
+    info.image = image_view->ImageHandle();
+    info.image_view = image_view->Handle(Shader::TextureType::Color2D);
+#ifdef PS5_NATIVE
+    // A valid guest image-map entry does not guarantee that its Vulkan image
+    // and color view survived GPU allocation/recreation. Never send a null
+    // attachment into the compositor; use the existing raw guest upload.
+    if (info.image == VK_NULL_HANDLE || info.image_view == VK_NULL_HANDLE) {
+        return {};
+    }
+#endif
+    query_cache.NotifySegment(false);
+
+    const auto& resolution = Settings::values.resolution_info;
+
+    info.width = image_view->size.width;
+    info.height = image_view->size.height;
+    info.scaled_width = scaled ? resolution.ScaleUp(info.width) : info.width;
+    info.scaled_height = scaled ? resolution.ScaleUp(info.height) : info.height;
+    return info;
+}
+
+void RasterizerVulkan::LoadDiskResources(u64 title_id, std::stop_token stop_loading,
+                                         const VideoCore::DiskResourceLoadCallback& callback) {
+    pipeline_cache.LoadDiskResources(title_id, stop_loading, callback);
+}
+
+void RasterizerVulkan::FlushWork() {
+    static constexpr u32 DRAWS_TO_DISPATCH = 512;
+    const u32 CHECK_MASK = ::Eden::Performance::dispatch_mask.load(std::memory_order_relaxed);
+
+    ++draw_counter;
+    if (draw_counter >= DRAWS_TO_DISPATCH) {
+        scheduler.Flush();
+        draw_counter = 0;
+        return;
+    }
+    if ((draw_counter & CHECK_MASK) == CHECK_MASK) {
+        scheduler.DispatchWork();
+    }
+}
+
+AccelerateDMA::AccelerateDMA(BufferCache& buffer_cache_, TextureCache& texture_cache_,
+                             Scheduler& scheduler_)
+    : buffer_cache{buffer_cache_}, texture_cache{texture_cache_}, scheduler{scheduler_} {}
+
+bool AccelerateDMA::BufferClear(GPUVAddr src_address, u64 amount, u32 value) {
+#ifdef PS5_NATIVE
+    // The DMA clear count is in u32 words. Reject zero and oversized GPU
+    // fills before waiting for the guest buffer-cache mutex.
+    if (amount == 0 || amount > static_cast<u64>(~u32{0}) / sizeof(u32)) {
+        return false;
+    }
+#endif
+    std::scoped_lock lock{buffer_cache.mutex};
+    return buffer_cache.DMAClear(src_address, amount, value);
+}
+
+bool AccelerateDMA::BufferCopy(GPUVAddr src_address, GPUVAddr dest_address, u64 amount) {
+    // Invalid DMA byte counts have no GPU buffer range; return to the
+    // software path without contending on the guest buffer cache mutex.
+    if (amount == 0 || amount > static_cast<u64>(~u32{0})) {
+        return false;
+    }
+    std::scoped_lock lock{buffer_cache.mutex};
+    return buffer_cache.DMACopy(src_address, dest_address, amount);
+}
+
+template <bool IS_IMAGE_UPLOAD>
+bool AccelerateDMA::DmaBufferImageCopy(const Tegra::DMA::ImageCopy& copy_info,
+                                       const Tegra::DMA::BufferOperand& buffer_operand,
+                                       const Tegra::DMA::ImageOperand& image_operand) {
+#ifdef PS5_NATIVE
+    // Invalid DMA images have no buffer-cache allocation or GPU work.
+    // Reject them before the paired guest cache mutexes, so HUD bursts
+    // cannot queue behind an unrelated texture update for a no-op copy.
+    const u64 checked_bytes = static_cast<u64>(buffer_operand.pitch) * buffer_operand.height;
+    if (checked_bytes == 0 || checked_bytes > static_cast<u64>(~u32{0})) {
+        return false;
+    }
+#endif
+    std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+    const auto image_id = texture_cache.DmaImageId(image_operand, IS_IMAGE_UPLOAD);
+    if (image_id == VideoCommon::NULL_IMAGE_ID) {
+        return false;
+    }
+#ifdef PS5_NATIVE
+    const u32 buffer_size = static_cast<u32>(checked_bytes);
+#else
+    // Widen before multiplying, then respect the u32 buffer-cache span.
+    const u64 buffer_size_wide = static_cast<u64>(buffer_operand.pitch) * buffer_operand.height;
+    if (buffer_size_wide > static_cast<u64>(~u32{0})) {
+        return false;
+    }
+    const u32 buffer_size = static_cast<u32>(buffer_size_wide);
+#endif
+    static constexpr auto sync_info = VideoCommon::ObtainBufferSynchronize::FullSynchronize;
+    const auto post_op = IS_IMAGE_UPLOAD ? VideoCommon::ObtainBufferOperation::DoNothing
+                                         : VideoCommon::ObtainBufferOperation::MarkAsWritten;
+    const auto [buffer, offset] =
+        buffer_cache.ObtainBuffer(buffer_operand.address, buffer_size, sync_info, post_op);
+#ifdef PS5_NATIVE
+    // Guest size alone does not prove a valid GPU buffer handle.
+    if (!buffer || buffer->Handle() == VK_NULL_HANDLE) {
+        return false;
+    }
+#endif
+
+    const auto [image, copy] = texture_cache.DmaBufferImageCopy(
+        copy_info, buffer_operand, image_operand, image_id, IS_IMAGE_UPLOAD);
+    const std::span copy_span{&copy, 1};
+
+    if constexpr (IS_IMAGE_UPLOAD) {
+        texture_cache.PrepareImage(image_id, true, false);
+        image->UploadMemory(buffer->Handle(), offset, copy_span);
+    } else {
+        if (offset % BytesPerBlock(image->info.format)) {
+            return false;
+        }
+        texture_cache.DownloadImageIntoBuffer(image, buffer->Handle(), offset, copy_span,
+                                              buffer_operand.address, buffer_size);
+    }
+    return true;
+}
+
+bool AccelerateDMA::ImageToBuffer(const Tegra::DMA::ImageCopy& copy_info,
+                                  const Tegra::DMA::ImageOperand& image_operand,
+                                  const Tegra::DMA::BufferOperand& buffer_operand) {
+    return DmaBufferImageCopy<false>(copy_info, buffer_operand, image_operand);
+}
+
+bool AccelerateDMA::BufferToImage(const Tegra::DMA::ImageCopy& copy_info,
+                                  const Tegra::DMA::BufferOperand& buffer_operand,
+                                  const Tegra::DMA::ImageOperand& image_operand) {
+    return DmaBufferImageCopy<true>(copy_info, buffer_operand, image_operand);
+}
+
+void RasterizerVulkan::UpdateDynamicStates() {
+    auto& regs = maxwell3d->regs;
+    auto& flags = maxwell3d->dirty.flags;
+    const auto topology = maxwell3d->draw_manager.draw_state.topology;
+    const bool topology_changed = state_tracker.ChangePrimitiveTopology(topology);
+    if (topology_changed) {
+        flags[Dirty::DepthBiasEnable] = true;
+        flags[Dirty::PrimitiveRestartEnable] = true;
+    }
+
+    UpdateViewportsState(regs);
+    UpdateScissorsState(regs);
+    UpdateDepthBias(regs);
+    UpdateBlendConstants(regs);
+    UpdateDepthBounds(regs);
+    UpdateStencilFaces(regs);
+    UpdateLineWidth(regs);
+
+    if (device.IsExtExtendedDynamicStateSupported()) {
+        UpdateCullMode(regs);
+        UpdateDepthCompareOp(regs);
+        UpdateFrontFace(regs);
+        UpdateStencilOp(regs);
+        if (state_tracker.TouchStateEnable()) {
+            UpdateDepthBoundsTestEnable(regs);
+            UpdateDepthTestEnable(regs);
+            UpdateDepthWriteEnable(regs);
+            UpdateStencilTestEnable(regs);
+        }
+        if (topology_changed) {
+            scheduler.Record([topology_vk = MaxwellToVK::PrimitiveTopology(device, topology)](
+                                 vk::CommandBuffer cmdbuf) {
+                cmdbuf.SetPrimitiveTopologyEXT(topology_vk);
+            });
+        }
+    }
+
+    if (device.IsExtExtendedDynamicState2Supported()) {
+        UpdatePrimitiveRestartEnable(regs);
+        UpdateRasterizerDiscardEnable(regs);
+        UpdateDepthBiasEnable(regs);
+    }
+
+    if (device.IsExtExtendedDynamicState2ExtrasSupported()) {
+        UpdateLogicOp(regs);
+    }
+
+    if (device.IsExtExtendedDynamicState3EnablesSupported()) {
+        using namespace Tegra::Engines;
+        // The AMD host workaround depends on vertex formats as well as the
+        // guest logic-op register. A vertex format change must rebind the
+        // effective Vulkan state without overwriting the guest register.
+        if (regs.logic_op.enable != 0 && flags[Dirty::VertexInput] &&
+            (device.GetDriverID() == VkDriverIdKHR::VK_DRIVER_ID_AMD_OPEN_SOURCE ||
+             device.GetDriverID() == VkDriverIdKHR::VK_DRIVER_ID_AMD_PROPRIETARY)) {
+            flags[Dirty::LogicOpEnable] = true;
+        }
+        UpdateLogicOpEnable(regs);
+        UpdateDepthClampEnable(regs);
+        UpdateLineRasterizationMode(regs);
+        UpdateLineStippleEnable(regs);
+        UpdateConservativeRasterizationMode(regs);
+        UpdateAlphaToCoverageEnable(regs);
+        UpdateAlphaToOneEnable(regs);
+    }
+
+    if (device.IsExtExtendedDynamicState3BlendingSupported()) {
+        UpdateBlending(regs);
+    } else if (device.IsExtColorWriteEnableSupported()) {
+        UpdateColorWriteEnable(regs);
+    }
+
+    if (device.IsExtVertexInputDynamicStateSupported()) {
+#ifdef PS5_NATIVE
+        // DrawTexture uses its own blit pipeline, not a guest graphics
+        // pipeline. Do not translate a cold guest shader while holding the
+        // texture-cache lock just to set unused vertex input state. The next
+        // guest PrepareDraw has prepared_pipeline and will bind it normally.
+        if (prepared_pipeline && prepared_pipeline->HasDynamicVertexInput()) {
+            UpdateVertexInput(regs);
+        }
+#else
+        if (auto* gp = prepared_pipeline ? prepared_pipeline : pipeline_cache.CurrentGraphicsPipeline();
+            gp && gp->HasDynamicVertexInput()) {
+            UpdateVertexInput(regs);
+        }
+#endif
+    }
+}
+
+void RasterizerVulkan::HandleTransformFeedback() {
+    static std::once_flag warn_unsupported;
+
+    const auto& regs = maxwell3d->regs;
+    if (!device.IsExtTransformFeedbackSupported()) {
+        if (regs.transform_feedback_enabled != 0) {
+            std::call_once(warn_unsupported, [&] {
+                LOG_WARNING(Render_Vulkan, "Transform feedback requested by guest but VK_EXT_transform_feedback is unavailable; queries disabled");
+            });
+        } else {
+            std::call_once(warn_unsupported, [&] {
+                LOG_INFO(Render_Vulkan, "VK_EXT_transform_feedback not available on device");
+            });
+        }
+        return;
+    }
+    query_cache.CounterEnable(VideoCommon::QueryType::StreamingByteCount,
+                              regs.transform_feedback_enabled);
+    if (regs.transform_feedback_enabled != 0) {
+        // Log extension usage for transform feedback
+        if (GPU::Logging::IsActive()) {
+            GPU::Logging::GPULogger::GetInstance().LogExtensionUsage(
+                "VK_EXT_transform_feedback", "HandleTransformFeedback");
+        }
+        UNIMPLEMENTED_IF(regs.IsShaderConfigEnabled(Maxwell::ShaderType::TessellationInit) ||
+                         regs.IsShaderConfigEnabled(Maxwell::ShaderType::Tessellation));
+    }
+}
+
+void RasterizerVulkan::UpdateViewportsState(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchViewports()) {
+        return;
+    }
+
+    maxwell3d->dirty.flags[Dirty::Scissors] = true;
+
+    if (!regs.viewport_scale_offset_enabled) {
+        float x = static_cast<float>(regs.surface_clip.x);
+        float y = static_cast<float>(regs.surface_clip.y);
+        float width = (std::max)(1.0f, static_cast<float>(regs.surface_clip.width));
+        float height = (std::max)(1.0f, static_cast<float>(regs.surface_clip.height));
+        if (regs.window_origin.mode != Maxwell::WindowOrigin::Mode::UpperLeft) {
+            y += height;
+            height = -height;
+        }
+        VkViewport viewport{
+            .x = x,
+            .y = y,
+            .width = width,
+            .height = height,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f,
+        };
+        scheduler.Record([this, viewport](vk::CommandBuffer cmdbuf) {
+            const u32 num_viewports = std::min<u32>(device.GetMaxViewports(), Maxwell::NumViewports);
+            std::array<VkViewport, Maxwell::NumViewports> viewport_list{};
+            viewport_list.fill(viewport);
+            const vk::Span<VkViewport> viewports(viewport_list.data(), num_viewports);
+            cmdbuf.SetViewport(0, viewports);
+        });
+        return;
+    }
+    const bool is_rescaling{texture_cache.IsRescaling()};
+    const float scale = is_rescaling ? Settings::values.resolution_info.up_factor : 1.0f;
+    const std::array viewport_list{
+        GetViewportState(device, regs, 0, scale),  GetViewportState(device, regs, 1, scale),
+        GetViewportState(device, regs, 2, scale),  GetViewportState(device, regs, 3, scale),
+        GetViewportState(device, regs, 4, scale),  GetViewportState(device, regs, 5, scale),
+        GetViewportState(device, regs, 6, scale),  GetViewportState(device, regs, 7, scale),
+        GetViewportState(device, regs, 8, scale),  GetViewportState(device, regs, 9, scale),
+        GetViewportState(device, regs, 10, scale), GetViewportState(device, regs, 11, scale),
+        GetViewportState(device, regs, 12, scale), GetViewportState(device, regs, 13, scale),
+        GetViewportState(device, regs, 14, scale), GetViewportState(device, regs, 15, scale),
+    };
+    scheduler.Record([this, viewport_list](vk::CommandBuffer cmdbuf) {
+        const u32 num_viewports = std::min<u32>(device.GetMaxViewports(), Maxwell::NumViewports);
+        const vk::Span<VkViewport> viewports(viewport_list.data(), num_viewports);
+        cmdbuf.SetViewport(0, viewports);
+    });
+}
+
+void RasterizerVulkan::UpdateScissorsState(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchScissors()) {
+        return;
+    }
+    if (!regs.viewport_scale_offset_enabled) {
+        u32 x = regs.surface_clip.x;
+        u32 y = regs.surface_clip.y;
+        u32 width = (std::max)(1u, static_cast<u32>(regs.surface_clip.width));
+        u32 height = (std::max)(1u, static_cast<u32>(regs.surface_clip.height));
+        if (regs.window_origin.mode != Maxwell::WindowOrigin::Mode::UpperLeft) {
+            y = regs.surface_clip.height - (y + height);
+        }
+        VkRect2D scissor{};
+        scissor.offset.x = static_cast<int32_t>(x);
+        scissor.offset.y = static_cast<int32_t>(y);
+        scissor.extent.width  = width;
+        scissor.extent.height = height;
+        scheduler.Record([this, scissor](vk::CommandBuffer cmdbuf) {
+            const u32 num_scissors = std::min<u32>(device.GetMaxViewports(), Maxwell::NumViewports);
+            std::array<VkRect2D, Maxwell::NumViewports> scissor_list{};
+            scissor_list.fill(scissor);
+            const vk::Span<VkRect2D> scissors(scissor_list.data(), num_scissors);
+            cmdbuf.SetScissor(0, scissors);
+        });
+        return;
+    }
+    u32 up_scale = 1;
+    u32 down_shift = 0;
+    if (texture_cache.IsRescaling()) {
+        up_scale = Settings::values.resolution_info.up_scale;
+        down_shift = Settings::values.resolution_info.down_shift;
+    }
+    const std::array scissor_list{
+        GetScissorState(regs, 0, up_scale, down_shift),
+        GetScissorState(regs, 1, up_scale, down_shift),
+        GetScissorState(regs, 2, up_scale, down_shift),
+        GetScissorState(regs, 3, up_scale, down_shift),
+        GetScissorState(regs, 4, up_scale, down_shift),
+        GetScissorState(regs, 5, up_scale, down_shift),
+        GetScissorState(regs, 6, up_scale, down_shift),
+        GetScissorState(regs, 7, up_scale, down_shift),
+        GetScissorState(regs, 8, up_scale, down_shift),
+        GetScissorState(regs, 9, up_scale, down_shift),
+        GetScissorState(regs, 10, up_scale, down_shift),
+        GetScissorState(regs, 11, up_scale, down_shift),
+        GetScissorState(regs, 12, up_scale, down_shift),
+        GetScissorState(regs, 13, up_scale, down_shift),
+        GetScissorState(regs, 14, up_scale, down_shift),
+        GetScissorState(regs, 15, up_scale, down_shift),
+    };
+    scheduler.Record([this, scissor_list](vk::CommandBuffer cmdbuf) {
+        const u32 num_scissors = std::min<u32>(device.GetMaxViewports(), Maxwell::NumViewports);
+        const vk::Span<VkRect2D> scissors(scissor_list.data(), num_scissors);
+        cmdbuf.SetScissor(0, scissors);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthBias(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthBias()) {
+        return;
+    }
+    float units = regs.depth_bias / 2.0f;
+    const bool is_d24 = regs.zeta.format == Tegra::DepthFormat::Z24_UNORM_S8_UINT ||
+                        regs.zeta.format == Tegra::DepthFormat::X8Z24_UNORM ||
+                        regs.zeta.format == Tegra::DepthFormat::S8Z24_UNORM ||
+                        regs.zeta.format == Tegra::DepthFormat::V8Z24_UNORM;
+
+    if (is_d24 && !device.SupportsD24DepthBuffer()) {
+        static constexpr const size_t length = sizeof(NEEDS_D24) / sizeof(NEEDS_D24[0]);
+
+        static constexpr const u64* start = NEEDS_D24;
+        static constexpr const u64* end = NEEDS_D24 + length;
+
+        const u64* it = std::find(start, end, program_id);
+
+        if (it != end) {
+            // the base formulas can be obtained from here:
+            //   https://docs.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-output-merger-stage-depth-bias
+            const double rescale_factor =
+                static_cast<double>(1ULL << (32 - 24)) / (static_cast<double>(0x1.ep+127));
+            units = static_cast<float>(static_cast<double>(units) * rescale_factor);
+        }
+    }
+
+    scheduler.Record([constant = units, clamp = regs.depth_bias_clamp,
+                      factor = regs.slope_scale_depth_bias, this](vk::CommandBuffer cmdbuf) {
+        if (device.IsExtDepthBiasControlSupported()) {
+            static VkDepthBiasRepresentationInfoEXT bias_info{
+                .sType = VK_STRUCTURE_TYPE_DEPTH_BIAS_REPRESENTATION_INFO_EXT,
+                .pNext = nullptr,
+                .depthBiasRepresentation =
+                    VK_DEPTH_BIAS_REPRESENTATION_LEAST_REPRESENTABLE_VALUE_FORCE_UNORM_EXT,
+                .depthBiasExact = VK_FALSE,
+            };
+
+            cmdbuf.SetDepthBias(constant, clamp, factor, &bias_info);
+        } else {
+            cmdbuf.SetDepthBias(constant, clamp, factor);
+        }
+    });
+}
+
+void RasterizerVulkan::UpdateBlendConstants(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchBlendConstants()) {
+        return;
+    }
+    const std::array blend_color = {regs.blend_color.r, regs.blend_color.g, regs.blend_color.b,
+                                    regs.blend_color.a};
+    scheduler.Record(
+        [blend_color](vk::CommandBuffer cmdbuf) { cmdbuf.SetBlendConstants(blend_color.data()); });
+}
+
+void RasterizerVulkan::UpdateDepthBounds(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthBounds()) {
+        return;
+    }
+    scheduler.Record([min = regs.depth_bounds[0], max = regs.depth_bounds[1]](
+                         vk::CommandBuffer cmdbuf) { cmdbuf.SetDepthBounds(min, max); });
+}
+
+void RasterizerVulkan::UpdateStencilFaces(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchStencilProperties()) {
+        return;
+    }
+    bool update_references = state_tracker.TouchStencilReference();
+    bool update_write_mask = state_tracker.TouchStencilWriteMask();
+    bool update_compare_masks = state_tracker.TouchStencilCompare();
+    if (state_tracker.TouchStencilSide(regs.stencil_two_side_enable != 0)) {
+        update_references = true;
+        update_write_mask = true;
+        update_compare_masks = true;
+    }
+    if (update_references) {
+        [&]() {
+            bool changed;
+            if (regs.stencil_two_side_enable) {
+                const bool front_changed =
+                    state_tracker.CheckStencilReferenceFront(regs.stencil_front_ref);
+                const bool back_changed =
+                    state_tracker.CheckStencilReferenceBack(regs.stencil_back_ref);
+                changed = front_changed || back_changed;
+            } else {
+                const bool front_changed =
+                    state_tracker.CheckStencilReferenceFront(regs.stencil_front_ref);
+                const bool back_changed =
+                    state_tracker.CheckStencilReferenceBack(regs.stencil_front_ref);
+                changed = front_changed || back_changed;
+            }
+            if (!changed) {
+                return;
+            }
+            scheduler.Record([front_ref = regs.stencil_front_ref, back_ref = regs.stencil_back_ref,
+                              two_sided = regs.stencil_two_side_enable](vk::CommandBuffer cmdbuf) {
+                const bool set_back = two_sided && front_ref != back_ref;
+                // Front face
+                cmdbuf.SetStencilReference(set_back ? VK_STENCIL_FACE_FRONT_BIT
+                                                    : VK_STENCIL_FACE_FRONT_AND_BACK,
+                                           front_ref);
+                if (set_back) {
+                    cmdbuf.SetStencilReference(VK_STENCIL_FACE_BACK_BIT, back_ref);
+                }
+            });
+        }();
+    }
+    if (update_write_mask) {
+        [&]() {
+            bool changed;
+            if (regs.stencil_two_side_enable) {
+                const bool front_changed =
+                    state_tracker.CheckStencilWriteMaskFront(regs.stencil_front_mask);
+                const bool back_changed =
+                    state_tracker.CheckStencilWriteMaskBack(regs.stencil_back_mask);
+                changed = front_changed || back_changed;
+            } else {
+                const bool front_changed =
+                    state_tracker.CheckStencilWriteMaskFront(regs.stencil_front_mask);
+                const bool back_changed =
+                    state_tracker.CheckStencilWriteMaskBack(regs.stencil_front_mask);
+                changed = front_changed || back_changed;
+            }
+            if (!changed) {
+                return;
+            }
+            scheduler.Record([front_write_mask = regs.stencil_front_mask,
+                              back_write_mask = regs.stencil_back_mask,
+                              two_sided = regs.stencil_two_side_enable](vk::CommandBuffer cmdbuf) {
+                const bool set_back = two_sided && front_write_mask != back_write_mask;
+                // Front face
+                cmdbuf.SetStencilWriteMask(set_back ? VK_STENCIL_FACE_FRONT_BIT
+                                                    : VK_STENCIL_FACE_FRONT_AND_BACK,
+                                           front_write_mask);
+                if (set_back) {
+                    cmdbuf.SetStencilWriteMask(VK_STENCIL_FACE_BACK_BIT, back_write_mask);
+                }
+            });
+        }();
+    }
+    if (update_compare_masks) {
+        [&]() {
+            bool changed;
+            if (regs.stencil_two_side_enable) {
+                const bool front_changed =
+                    state_tracker.CheckStencilCompareMaskFront(regs.stencil_front_func_mask);
+                const bool back_changed =
+                    state_tracker.CheckStencilCompareMaskBack(regs.stencil_back_func_mask);
+                changed = front_changed || back_changed;
+            } else {
+                const bool front_changed =
+                    state_tracker.CheckStencilCompareMaskFront(regs.stencil_front_func_mask);
+                const bool back_changed =
+                    state_tracker.CheckStencilCompareMaskBack(regs.stencil_front_func_mask);
+                changed = front_changed || back_changed;
+            }
+            if (!changed) {
+                return;
+            }
+            scheduler.Record([front_test_mask = regs.stencil_front_func_mask,
+                              back_test_mask = regs.stencil_back_func_mask,
+                              two_sided = regs.stencil_two_side_enable](vk::CommandBuffer cmdbuf) {
+                const bool set_back = two_sided && front_test_mask != back_test_mask;
+                // Front face
+                cmdbuf.SetStencilCompareMask(set_back ? VK_STENCIL_FACE_FRONT_BIT
+                                                      : VK_STENCIL_FACE_FRONT_AND_BACK,
+                                             front_test_mask);
+                if (set_back) {
+                    cmdbuf.SetStencilCompareMask(VK_STENCIL_FACE_BACK_BIT, back_test_mask);
+                }
+            });
+        }();
+    }
+    state_tracker.ClearStencilReset();
+}
+
+void RasterizerVulkan::UpdateLineWidth(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchLineWidth()) {
+        return;
+    }
+    const float width =
+        regs.line_anti_alias_enable ? regs.line_width_smooth : regs.line_width_aliased;
+    scheduler.Record([width](vk::CommandBuffer cmdbuf) { cmdbuf.SetLineWidth(width); });
+}
+
+void RasterizerVulkan::UpdateCullMode(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchCullMode()) {
+        return;
+    }
+    scheduler.Record([enabled = regs.gl_cull_test_enabled,
+                      cull_face = regs.gl_cull_face](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetCullModeEXT(enabled ? MaxwellToVK::CullFace(cull_face) : VK_CULL_MODE_NONE);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthBoundsTestEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthBoundsTestEnable()) {
+        return;
+    }
+    bool enabled = regs.depth_bounds_enable;
+    if (enabled && !device.IsDepthBoundsSupported()) {
+        LOG_WARNING(Render_Vulkan, "Depth bounds is enabled but not supported");
+        enabled = false;
+    }
+    scheduler.Record([enable = enabled](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetDepthBoundsTestEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthTestEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthTestEnable()) {
+        return;
+    }
+    scheduler.Record([enable = regs.depth_test_enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetDepthTestEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthWriteEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthWriteEnable()) {
+        return;
+    }
+    scheduler.Record([enable = regs.depth_write_enabled](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetDepthWriteEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdatePrimitiveRestartEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchPrimitiveRestartEnable()) {
+        return;
+    }
+
+    bool enable = regs.primitive_restart.enabled != 0;
+    if (device.IsMoltenVK()) {
+        enable = true;
+    } else if (enable) {
+        const auto topology = MaxwellToVK::PrimitiveTopology(device, maxwell3d->draw_manager.draw_state.topology);
+        enable = IsPrimitiveRestartSupported(device, topology);
+    }
+
+    scheduler.Record([enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetPrimitiveRestartEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdateRasterizerDiscardEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchRasterizerDiscardEnable()) {
+        return;
+    }
+    scheduler.Record([disable = regs.rasterize_enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetRasterizerDiscardEnableEXT(disable == 0);
+    });
+}
+
+void RasterizerVulkan::UpdateConservativeRasterizationMode(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchConservativeRasterizationMode()) {
+        return;
+    }
+
+    if (!device.SupportsDynamicState3ConservativeRasterizationMode()) {
+        return;
+    }
+
+    scheduler.Record([enable = regs.conservative_raster_enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetConservativeRasterizationModeEXT(
+            enable ? VK_CONSERVATIVE_RASTERIZATION_MODE_OVERESTIMATE_EXT
+                   : VK_CONSERVATIVE_RASTERIZATION_MODE_DISABLED_EXT);
+    });
+}
+
+void RasterizerVulkan::UpdateLineStippleEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchLineStippleEnable()) {
+        return;
+    }
+
+    if (!device.SupportsDynamicState3LineStippleEnable()) {
+        return;
+    }
+
+    scheduler.Record([enable = regs.line_stipple_enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetLineStippleEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdateLineRasterizationMode(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!device.IsExtLineRasterizationSupported()) {
+        return;
+    }
+    if (!state_tracker.TouchLineRasterizationMode()) {
+        return;
+    }
+
+    if (!device.SupportsDynamicState3LineRasterizationMode()) {
+        static std::once_flag warn_missing_rect;
+        std::call_once(warn_missing_rect, [] {
+            LOG_WARNING(Render_Vulkan,
+                        "Driver lacks rectangular line rasterization support; skipping dynamic "
+                        "line state updates");
+        });
+        return;
+    }
+
+    const bool wants_smooth = regs.line_anti_alias_enable != 0;
+    VkLineRasterizationModeEXT mode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_EXT;
+    if (wants_smooth) {
+        if (device.SupportsSmoothLines()) {
+            mode = VK_LINE_RASTERIZATION_MODE_RECTANGULAR_SMOOTH_EXT;
+        } else {
+            static std::once_flag warn_missing_smooth;
+            std::call_once(warn_missing_smooth, [] {
+                LOG_WARNING(Render_Vulkan,
+                            "Line anti-aliasing requested but smoothLines feature unavailable; "
+                            "using rectangular rasterization");
+            });
+        }
+    }
+    scheduler.Record([mode](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetLineRasterizationModeEXT(mode);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthBiasEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthBiasEnable()) {
+        return;
+    }
+    constexpr size_t POINT = 0;
+    constexpr size_t LINE = 1;
+    constexpr size_t POLYGON = 2;
+    static constexpr std::array POLYGON_OFFSET_ENABLE_LUT = {
+        POINT,   // Points
+        LINE,    // Lines
+        LINE,    // LineLoop
+        LINE,    // LineStrip
+        POLYGON, // Triangles
+        POLYGON, // TriangleStrip
+        POLYGON, // TriangleFan
+        POLYGON, // Quads
+        POLYGON, // QuadStrip
+        POLYGON, // Polygon
+        LINE,    // LinesAdjacency
+        LINE,    // LineStripAdjacency
+        POLYGON, // TrianglesAdjacency
+        POLYGON, // TriangleStripAdjacency
+        POLYGON, // Patches
+    };
+    const std::array enabled_lut{
+        regs.polygon_offset_point_enable,
+        regs.polygon_offset_line_enable,
+        regs.polygon_offset_fill_enable,
+    };
+    const u32 topology_index = u32(maxwell3d->draw_manager.draw_state.topology);
+    const u32 enable = enabled_lut[POLYGON_OFFSET_ENABLE_LUT[topology_index]];
+    scheduler.Record([enable](vk::CommandBuffer cmdbuf) { cmdbuf.SetDepthBiasEnableEXT(enable != 0); });
+}
+
+void RasterizerVulkan::UpdateLogicOpEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchLogicOpEnable()) {
+        return;
+    }
+    if (!device.SupportsDynamicState3LogicOpEnable()) {
+        return;
+    }
+    bool enable = regs.logic_op.enable != 0;
+    if (enable &&
+        (device.GetDriverID() == VkDriverIdKHR::VK_DRIVER_ID_AMD_OPEN_SOURCE ||
+         device.GetDriverID() == VkDriverIdKHR::VK_DRIVER_ID_AMD_PROPRIETARY)) {
+        // The existing AMD float-vertex workaround applies to Vulkan only.
+        // Never mutate a Maxwell register: the guest can reuse its original
+        // logic-op value on a later draw with a different vertex format.
+        enable = !std::any_of(
+            regs.vertex_attrib_format.begin(), regs.vertex_attrib_format.end(),
+            [](const auto& attrib) {
+                return attrib.type ==
+                       Tegra::Engines::Maxwell3D::Regs::VertexAttribute::Type::Float;
+            });
+    }
+    scheduler.Record([enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetLogicOpEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthClampEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthClampEnable()) {
+        return;
+    }
+    if (!device.SupportsDynamicState3DepthClampEnable()) {
+        return;
+    }
+    bool is_enabled = !(regs.viewport_clip_control.geometry_clip ==
+                            Maxwell::ViewportClipControl::GeometryClip::Passthrough ||
+                        regs.viewport_clip_control.geometry_clip ==
+                            Maxwell::ViewportClipControl::GeometryClip::FrustumXYZ ||
+                        regs.viewport_clip_control.geometry_clip ==
+                            Maxwell::ViewportClipControl::GeometryClip::FrustumZ);
+    scheduler.Record(
+        [is_enabled](vk::CommandBuffer cmdbuf) { cmdbuf.SetDepthClampEnableEXT(is_enabled); });
+}
+
+void RasterizerVulkan::UpdateAlphaToCoverageEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchAlphaToCoverageEnable()) {
+        return;
+    }
+    if (!device.SupportsDynamicState3AlphaToCoverageEnable()) {
+        return;
+    }
+#ifdef PS5_NATIVE
+    // Guest draws have already selected their pipeline; raw DrawTexture blits
+    // must not translate an unrelated cold guest shader under texture lock.
+    GraphicsPipeline* const pipeline = prepared_pipeline;
+#else
+    GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
+#endif
+    const bool enable = pipeline != nullptr && pipeline->SupportsAlphaToCoverage() &&
+                        regs.anti_alias_alpha_control.alpha_to_coverage != 0;
+    scheduler.Record([enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetAlphaToCoverageEnableEXT(enable ? VK_TRUE : VK_FALSE);
+    });
+}
+
+void RasterizerVulkan::UpdateAlphaToOneEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchAlphaToOneEnable()) {
+        return;
+    }
+    if (!device.SupportsDynamicState3AlphaToOneEnable()) {
+        static std::once_flag warn_alpha_to_one;
+        std::call_once(warn_alpha_to_one, [] {
+            LOG_WARNING(Render_Vulkan,
+                        "Alpha-to-one is not supported on this device; forcing it disabled");
+        });
+        return;
+    }
+#ifdef PS5_NATIVE
+    // Guest draws have already selected their pipeline; raw DrawTexture blits
+    // must not translate an unrelated cold guest shader under texture lock.
+    GraphicsPipeline* const pipeline = prepared_pipeline;
+#else
+    GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
+#endif
+    const bool enable = pipeline != nullptr && pipeline->SupportsAlphaToOne() &&
+                        regs.anti_alias_alpha_control.alpha_to_one != 0;
+    scheduler.Record([enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetAlphaToOneEnableEXT(enable ? VK_TRUE : VK_FALSE);
+    });
+}
+
+void RasterizerVulkan::UpdateDepthCompareOp(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchDepthCompareOp()) {
+        return;
+    }
+    scheduler.Record([func = regs.depth_test_func](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetDepthCompareOpEXT(MaxwellToVK::ComparisonOp(func));
+    });
+}
+
+void RasterizerVulkan::UpdateFrontFace(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchFrontFace()) {
+        return;
+    }
+
+    VkFrontFace front_face = MaxwellToVK::FrontFace(regs.gl_front_face);
+    if (regs.window_origin.flip_y != 0) {
+        front_face = front_face == VK_FRONT_FACE_CLOCKWISE ? VK_FRONT_FACE_COUNTER_CLOCKWISE
+                                                           : VK_FRONT_FACE_CLOCKWISE;
+    }
+    scheduler.Record(
+        [front_face](vk::CommandBuffer cmdbuf) { cmdbuf.SetFrontFaceEXT(front_face); });
+}
+
+void RasterizerVulkan::UpdateStencilOp(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchStencilOp()) {
+        return;
+    }
+    const Maxwell::StencilOp::Op fail = regs.stencil_front_op.fail;
+    const Maxwell::StencilOp::Op zfail = regs.stencil_front_op.zfail;
+    const Maxwell::StencilOp::Op zpass = regs.stencil_front_op.zpass;
+    const Maxwell::ComparisonOp compare = regs.stencil_front_op.func;
+    if (regs.stencil_two_side_enable) {
+        // Separate stencil op per face
+        const Maxwell::StencilOp::Op back_fail = regs.stencil_back_op.fail;
+        const Maxwell::StencilOp::Op back_zfail = regs.stencil_back_op.zfail;
+        const Maxwell::StencilOp::Op back_zpass = regs.stencil_back_op.zpass;
+        const Maxwell::ComparisonOp back_compare = regs.stencil_back_op.func;
+        scheduler.Record([fail, zfail, zpass, compare, back_fail, back_zfail, back_zpass,
+                          back_compare](vk::CommandBuffer cmdbuf) {
+            cmdbuf.SetStencilOpEXT(VK_STENCIL_FACE_FRONT_BIT, MaxwellToVK::StencilOp(fail),
+                                   MaxwellToVK::StencilOp(zpass), MaxwellToVK::StencilOp(zfail),
+                                   MaxwellToVK::ComparisonOp(compare));
+            cmdbuf.SetStencilOpEXT(VK_STENCIL_FACE_BACK_BIT, MaxwellToVK::StencilOp(back_fail),
+                                   MaxwellToVK::StencilOp(back_zpass),
+                                   MaxwellToVK::StencilOp(back_zfail),
+                                   MaxwellToVK::ComparisonOp(back_compare));
+        });
+    } else {
+        // Front face defines the stencil op of both faces
+        scheduler.Record([fail, zfail, zpass, compare](vk::CommandBuffer cmdbuf) {
+            cmdbuf.SetStencilOpEXT(VK_STENCIL_FACE_FRONT_AND_BACK, MaxwellToVK::StencilOp(fail),
+                                   MaxwellToVK::StencilOp(zpass), MaxwellToVK::StencilOp(zfail),
+                                   MaxwellToVK::ComparisonOp(compare));
+        });
+    }
+}
+
+void RasterizerVulkan::UpdateLogicOp(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchLogicOp()) {
+        return;
+    }
+    const auto op_value = static_cast<u32>(regs.logic_op.op);
+    auto op = op_value >= 0x1500 && op_value < 0x1510 ? static_cast<VkLogicOp>(op_value - 0x1500)
+                                                      : VK_LOGIC_OP_NO_OP;
+    scheduler.Record([op](vk::CommandBuffer cmdbuf) { cmdbuf.SetLogicOpEXT(op); });
+}
+
+void RasterizerVulkan::UpdateBlending(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchBlending()) {
+        return;
+    }
+
+    if (state_tracker.TouchColorMask()) {
+        std::array<VkColorComponentFlags, Maxwell::NumRenderTargets> setup_masks{};
+        for (size_t index = 0; index < Maxwell::NumRenderTargets; index++) {
+            const auto& mask = regs.color_mask[regs.color_mask_common ? 0 : index];
+            auto& current = setup_masks[index];
+            if (mask.R) {
+                current |= VK_COLOR_COMPONENT_R_BIT;
+            }
+            if (mask.G) {
+                current |= VK_COLOR_COMPONENT_G_BIT;
+            }
+            if (mask.B) {
+                current |= VK_COLOR_COMPONENT_B_BIT;
+            }
+            if (mask.A) {
+                current |= VK_COLOR_COMPONENT_A_BIT;
+            }
+        }
+        scheduler.Record([setup_masks](vk::CommandBuffer cmdbuf) {
+            cmdbuf.SetColorWriteMaskEXT(0, setup_masks);
+        });
+    }
+
+    if (state_tracker.TouchBlendEnable()) {
+        std::array<VkBool32, Maxwell::NumRenderTargets> setup_enables{};
+        for (size_t index = 0; index < Maxwell::NumRenderTargets; index++) {
+            bool is_integer = false;
+            if (regs.rt[index].format != Tegra::RenderTargetFormat::NONE) {
+                const auto format =
+                    VideoCore::Surface::PixelFormatFromRenderTargetFormat(regs.rt[index].format);
+                is_integer = IsPixelFormatInteger(format);
+            }
+            setup_enables[index] =
+                (!is_integer && regs.blend.enable[index] != 0) ? VK_TRUE : VK_FALSE;
+        }
+        scheduler.Record([setup_enables](vk::CommandBuffer cmdbuf) {
+            cmdbuf.SetColorBlendEnableEXT(0, setup_enables);
+        });
+    }
+
+    if (state_tracker.TouchBlendEquations()) {
+        std::array<VkColorBlendEquationEXT, Maxwell::NumRenderTargets> setup_blends{};
+
+        const auto blend_setup = [&](auto& host_blend, const auto& guest_blend) {
+            host_blend.srcColorBlendFactor = MaxwellToVK::BlendFactor(guest_blend.color_source);
+            host_blend.dstColorBlendFactor = MaxwellToVK::BlendFactor(guest_blend.color_dest);
+            host_blend.colorBlendOp = MaxwellToVK::BlendEquation(guest_blend.color_op);
+            host_blend.srcAlphaBlendFactor = MaxwellToVK::BlendFactor(guest_blend.alpha_source);
+            host_blend.dstAlphaBlendFactor = MaxwellToVK::BlendFactor(guest_blend.alpha_dest);
+            host_blend.alphaBlendOp = MaxwellToVK::BlendEquation(guest_blend.alpha_op);
+        };
+
+        // Single blend equation for all targets
+        if (!regs.blend_per_target_enabled) {
+            // Temporary workaround for games that use iterated blending
+            if (regs.iterated_blend.enable && Settings::values.use_squashed_iterated_blend) {
+                setup_blends[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+                setup_blends[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+                setup_blends[0].colorBlendOp = VK_BLEND_OP_ADD;
+                setup_blends[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+                setup_blends[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+                setup_blends[0].alphaBlendOp = VK_BLEND_OP_ADD;
+            } else {
+                blend_setup(setup_blends[0], regs.blend);
+            }
+
+            // Copy first blend state to all other targets
+            for (size_t index = 1; index < Maxwell::NumRenderTargets; index++) {
+                setup_blends[index] = setup_blends[0];
+            }
+        } else {
+            // Per-target blending
+            for (size_t index = 0; index < Maxwell::NumRenderTargets; index++) {
+                blend_setup(setup_blends[index], regs.blend_per_target[index]);
+            }
+        }
+
+        scheduler.Record([setup_blends](vk::CommandBuffer cmdbuf) {
+            cmdbuf.SetColorBlendEquationEXT(0, setup_blends);
+        });
+    }
+}
+
+void RasterizerVulkan::UpdateColorWriteEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchColorMask()) {
+        return;
+    }
+    std::array<VkBool32, Maxwell::NumRenderTargets> setup_enables{};
+    for (size_t index = 0; index < Maxwell::NumRenderTargets; index++) {
+        const auto& mask = regs.color_mask[regs.color_mask_common ? 0 : index];
+        setup_enables[index] = (mask.R || mask.G || mask.B || mask.A) ? VK_TRUE : VK_FALSE;
+    }
+    scheduler.Record([setup_enables](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetColorWriteEnableEXT(setup_enables);
+    });
+}
+
+void RasterizerVulkan::UpdateStencilTestEnable(Tegra::Engines::Maxwell3D::Regs& regs) {
+    if (!state_tracker.TouchStencilTestEnable()) {
+        return;
+    }
+    scheduler.Record([enable = regs.stencil_enable](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetStencilTestEnableEXT(enable);
+    });
+}
+
+void RasterizerVulkan::UpdateVertexInput(Tegra::Engines::Maxwell3D::Regs& regs) {
+    auto& dirty{maxwell3d->dirty.flags};
+    const bool vertex_input_dirty = dirty[Dirty::VertexInput];
+    const bool vertex_buffers_dirty = dirty[VideoCommon::Dirty::VertexBuffers];
+    if (!vertex_input_dirty && !vertex_buffers_dirty) {
+        return;
+    }
+    dirty[Dirty::VertexInput] = false;
+
+    boost::container::static_vector<VkVertexInputBindingDescription2EXT, 32> bindings;
+    boost::container::static_vector<VkVertexInputAttributeDescription2EXT, 32> attributes;
+
+    const u32 max_attributes =
+        static_cast<u32>(std::min<size_t>(Maxwell::NumVertexAttributes,
+                                          device.GetMaxVertexInputAttributes()));
+    const u32 max_bindings =
+        static_cast<u32>(std::min<size_t>(Maxwell::NumVertexArrays,
+                                          device.GetMaxVertexInputBindings()));
+
+
+    for (u32 index = 0; index < max_attributes; ++index) {
+        const Maxwell::VertexAttribute attribute{regs.vertex_attrib_format[index]};
+        const u32 binding{attribute.buffer};
+        if (attribute.constant || binding >= max_bindings) {
+            continue;
+        }
+        attributes.push_back({
+            .sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT,
+            .pNext = nullptr,
+            .location = index,
+            .binding = binding,
+            .format = MaxwellToVK::VertexFormat(device, attribute.type, attribute.size),
+            .offset = attribute.offset,
+        });
+    }
+
+    for (u32 binding = 0; binding < max_bindings; ++binding) {
+        const auto& input_binding{regs.vertex_streams[binding]};
+        const bool is_instanced{regs.vertex_stream_instances.IsInstancingEnabled(binding) &&
+                                input_binding.frequency != 0};
+        bindings.push_back({
+            .sType = VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT,
+            .pNext = nullptr,
+            .binding = binding,
+            .stride = input_binding.stride,
+            .inputRate = is_instanced ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX,
+            .divisor = is_instanced ? input_binding.frequency : 1,
+        });
+    }
+
+    for (size_t index = 0; index < Maxwell::NumVertexAttributes; ++index) {
+        dirty[Dirty::VertexAttribute0 + index] = false;
+    }
+    for (size_t index = 0; index < Maxwell::NumVertexArrays; ++index) {
+        dirty[Dirty::VertexBinding0 + index] = false;
+    }
+
+    scheduler.Record([bindings, attributes](vk::CommandBuffer cmdbuf) {
+        cmdbuf.SetVertexInputEXT(bindings, attributes);
+    });
+}
+
+void RasterizerVulkan::InitializeChannel(Tegra::Control::ChannelState& channel) {
+    CreateChannel(channel);
+    {
+        std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+        texture_cache.CreateChannel(channel);
+        buffer_cache.CreateChannel(channel);
+    }
+    pipeline_cache.CreateChannel(channel);
+    query_cache.CreateChannel(channel);
+    state_tracker.SetupTables(channel);
+}
+
+void RasterizerVulkan::BindChannel(Tegra::Control::ChannelState& channel) {
+    const s32 channel_id = channel.bind_id;
+    BindToChannel(channel_id);
+    {
+        std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+        texture_cache.BindToChannel(channel_id);
+        buffer_cache.BindToChannel(channel_id);
+    }
+    pipeline_cache.BindToChannel(channel_id);
+    query_cache.BindToChannel(channel_id);
+    state_tracker.ChangeChannel(channel);
+    state_tracker.InvalidateState();
+}
+
+void RasterizerVulkan::ReleaseChannel(s32 channel_id) {
+    EraseChannel(channel_id);
+    {
+        std::scoped_lock lock{buffer_cache.mutex, texture_cache.mutex};
+        texture_cache.EraseChannel(channel_id);
+        buffer_cache.EraseChannel(channel_id);
+    }
+    pipeline_cache.EraseChannel(channel_id);
+    query_cache.EraseChannel(channel_id);
+}
+
+} // namespace Vulkan
