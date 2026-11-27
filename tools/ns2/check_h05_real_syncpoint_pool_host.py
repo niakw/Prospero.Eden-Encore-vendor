@@ -12,8 +12,8 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-OWNER=ROOT/"encore-active/eden-sync/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
-HEADER=ROOT/"encore-active/eden-sync/overrides/h05-syncpoint/core/hle/service/nvdrv/core/syncpoint_manager.h"
+OWNER=ROOT/"encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
+HEADER=ROOT/"encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.h"
 source=OWNER.read_text()
 start="u32 SyncpointManager::TryAllocateSyncpoint(bool client_managed) {"
 end="\nvoid SyncpointManager::FreeSyncpoint("

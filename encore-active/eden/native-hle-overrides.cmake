@@ -62,7 +62,7 @@ if(PS5_NATIVE)
     # exact header path and the native core; all NS1 upstream files stay
     # byte-for-byte untouched.
     set(_encore_h01_fs_header_root
-        "${CMAKE_CURRENT_LIST_DIR}/../eden-core/overrides/h01-filesystem")
+        "${_encore_sync_root}")
     if(NOT EXISTS "${_encore_h01_fs_header_root}/core/hle/service/filesystem/filesystem.h")
         message(FATAL_ERROR "Missing native H01 filesystem rollback header")
     endif()

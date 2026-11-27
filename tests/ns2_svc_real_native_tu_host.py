@@ -27,15 +27,8 @@ inc = [
     active / "ns2-runtime/gpu_dispatch",
     active / "ns2-runtime/ampere",
     active / "ns2-runtime/hle",
-    # Match production include ownership: the selected KThread comes from
-    # eden-threading, not the pristine sources/eden fallback.
-    active / "eden-threading/src",
-    active / "eden-core/overrides/native-tiling",
-    active / "eden-core/overrides",
-    active / "eden-backports/src",
-    active / "eden-shader/src",
-    active / "ns2-helpers/include",
-    active / "eden-core/src",
+    # Consolidated maintained owner for threading, core, shader and helpers.
+    active / "eden/src",
     root / "sources/eden/src",
     root / "sources/eden/src/dynarmic/src",
     root / "sources/fmt/include",
