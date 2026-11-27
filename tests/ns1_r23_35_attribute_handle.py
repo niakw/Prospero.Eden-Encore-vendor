@@ -10,9 +10,9 @@ import sys
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 EXPECTED={
-  "encore-active/eden-shader/src/shader_recompiler/host_translate_info.h": "af549e742edca3ce3e790ea5343136094a42b197",
-  "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "85c523e435ee8803ef3d2087567aa1a4b5d09369",
-  "encore-active/eden-shader/src/shader_recompiler/shader_info.h": "d847e7485a9657a6a016354fd70fb423112857ff",
+  "encore-active/eden/src/shader_recompiler/host_translate_info.h": "af549e742edca3ce3e790ea5343136094a42b197",
+  "encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp": "85c523e435ee8803ef3d2087567aa1a4b5d09369",
+  "encore-active/eden/src/shader_recompiler/shader_info.h": "d847e7485a9657a6a016354fd70fb423112857ff",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "d7563d41b74d780f4512899e2fda1b2f362f5523",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "d49090a476f6a9bf61026331f59c9fbb1d918729",
   "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp": "417b9b953bae2dcae511e4166821881f5c443aa1",
@@ -22,8 +22,8 @@ EXPECTED={
 # Reviewed FC27 successor: pin each complete changed production blob
 # while retaining the immutable historical R23 oracle for unchanged owners.
 CURRENT_ATTRIBUTE_SOURCE={
-  "encore-active/eden-shader/src/shader_recompiler/shader_info.h": "b0ec194089a0ec9ebb0ff46461f4607c3a7ba889",
-  "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp": "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a",
+  "encore-active/eden/src/shader_recompiler/shader_info.h": "b0ec194089a0ec9ebb0ff46461f4607c3a7ba889",
+  "encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp": "4301e9dbc19c4e07e7c24af23177cf5fa2142f1a",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h": "c1ed0200afd3666056dfe0ef60705015a923dac7",
   "encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp": "df36d210d04411b87e1fdad7fbd0689b1e4d3488",
   "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h": "6e0bf7ab2a3a2147f9db0c630070db30d9b35d56",
@@ -303,8 +303,8 @@ for path,sha in EXPECTED.items():
   assert digest=="10d76dd2b7b02fe6ce89afa5c122194442ebf77f", (path,digest)
  else:
   assert digest==sha,(path,gitblob(ROOT/path),digest,sha)
-shader=(ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp").read_text()
-profile=(ROOT/"encore-active/eden-shader/src/shader_recompiler/host_translate_info.h").read_text()
+shader=(ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp").read_text()
+profile=(ROOT/"encore-active/eden/src/shader_recompiler/host_translate_info.h").read_text()
 pipeline=(ROOT/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp").read_text()
 rast=(ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 header=(ROOT/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()

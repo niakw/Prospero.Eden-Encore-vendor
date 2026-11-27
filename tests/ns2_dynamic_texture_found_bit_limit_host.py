@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-OWNER=ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp"
+OWNER=ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp"
 source=OWNER.read_text()
 start="u32 DynamicDescriptorIndexLimit(const IR::U32& dynamic_offset, u32 size_shift) {"
 stop="\n}\n\nu32 SaturatingSub("
