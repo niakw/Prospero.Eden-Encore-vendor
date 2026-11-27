@@ -32,6 +32,8 @@ ThreadManager::~ThreadManager() { Stop(); }
 
 void ThreadManager::RunWorker(VideoCore::RendererBase& renderer, Core::Frontend::GraphicsContext& context, Tegra::Control::Scheduler& scheduler) {
     const auto stop_token = stop_source.get_token();
+    t_is_worker_thread = true;
+    SCOPE_EXIT { t_is_worker_thread = false; };
         Common::SetCurrentThreadName("GPU");
         Common::SetCurrentThreadPriority(Common::ThreadPriority::Critical);
         Common::SetCurrentThreadToPerformanceCores();
