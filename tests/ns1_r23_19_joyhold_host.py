@@ -2,7 +2,7 @@
 """R23 #19: selected HOS JoyHold orientation and serialized input reload."""
 from pathlib import Path
 import hashlib, os, subprocess, tempfile
-root=Path(__file__).resolve().parents[1]/"encore-active/eden-core"
+root=Path(__file__).resolve().parents[1]/"encore-active/eden"
 pins={
 "src/hid_core/hid_core.cpp":"fcf87d6d6349ec7a92be754c7476edbd1653b262",
 "include/hid_core/hid_core.h":"1cd3427724c256a20499f08505970cebb4ade102",
