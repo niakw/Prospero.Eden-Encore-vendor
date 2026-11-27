@@ -2,8 +2,8 @@ name: NS2 generation boundary receipt host
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-runtime/process/core/core.cpp'
-      - 'encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp'
+      - 'encore-active/eden/src/core/core.cpp'
+      - 'encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp'
       - 'tests/ns2-generation-boundary-log-source.py'
       - '.github/workflows/ns2-generation-boundary-receipt-host.yml'
   workflow_dispatch:
