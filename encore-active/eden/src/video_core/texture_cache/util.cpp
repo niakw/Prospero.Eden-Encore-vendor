@@ -565,8 +565,14 @@ void SwizzleBlockLinearImage(Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr
                                                 Tegra::Memory::GuestMemoryFlags::UnsafeReadWrite>
                 dst(gpu_memory, gpu_addr + guest_offset, subresource_size, &tmp_buffer);
 
+            // Guest-physical image uploads must use the channel's native GOB
+            // layout, exactly like MaxwellDMA, I2M and the Fermi blitter.
             SwizzleTexture(dst, src, bytes_per_block, num_tiles.width, num_tiles.height,
-                           num_tiles.depth, block.height, block.depth);
+                           num_tiles.depth, block.height, block.depth
+#ifdef PS5_NATIVE
+                           , 1, gpu_memory.UsesNativeTiling()
+#endif
+            );
         }
 
         host_offset += host_bytes_per_layer;
@@ -829,9 +835,8 @@ boost::container::small_vector<ImageCopy, 16> MakeReinterpretImageCopies(const I
 
 bool IsValidEntry(const Tegra::MemoryManager& gpu_memory, const TICEntry& config) {
 #ifdef PS5_NATIVE
-    // TextureFormat's first defined value is 1. An invalid 0 descriptor
-    // cannot be reinterpreted as RGBA8: doing so allocates a bogus view and
-    // can sample unrelated GPU pages. Preserve all legitimate formats.
+    // The zero TIC format is invalid. Reject it before constructing a
+    // fallback RGBA image view (which can sample unrelated guest backing).
     if (config.format == static_cast<Tegra::Texture::TextureFormat>(0)) {
         return false;
     }
@@ -847,10 +852,8 @@ bool IsValidEntry(const Tegra::MemoryManager& gpu_memory, const TICEntry& config
         return true;
     }
 #ifdef PS5_NATIVE
-    // The range overload means ANY page in a range is mapped, not ALL pages.
-    // A normal (non-sparse) texture with an absent first page cannot be
-    // sampled safely just because a later, unrelated page happens to exist.
-    // Preserve upstream's partial-mapping handling for genuine sparse TICs.
+    // The range overload can succeed when only a *later* page is mapped.
+    // That is not proof the first page of a non-sparse texture exists.
     if (config.is_sparse == 0) {
         return false;
     }
@@ -930,7 +933,11 @@ boost::container::small_vector<BufferImageCopy, 16> UnswizzleImage(Tegra::Memory
             const std::span<u8> dst = output.subspan(host_offset);
             const std::span<const u8> src = input.subspan(guest_offset + guest_layer_offset);
             UnswizzleTexture(dst, src, 1U << bpp_log2, num_tiles.width, num_tiles.height,
-                             num_tiles.depth, block.height, block.depth, stride_alignment);
+                             num_tiles.depth, block.height, block.depth, stride_alignment
+#ifdef PS5_NATIVE
+                             , gpu_memory.UsesNativeTiling()
+#endif
+            );
             guest_layer_offset += layer_stride;
             host_offset += host_bytes_per_layer;
         }
@@ -941,9 +948,15 @@ boost::container::small_vector<BufferImageCopy, 16> UnswizzleImage(Tegra::Memory
 
 void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8> output,
                   std::span<BufferImageCopy> copies) {
+    if (copies.empty()) {
+        return;
+    }
     u32 output_offset = 0;
     Common::ScratchBuffer<u8> decode_scratch;
 
+    // One conversion must use one format policy for all its mip levels.
+    const auto recompression_setting = Settings::values.astc_recompression.GetValue();
+    const bool astc = IsPixelFormatASTC(info.format);
     const Extent2D tile_size = DefaultBlockSize(info.format);
     for (BufferImageCopy& copy : copies) {
         const u32 level = copy.image_subresource.base_level;
@@ -957,9 +970,6 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
         const auto input_offset = input.subspan(copy.buffer_offset);
         copy.buffer_offset = output_offset;
 
-        const auto recompression_setting = Settings::values.astc_recompression.GetValue();
-        const bool astc = IsPixelFormatASTC(info.format);
-
         if (astc && recompression_setting == Settings::AstcRecompression::Uncompressed) {
             Tegra::Texture::ASTC::Decompress(
                 input_offset, copy.image_extent.width, copy.image_extent.height,
@@ -967,7 +977,7 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
                 tile_size.height, output.subspan(output_offset));
 
             output_offset += copy.image_extent.width * copy.image_extent.height *
-                             copy.image_subresource.num_layers *
+                             copy.image_extent.depth * copy.image_subresource.num_layers *
                              BytesPerBlock(PixelFormat::A8B8G8R8_UNORM);
         } else if (astc) {
             // BC1 uses 0.5 bytes per texel
@@ -981,16 +991,22 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
             const u32 level_size = plane_dim * copy.image_extent.depth *
                                    copy.image_subresource.num_layers *
                                    BytesPerBlock(PixelFormat::A8B8G8R8_UNORM);
-            decode_scratch.resize_destructive(level_size);
-
-            Tegra::Texture::ASTC::Decompress(
-                input_offset, copy.image_extent.width, copy.image_extent.height,
-                copy.image_subresource.num_layers * copy.image_extent.depth, tile_size.width,
-                tile_size.height, decode_scratch);
-
-            compress(decode_scratch, copy.image_extent.width, copy.image_extent.height,
-                     copy.image_subresource.num_layers * copy.image_extent.depth,
-                     output.subspan(output_offset));
+            // d7f2764: decode a single ASTC array/depth layer at a time.
+            // The original per-mip temporary allocation scaled to hundreds
+            // of MiB on tall arrays, competing with PS5's graphics memory.
+            const u32 layers = copy.image_subresource.num_layers * copy.image_extent.depth;
+            const u32 layer_input = Common::DivideUp(copy.image_extent.width, tile_size.width) *
+                                    Common::DivideUp(copy.image_extent.height, tile_size.height) * 16;
+            const u32 layer_output = Common::AlignUp(copy.image_extent.width, 4) *
+                                     Common::AlignUp(copy.image_extent.height, 4) / bpp_div;
+            decode_scratch.resize_destructive(level_size / (std::max)(layers, 1u));
+            for (u32 layer = 0; layer < layers; ++layer) {
+                Tegra::Texture::ASTC::Decompress(
+                    input_offset.subspan(layer * layer_input), copy.image_extent.width,
+                    copy.image_extent.height, 1, tile_size.width, tile_size.height, decode_scratch);
+                compress(decode_scratch, copy.image_extent.width, copy.image_extent.height, 1,
+                         output.subspan(output_offset + layer * layer_output));
+            }
 
             const u32 aligned_plane_dim = Common::AlignUp(copy.image_extent.width, 4) *
                                           Common::AlignUp(copy.image_extent.height, 4);
@@ -1002,7 +1018,7 @@ void ConvertImage(std::span<const u8> input, const ImageInfo& info, std::span<u8
         } else {
             DecompressBCn(input_offset, output.subspan(output_offset), copy, info.format);
             output_offset += copy.image_extent.width * copy.image_extent.height *
-                             copy.image_subresource.num_layers *
+                             copy.image_extent.depth * copy.image_subresource.num_layers *
                              ConvertedBytesPerBlock(info.format);
         }
 
