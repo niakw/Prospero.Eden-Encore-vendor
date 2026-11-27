@@ -45,7 +45,7 @@ active_roots = git_tree_dirs("encore-active")
 
 migration_debt_roots = {
     "eden-core", "eden-vulkan", "ns2-runtime",
-    "ns2-astc", "amd-fsr31",
+    "amd-fsr31",
 }
 
 unknown_active_roots = active_roots - source_roots - migration_debt_roots
@@ -55,7 +55,7 @@ assert not unknown_active_roots, (
 
 for retired in (
     "eden-gpu", "eden-sync", "eden-threading", "eden-shader",
-    "ns2-a64", "eden-build", "eden-backports",
+    "ns2-a64", "ns2-astc", "eden-build", "eden-backports",
 ):
     assert retired not in active_roots, ("retired active root reintroduced", retired)
 
