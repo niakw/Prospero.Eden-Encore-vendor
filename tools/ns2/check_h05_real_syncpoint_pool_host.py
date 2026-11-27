@@ -33,7 +33,7 @@ assert 'return 0;' in real
 for rel in ("syncpoint_manager.h","syncpoint_manager.cpp"):
     assert "TryAllocateSyncpoint" not in (
         ROOT/"sources/eden/src/core/hle/service/nvdrv/core"/rel).read_text()
-cmake=(ROOT/"encore-active/eden-threading/native-hle-overrides.cmake").read_text()
+cmake=(ROOT/"encore-active/eden/native-hle-overrides.cmake").read_text()
 assert "_encore_h05_header_root" in cmake and "_encore_h05_source" in cmake
 assert "if(PS5_NATIVE)" in cmake
 assert 'TryAllocateSyncpoint(bool client_managed)' in HEADER.read_text()

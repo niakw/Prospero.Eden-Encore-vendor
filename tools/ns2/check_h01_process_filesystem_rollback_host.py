@@ -28,7 +28,7 @@ assert "UnregisterProcessIfPresent(" in final
 assert "registrations.erase(process_id)" in erase
 assert "UnregisterProcessIfPresent" in (
     R/"encore-active/eden-core/overrides/h01-filesystem/core/hle/service/filesystem/filesystem.h").read_text()
-cm=(R/"encore-active/eden-threading/native-hle-overrides.cmake").read_text()
+cm=(R/"encore-active/eden/native-hle-overrides.cmake").read_text()
 assert "_encore_h01_fs_header_root" in cm and "if(PS5_NATIVE)" in cm
 assert "UnregisterProcessIfPresent" not in (
     R/"sources/eden/src/core/hle/service/filesystem/filesystem.h").read_text()

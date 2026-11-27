@@ -314,7 +314,7 @@ for relative, predecessor in cores.items():
     reconstructed = before + old + stop + after
     assert blob(reconstructed) == predecessor, (relative, blob(reconstructed), predecessor)
 
-maintained = (ROOT / "encore-active/eden-threading/src/core/hle/kernel/k_thread.cpp").read_text()
+maintained = (ROOT / "encore-active/eden/src/core/hle/kernel/k_thread.cpp").read_text()
 pinned = (ROOT / "sources/eden/src/core/hle/kernel/k_thread.cpp").read_text()
 start = "    void KThread::FinishTermination(KernelCore& kernel) {"
 end = "\n    void KThread::DoWorkerTaskImpl("

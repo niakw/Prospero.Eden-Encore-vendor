@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-hdr=(R/"encore-active/eden-threading/src/core/hle/kernel/k_thread.h").read_text()
-thr=(R/"encore-active/eden-threading/src/core/hle/kernel/k_thread.cpp").read_text()
-start=(R/"encore-active/eden-threading/src/core/hle/kernel/svc/svc_thread.cpp").read_text()
+hdr=(R/"encore-active/eden/src/core/hle/kernel/k_thread.h").read_text()
+thr=(R/"encore-active/eden/src/core/hle/kernel/k_thread.cpp").read_text()
+start=(R/"encore-active/eden/src/core/hle/kernel/svc/svc_thread.cpp").read_text()
 ipc=(R/"encore-active/eden-core/src/core/hle/kernel/svc/svc_ipc_standard.cpp").read_text()
 assert "std::vector<KThread*>& GetPendingStartedThreads()" in hdr
 assert "std::vector<KThread*> m_pending_started_threads;" in hdr
