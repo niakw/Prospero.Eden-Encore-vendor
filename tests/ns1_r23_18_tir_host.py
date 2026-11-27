@@ -325,17 +325,13 @@ fixed=(r/"encore-active/eden/src/video_core/renderer_vulkan/fixed_pipeline_state
 cost=(r/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache_cost.cpp").read_text()
 h=(r/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
 cache=(r/"encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
-# PS5 CMake puts ns2-astc first for video_core. Its active framebuffer ABI
-# adds only the reviewed layer count/accessor used by bounded clears/copies.
-# Strip exactly those two additions on this audit copy and require every
-# other byte to match the shadow Vulkan header.
-unified=(r/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
+# The retired eden-vulkan shadow is gone: there is exactly one canonical
+# framebuffer ABI owner under encore-active/eden. Keep the reviewed Layers()
+# additions pinned on that owner instead of manufacturing a fake parity copy.
+unified=h
 layers_method="    [[nodiscard]] u32 Layers() const noexcept {\n        return layers;\n    }\n\n"
 layers_member="    u32 layers = 1;\n"
 assert unified.count(layers_method)==unified.count(layers_member)==1
-# Both headers share storage; only the PS5 ASTC header adds Layers().
-historical_unified=unified.replace(layers_method,"",1)
-assert historical_unified==h, "vk_texture_cache headers diverged beyond active Layers ABI"
 for symbol in ("GetOrCreateTirColorScratch", "tir_color_scratch",
                "RetireGpuImageView", "RetireGpuImage(", "pending_retired_views",
                "AccelerateImageUploadLayers", "StorageImageLayerView"):
