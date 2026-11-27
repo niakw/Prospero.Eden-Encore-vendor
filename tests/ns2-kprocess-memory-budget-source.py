@@ -13,7 +13,7 @@ import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "sources/eden/src/core/hle/kernel/k_process.cpp"
-ACTIVE = ROOT / "encore-active/ns2-runtime/process/core/hle/kernel/k_process.cpp"
+ACTIVE = ROOT / "encore-active/eden/src/core/hle/kernel/k_process.cpp"
 
 base = BASE.read_text()
 active = ACTIVE.read_text()

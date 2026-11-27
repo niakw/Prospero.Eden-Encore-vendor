@@ -20,7 +20,7 @@ end = "                LowerGeometryPassthrough(program, normalized_host_info);\
 assert source.count(start) == source.count(end) == 1
 body = source[source.index(start):source.index(end) + len(end)]
 for header in ("sources/eden/src/shader_recompiler/frontend/ir/attribute.h",
-               "encore-active/ns2-runtime/shader_resource/include/shader_recompiler/frontend/ir/attribute.h"):
+               "encore-active/eden/src/shader_recompiler/frontend/ir/attribute.h"):
     enum_entries = re.findall(r"SRIR_ATTRIBUTE_ELEM\((\w+),\s*(\d+)\)", (root / header).read_text())
     assert len(enum_entries) > 128
     enum = ",".join(name+"="+n for name,n in enum_entries)

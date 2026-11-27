@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-PROCESS=ROOT/"encore-active/ns2-runtime/process/core/hle/service/os/process.cpp"
+PROCESS=ROOT/"encore-active/eden/src/core/hle/service/os/process.cpp"
 SLAB=ROOT/"encore-active/eden/src/core/hle/kernel/slab_helpers.h"
 proc=PROCESS.read_text()
 slab=SLAB.read_text()

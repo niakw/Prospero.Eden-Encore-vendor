@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-cpp=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
-hdr=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.h").read_text()
+cpp=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+hdr=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.h").read_text()
 host=(R/"sources/eden/src/video_core/host1x/syncpoint_manager.h").read_text()
-proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
+proto=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
 for marker in (
     '{202, &IGraphicsSupervisor::OpenSyncptSession, "OpenSyncptSession"}',
     '{204, &IGraphicsSupervisor::AttachSyncptMemory, "AttachSyncptMemory"}',
@@ -327,8 +327,8 @@ assert nvsrv.index('result = Kernel::ResultOutOfResource;') < nvsrv.index(
     'std::shared_ptr<Nvidia::NVDRV> handler{')
 # The independent GPU session also keeps a ref to the same process-generation
 # key. After this child closes, 497 may remain live with no lost epoch.
-shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
-registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+shared=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 assert "native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);" in shared
 assert "if (--it->second.references == 0) owners.erase(it);" in registry
 # 1402 must reject a second active user session (firmware 0x200f3),
@@ -513,7 +513,7 @@ host_inc=sync_owner.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1]
 assert "guest_action_storage[id]);" in guest_inc
 assert "guest_action_storage[id], id)" not in guest_inc
 assert "host_action_storage[id], id)" in host_inc
-video=(R/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
+video=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
 video_publish=video.split("m_available.erase(ready);",1)[1].split("m_ready->SetRoom",1)[0]
 assert video_publish.index("syncpoints.IncrementGuest(m_syncpoint);") < video_publish.index(
     "syncpoints.IncrementHost(m_syncpoint);")
@@ -624,7 +624,7 @@ with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
     _compile = _subprocess.run(
         [_gpu_cc, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
          "-fsanitize=undefined", "-fno-sanitize-recover=all",
-         "-I" + str(R / "encore-active/ns2-runtime/hle"),
+         "-I" + str(R / "encore-active/eden/src"),
          "-I" + str(R / "sources/eden/src"),
          str(_source), "-o", str(_output)],
         capture_output=True, text=True, timeout=70,
