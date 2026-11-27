@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'encore-active/ns2-runtime/ldapr/maintained/**'
-      - 'encore-active/eden-core/src/dynarmic/frontend/A64/translate/a64_translate.cpp'
+      - 'encore-active/eden/src/dynarmic/frontend/A64/translate/a64_translate.cpp'
       - 'tests/ns2_a64_v81_v85_source.py'
       - '.github/workflows/ns2-a64-v81-v85-host.yml'
   workflow_dispatch:
