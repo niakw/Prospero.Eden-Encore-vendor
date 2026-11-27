@@ -6,7 +6,7 @@ on:
   pull_request:
     paths:
       - "encore-active/eden/src/shader_recompiler/**"
-      - "encore-active/eden-vulkan/**"
+      - "encore-active/eden/src/video_core/renderer_vulkan/**"
       - "tests/ns1_r23_35_attribute_handle.py"
       - ".github/workflows/ns1-r23-attribute-handle.yml"
   workflow_dispatch:
