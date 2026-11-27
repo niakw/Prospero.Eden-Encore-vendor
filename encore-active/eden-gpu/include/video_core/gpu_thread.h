@@ -41,6 +41,14 @@ class RendererBase;
 
 namespace VideoCommon::GPUThread {
 
+// Rasterizer guest-write policy needs to know whether it is running on the
+// scheduler/GPU owner. Only non-owner guest CPU threads may defer page
+// protection untracks until after buffer_cache.mutex is released.
+inline thread_local bool t_is_worker_thread{};
+[[nodiscard]] inline bool IsWorkerThread() noexcept {
+    return t_is_worker_thread;
+}
+
 /// Command to signal to the GPU thread that a command list is ready for processing
 struct SubmitListCommand final {
     explicit SubmitListCommand(s32 channel_, Tegra::CommandList&& entries_)
