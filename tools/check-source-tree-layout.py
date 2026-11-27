@@ -23,18 +23,25 @@ assert "même nom de dépendance, même chemin relatif" in active_readme
 
 # Imported dependency roots are the namespace. Maintained roots must reuse it;
 # old feature/family names are migration debt and may never be recreated.
-source_roots = {p.name for p in SOURCES.iterdir() if p.is_dir()}
-allowed_non_source_files = {"README.md"}
-for child in ACTIVE.iterdir():
-    if child.is_file():
-        assert child.name in allowed_non_source_files, child
-        continue
-    assert child.name in source_roots or child.name in {
-        # Temporary migration debt. New files are forbidden here; these roots
-        # are removed progressively and checked below for already-retired areas.
-        "eden-core", "eden-vulkan", "eden-build", "eden-backports",
-        "ns2-runtime", "ns2-helpers", "ns2-astc", "amd-fsr31",
-    }, ("unknown encore-active dependency root", child.name)
+def git_tree_dirs(path: str) -> set[str]:
+    """Return tracked child directories independent of sparse/materialized checkout."""
+    out = subprocess.check_output(
+        ["git", "ls-tree", "-d", "--name-only", f"HEAD:{path}"],
+        cwd=ROOT, text=True,
+    )
+    return {line.strip() for line in out.splitlines() if line.strip()}
+
+source_roots = git_tree_dirs("sources")
+active_roots = git_tree_dirs("encore-active")
+migration_debt_roots = {
+    # Temporary migration debt. New files are forbidden here; these roots
+    # are removed progressively and checked below for already-retired areas.
+    "eden-core", "eden-vulkan", "eden-build", "eden-backports",
+    "ns2-runtime", "ns2-helpers", "ns2-astc", "amd-fsr31",
+}
+unknown_active_roots = active_roots - source_roots - migration_debt_roots
+assert not unknown_active_roots, (
+    "unknown encore-active dependency roots", sorted(unknown_active_roots))
 
 for retired in (
     "eden-gpu", "eden-sync", "eden-threading", "eden-shader", "ns2-a64",
