@@ -13,8 +13,8 @@ import tempfile
 R = Path(__file__).resolve().parents[1]
 hdr = (R / "encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h").read_text()
 svc = (R / "encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp").read_text()
-std = (R / "encore-active/eden-core/src/core/hle/kernel/physical_core_standard.cpp").read_text()
-dev = (R / "encore-active/eden-core/src/core/hle/kernel/physical_core_dev.cpp").read_text()
+std = (R / "encore-active/eden/src/core/hle/kernel/physical_core_standard.cpp").read_text()
+dev = (R / "encore-active/eden/src/core/hle/kernel/physical_core_dev.cpp").read_text()
 
 for marker in ("RecentSamples = 64", "RecordRecent(", "RecordOutcome(", "DumpRecent(",
                "outcome=completed", "outcome=pending", "EDEN_NS2_RECENT_SVC_BEGIN",

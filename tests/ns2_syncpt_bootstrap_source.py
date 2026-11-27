@@ -182,7 +182,7 @@ assert vi2_handler.index("token_hi = packet[3]") < vi2_handler.index("NativeTipc
 assert "IPC::ResponseBuilder rb{ctx, static_cast<u32>(2 + words.size())};" in cpp
 assert "rb.PushRaw<u32>(ResultSuccess.raw);" in cpp
 assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in (
-    R/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
+    R/"encore-active/eden/include/core/hle/service/ipc_helpers.h").read_text()
 # Session registration must not strand KSession and quota after a failed
 # server RegisterSession, including host allocation failures.
 meta = cpp.split("static Result CreateMetadataSession(", 1)[1].split("static void NativeTipcReplyWords(", 1)[0]
@@ -507,7 +507,7 @@ assert "GetNativeGuestSyncpointValue(id)" in mirror
 
 # GSV producer completion follows Host1x retirement, not the command-parser
 # guest/max-like edge. OunceVK joins this counter with a GPU-written marker.
-sync_owner=(R/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
+sync_owner=(R/"encore-active/eden/src/video_core/host1x/syncpoint_manager.cpp").read_text()
 guest_inc=sync_owner.split("void SyncpointManager::IncrementGuest(u32 id) {",1)[1].split("\n}",1)[0]
 host_inc=sync_owner.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1].split("\n}",1)[0]
 assert "guest_action_storage[id]);" in guest_inc

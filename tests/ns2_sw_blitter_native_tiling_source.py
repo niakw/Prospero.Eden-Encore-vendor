@@ -11,7 +11,7 @@ import hashlib
 
 root = Path(__file__).resolve().parents[1]
 pinned = (root / "sources/eden/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
-active = (root / "encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
+active = (root / "encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
 header = (root / "encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h").read_text()
 
 src_old = """                         src.block_height, src.block_depth, src_extent_x * src_bytes_per_pixel);"""

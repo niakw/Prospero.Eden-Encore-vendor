@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # First recover the *exact* selected predecessor (vendor main), then check
 # the source-owned snapshot and full fault context. Do not rewrite history.
 PREDECESSOR = {
-    "encore-active/eden-core/src/core/hle/kernel/physical_core_dev.cpp":
+    "encore-active/eden/src/core/hle/kernel/physical_core_dev.cpp":
         "4521fd48028b9852cc6929c642bfd906421ea474",
-    "encore-active/eden-core/src/core/hle/kernel/physical_core_standard.cpp":
+    "encore-active/eden/src/core/hle/kernel/physical_core_standard.cpp":
         "bbd7f7a5a069e6f4407a1e4f0e2b4b333f611911",
 }
 OLD_DECL = 'extern "C" void eden_ns2_dump_recent_svc(std::uint64_t) noexcept __attribute__((weak));'

@@ -59,7 +59,7 @@ for marker in ("if (native && flags.fence_wait.Value())",
 assert submit.index("syncpoint_manager.CaptureNativeSyncpointLease(") < submit.index(
     "system.GPU().InitChannel(") < submit.index("gpu.PushGPUEntries(")
 assert "if (!native && flags.fence_wait.Value())" in submit
-dma=(ROOT/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+dma=(ROOT/"encore-active/eden/src/video_core/dma_pusher.cpp").read_text()
 resume=dma.split("bool DmaPusher::ResumeNativeAcquire() {",1)[1].split("\n}",1)[0]
 assert resume.count("pending->lease->load(std::memory_order_acquire)")==2
 assert resume.index("rasterizer->ReleaseFences(false);") < resume.index(
