@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-active = ROOT / "encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h"
+active = ROOT / "encore-active/eden/src/core/gpu_dirty_memory_manager.h"
 original = ROOT / "sources/eden/src/core/gpu_dirty_memory_manager.h"
 source = active.read_text()
 pristine = original.read_text()
