@@ -10,7 +10,7 @@ import os
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-FILE = ROOT / "encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_context_get_set.cpp"
+FILE = ROOT / "encore-active/eden/src/shader_recompiler/backend/spirv/emit_spirv_context_get_set.cpp"
 source = FILE.read_text()
 old = """    if (type == AttributeType::Float) {
         const Id pointer{ctx.OpAccessChain(ctx.output_f32, ctx.frag_color.at(index), component_id)};
