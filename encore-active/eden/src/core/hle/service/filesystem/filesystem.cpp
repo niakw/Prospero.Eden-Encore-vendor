@@ -1,4 +1,3 @@
-#include "assets_dir.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -346,14 +345,6 @@ Result FileSystemController::RegisterProcess(
 
     LOG_DEBUG(Service_FS, "Registered for process {}", process_id);
     return ResultSuccess;
-}
-
-void FileSystemController::UnregisterProcessIfPresent(ProcessId process_id) {
-    // A KProcess may reject AFTER its ExeFS loader already registered a
-    // RomFS factory. Remove only that process's entry, never Reset() the
-    // filesystem controller (which would discard other live NS1/NS2 titles).
-    std::scoped_lock lk{registration_lock};
-    registrations.erase(process_id);
 }
 
 Result FileSystemController::OpenProcess(
@@ -739,19 +730,6 @@ void FileSystemController::CreateFactories(FileSys::VfsFilesystem& vfs, bool ove
     const auto sdmc_load_dir_path = sdmc_dir_path / "atmosphere/contents";
     const auto rw_mode = FileSys::OpenMode::ReadWrite;
 
-    // Switch temporary save storage starts empty for an application, but
-    // multiple bundled programs share the same storage lifetime. Preparing
-    // it in every SaveDataFactory ctor deletes a sibling program's live data.
-    // CreateFactories is initialized once for the application controller;
-    // overwrite explicitly starts a new generation and resets bis_factory.
-    if (bis_factory == nullptr) {
-        const auto save_directory =
-            vfs.OpenDirectory(Common::FS::GetEdenPathString(EdenPath::SaveDir), rw_mode);
-        if (save_directory != nullptr) {
-            save_directory->DeleteSubdirectoryRecursive("temp");
-        }
-    }
-
     auto nand_directory =
         vfs.OpenDirectory(Common::FS::GetEdenPathString(EdenPath::NANDDir), rw_mode);
     auto sd_directory = vfs.OpenDirectory(Common::FS::PathToUTF8String(sdmc_dir_path), rw_mode);
@@ -764,7 +742,7 @@ void FileSystemController::CreateFactories(FileSys::VfsFilesystem& vfs, bool ove
 
     if (bis_factory == nullptr) {
         bis_factory = std::make_unique<FileSys::BISFactory>(
-            nand_directory, std::move(load_directory), std::move(dump_directory), vfs.OpenDirectory(Eden::AssetsPath("firmware"), FileSys::OpenMode::Read));
+            nand_directory, std::move(load_directory), std::move(dump_directory));
         system.RegisterContentProvider(FileSys::ContentProviderUnionSlot::SysNAND,
                                        bis_factory->GetSystemNANDContents());
         system.RegisterContentProvider(FileSys::ContentProviderUnionSlot::UserNAND,
