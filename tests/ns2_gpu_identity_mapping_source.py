@@ -6,14 +6,14 @@ R=Path(__file__).resolve().parents[1]
 # gpu_core->NotifyShutdown while a native GPFIFO is parked or draining an
 # inter-list dependency. The GPU pthread join must not depend on an unbounded
 # ReleaseFences(true), and cancellation must not publish unexecuted work.
-dma=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+dma=(R/"encore-active/eden/src/video_core/dma_pusher.cpp").read_text()
 dma_header=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
 puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
 native_nvhost=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 native_process_registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 native_scheduler=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
 gpu_header=(R/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
-gpu_vulkan=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
+gpu_vulkan=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
 dispatch=dma.split("void DmaPusher::DispatchCalls() {",1)[1].split(
     "\n[[noreturn]] void DmaPusher::FailNativeSubmission",1)[0]
 step=dma.split("bool DmaPusher::Step() {",1)[1].split(
@@ -475,7 +475,7 @@ assert "if (!owner) {" in as_bind
 # every NVMap handle. The actual PS5-selected Container must hold a checked
 # reference to the same live session until the last bound channel retires.
 nvcore_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
-nvcore_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+nvcore_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.cpp").read_text()
 assert "bool RetainSession(SessionId id, const Kernel::KProcess* process);" in nvcore_h
 retain=nvcore_cpp.split("bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {",1)[1].split(
     "\n}",1)[0]
@@ -498,10 +498,10 @@ assert as_bind.index("container.RetainSession(*m_nv_session, m_native_process)")
 # global shutdown, which has already destroyed GPU before NVDRV.
 scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
 scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
-gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
 nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
-ioctl_serialization=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/devices/ioctl_serialization.h").read_text()
+ioctl_serialization=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/ioctl_serialization.h").read_text()
 assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
 retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
     "\n}",1)[0]
@@ -825,7 +825,7 @@ for body in (health_info,health):
 assert "params = native_error_info;" in health_info
 # Native Ampere producer counters must retire behind a real Vulkan fence,
 # independent of GPU fence behavior. Maxwell/NS1 keeps SignalSyncPoint.
-fence_manager=(R/"encore-active/eden-backports/src/video_core/fence_manager.h").read_text()
+fence_manager=(R/"encore-active/eden/src/video_core/fence_manager.h").read_text()
 raster_abi=(R/"encore-active/ns2-runtime/vulkan_abi/video_core/rasterizer_interface.h").read_text()
 vulkan_h=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
 vulkan_cpp=(R/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
@@ -1280,7 +1280,7 @@ print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=as_import vm_
 # DmaPusher/engine payload reachable until process-wide GPU destruction.
 scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
 scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
-gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
 nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
 retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
@@ -1301,7 +1301,7 @@ release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {"
     "\n    /// Binds a renderer to the GPU.",1)[0]
 # The dual native build selects gpu_gl_native.cpp even for Vulkan gameplay.
 # Verify BOTH maintained owners; the selected one must not regress to a stub.
-for gpu_owner in (gpu_cpp, (R/"encore-active/eden-core/src/video_core/gpu_gl_native.cpp").read_text()):
+for gpu_owner in (gpu_cpp, (R/"encore-active/eden/src/video_core/gpu_gl_native.cpp").read_text()):
     assert "Tegra::Control::ChannelState* current_channel{};" in gpu_owner
     assert "s32 bound_channel{-1};" in gpu_owner
     release=gpu_owner.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
@@ -1404,7 +1404,7 @@ as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhos
 as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
 container_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
-container_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+container_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.cpp").read_text()
 assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
 assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(
     "std::optional<Payload> payload;")
@@ -1484,7 +1484,7 @@ assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in wor
 
 # Exclusive native worker free performs its final ownership check under NvMap's
 # real handle mutex. The stale shared_ptr cannot pin after retirement.
-_nvmap_native = (R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/nvmap.cpp").read_text()
+_nvmap_native = (R/"encore-active/eden/src/core/hle/service/nvdrv/core/nvmap.cpp").read_text()
 _free_impl = _nvmap_native.split("NvMap::FreeHandleImpl(",1)[1].split("void NvMap::UnmapAllHandles",1)[0]
 assert _free_impl.index("std::scoped_lock lock(handle_description->mutex);") < _free_impl.index("handle_description->pins != 0") < _free_impl.index("handle_description->native_retired = true;") < _free_impl.index("--handle_description->dupes")
 assert "if (handle_description->native_retired) return 0;" in _nvmap_native
@@ -1499,7 +1499,7 @@ assert "nvmap.FreeHandleIfUnpinned(id)" in worker.split("Result IGpuWorker::Rele
 # the GPU queue. Poison/revocation must invalidate the token before command
 # fetch/dispatch and before any synthetic completion packet can retire.
 dma_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
-dma_cpp=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+dma_cpp=(R/"encore-active/eden/src/video_core/dma_pusher.cpp").read_text()
 assert "CaptureNativeSubmissionLease() const;" in as_h
 assert "m_native_submission_lease" in as_h
 assert "void nvhost_as_gpu::PoisonNativeAddressSpace() noexcept" in as_cpp

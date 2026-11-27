@@ -3,8 +3,8 @@
 from pathlib import Path
 import hashlib, os, subprocess, tempfile
 r=Path(__file__).resolve().parents[1]
-cpp=r/"encore-active/eden-core/src/hid_core/frontend/emulated_controller.cpp"
-header=r/"encore-active/eden-core/include/hid_core/frontend/emulated_controller.h"
+cpp=r/"encore-active/eden/src/hid_core/frontend/emulated_controller.cpp"
+header=r/"encore-active/eden/include/hid_core/frontend/emulated_controller.h"
 def gitsha(f):
  d=f.read_bytes()
  return hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()

@@ -5,7 +5,7 @@ import hashlib
 import os
 import subprocess
 import tempfile
-p=Path(__file__).resolve().parents[1]/"encore-active/eden-core/src/core/hle/service/nvnflinger/hardware_composer.cpp"
+p=Path(__file__).resolve().parents[1]/"encore-active/eden/src/core/hle/service/nvnflinger/hardware_composer.cpp"
 s=p.read_text()
 raw=p.read_bytes()
 sha=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
