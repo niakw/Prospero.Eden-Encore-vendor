@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-OWNER=ROOT/"encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp"
+OWNER=ROOT/"encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp"
 source=OWNER.read_text()
 start="    const std::array static_modules ="
 end="\n    std::size_t code_size{};"

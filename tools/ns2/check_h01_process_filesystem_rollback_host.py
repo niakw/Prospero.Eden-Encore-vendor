@@ -3,7 +3,7 @@
 from pathlib import Path
 import os,shutil,subprocess,tempfile
 R=Path(__file__).resolve().parents[2]
-p=(R/"encore-active/ns2-runtime/process/core/hle/service/os/process.cpp").read_text()
+p=(R/"encore-active/eden/src/core/hle/service/os/process.cpp").read_text()
 f=(R/"encore-active/eden/src/core/hle/service/filesystem/filesystem.cpp").read_text()
 def part(s,start,end):
     assert s.count(start)==s.count(end)==1,(start,end)

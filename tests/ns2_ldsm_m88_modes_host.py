@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
-source=(root/"encore-active/ns2-runtime/ampere/shader_recompiler/frontend/ampere/lower_to_maxwell.h").read_text()
+source=(root/"encore-active/eden/src/shader_recompiler/frontend/ampere/lower_to_maxwell.h").read_text()
 assert "Lichii e6e0304303ba" in source
 assert "mode == 0 ? 1U : mode == 0x100 ? 2U : 4U" in source
 assert "(mode != 0 && mode != 0x100 && mode != 0x200)" in source
