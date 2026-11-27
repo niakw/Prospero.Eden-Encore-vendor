@@ -216,6 +216,11 @@ public:
 
     [[nodiscard]] bool IsAsync() const;
 
+    // Native NS2 presentation liveness: true only when a parked Ampere
+    // semaphore has no backend GPU producer in flight and therefore needs
+    // the guest CPU to run after Present.
+    [[nodiscard]] bool HasCpuBlockedNativeChannels() const;
+
     [[nodiscard]] bool UseNvdec() const;
 
     void RendererFrameEndNotify();
