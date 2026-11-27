@@ -19,7 +19,7 @@ on:
       - 'encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h'
       - 'encore-active/eden/src/video_core/gpu_thread.h'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
-      - 'encore-active/eden-gpu/gpu_thread_dev.cpp'
+      - 'encore-active/eden/src/video_core/gpu_thread.cpp'
       - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
       - 'tests/fc27_deferred_page_protection_host.py'
   workflow_dispatch:
