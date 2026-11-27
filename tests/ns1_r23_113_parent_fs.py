@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-ROOT_SRC=ROOT/"encore-active/eden-core"
+ROOT_SRC=ROOT/"encore-active/eden"
 known={
  "src/core/file_sys/patch_manager.cpp":"e3dea103363ce2212d88f700db787f9ab17188b9",
  "src/core/file_sys/registered_cache.cpp":"2658884ef0332ec7dc579824d9c89925f9168891",
