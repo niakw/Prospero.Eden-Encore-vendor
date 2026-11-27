@@ -1547,8 +1547,8 @@ for reason in (
 assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp
 
 # Puller/Ampere/QMD synchronous GPU failures use the same channel-aware fatal
-# path. Direct throws are confined to the four deferred fence callback
-# families: backing-epoch loss, timestamp report, and mirror-publication failure. Each callback
+# path. Direct throws are confined to deferred fence callbacks after
+# submission: backing-epoch/alias loss and mirror-publication failure. Each callback
 # catches, latches the GPU failure and faults the captured ChannelState.
 puller_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
 for reason in (
@@ -1578,6 +1578,7 @@ deferred_throw_reasons = (
     "Ampere SEM_EXECUTE: semaphore mirror publication failed",
     "Native Compute report semaphore backing revoked after GPU submission",
     "Native Compute timestamp report backing revoked after GPU submission",
+    "Native Compute timestamp report lost CPU alias",
     "Native Compute semaphore mirror publication failed",
     "Native QMD3 release backing revoked after GPU submission",
     "Native QMD3 semaphore mirror publication failed",
