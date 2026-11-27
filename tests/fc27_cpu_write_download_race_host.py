@@ -10,12 +10,12 @@ cache=(root/"encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").rea
 base=(root/"encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
 texture=(root/"encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
 texture_base=(root/"encore-active/eden/src/video_core/texture_cache/texture_cache_base.h").read_text()
-dirty=(root/"encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h").read_text()
+dirty=(root/"encore-active/eden/src/core/gpu_dirty_memory_manager.h").read_text()
 rast=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 manager=(root/"encore-active/eden/src/video_core/memory_manager.cpp").read_text()
 rast_h=(root/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
-gpu_h=(root/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
-iface=(root/"encore-active/eden-core/overrides/video_core/rasterizer_interface.h").read_text()
+gpu_h=(root/"encore-active/eden/src/video_core/gpu.h").read_text()
+iface=(root/"encore-active/eden/src/video_core/rasterizer_interface.h").read_text()
 gpu_names=("gpu_vulkan.cpp","gpu_gl_native.cpp","gpu_gl_native_dev.cpp")
 gpus=[(root/f"encore-active/eden/src/video_core/{name}").read_text()
       for name in gpu_names]
@@ -455,7 +455,7 @@ with tempfile.TemporaryDirectory(prefix="fc27-cpu-write-download-") as td:
             dirty_exe=d/("dirty-"+Path(cxx).name+opt[2:])
             subprocess.run([cxx,"-std=c++20",opt,"-Wall","-Wextra","-Werror","-pthread",
                             "-I",str(d/"stub"),
-                            "-I",str(root/"encore-active/eden-core/overrides"),
+                            "-I",str(root/"encore-active/eden/src"),
                             str(d/"dirty.cpp"),"-o",str(dirty_exe)],check=True,timeout=60)
             subprocess.run([str(dirty_exe)],check=True,timeout=20)
             print("FC27_CPU_WRITE_DOWNLOAD_RACE_PASS",Path(cxx).name,opt,
