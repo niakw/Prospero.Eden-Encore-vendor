@@ -5,7 +5,7 @@ import hashlib
 import os
 import subprocess
 import tempfile
-r=Path(__file__).resolve().parents[1]/"encore-active/eden-core"
+r=Path(__file__).resolve().parents[1]/"encore-active/eden"
 sources={
   "src/hid_core/frontend/emulated_controller.cpp":"9ce2506de27fceb18567ad9be12e8da4430fe140",
   "include/hid_core/frontend/emulated_controller.h":"80ea633c636eee4c9822434b4e033c91c5681197"
