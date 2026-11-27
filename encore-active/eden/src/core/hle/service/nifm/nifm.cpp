@@ -689,20 +689,20 @@ void IGeneralService::GetNetworkProfile(HLERequestContext& ctx) {
         return SfNetworkProfileData{
             .ip_setting_data{
                 .ip_address_setting{
-                    .is_automatic{true},
+                    .is_automatic = true,
                     .ip_address{Network::TranslateIPv4(net_iface->ip_address)},
                     .subnet_mask{Network::TranslateIPv4(net_iface->subnet_mask)},
                     .default_gateway{Network::TranslateIPv4(net_iface->gateway)},
                 },
                 .dns_setting{
-                    .is_automatic{true},
+                    .is_automatic = true,
                     .primary_dns{1, 1, 1, 1},
                     .secondary_dns{1, 0, 0, 1},
                 },
                 .proxy_setting{
-                    .is_enabled{false},
+                    .is_enabled = false,
                 },
-                .mtu{1500},
+                .mtu = 1500,
             },
             .uuid{MakeUuidFromName(net_state.ssid)},
             .network_name{net_name},
@@ -1107,7 +1107,8 @@ IGeneralService::IGeneralService(Core::System& system_)
         {47, &IGeneralService::GetScanDataV3, "GetScanData"}, // 19.0.0+
         {50, nullptr, "IsRewriteFeatureEnabled"}, // 18.0.0+
         {51, nullptr, "CreateRewriteRule"}, // 18.0.0+
-        {52, nullptr, "DestroyRewriteRule"} // 18.0.0+
+        {52, nullptr, "DestroyRewriteRule"}, // 18.0.0+
+        {101, &IGeneralService::StubReplyZeroed, "Unknown101"},
     };
     // clang-format on
 
