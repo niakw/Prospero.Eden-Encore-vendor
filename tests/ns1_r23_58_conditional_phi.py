@@ -4,8 +4,8 @@ from pathlib import Path
 from native_msaa_handle_receipt import verified_depth_compare_sha
 import hashlib, os, subprocess, sys, tempfile
 root=Path(__file__).resolve().parents[1]
-header=root/"encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
-source=root/"encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp"
+header=root/"encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h"
+source=root/"encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp"
 def gitsha(path):
  raw=path.read_bytes()
  return hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()

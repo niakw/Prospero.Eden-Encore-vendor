@@ -8,8 +8,8 @@ import shutil
 import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
-BASIC=ROOT/"encore-active/eden-shader/include/shader_recompiler/frontend/ir/basic_block.h"
-SSA=ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/ssa_rewrite_pass.cpp"
+BASIC=ROOT/"encore-active/eden/src/shader_recompiler/frontend/ir/basic_block.h"
+SSA=ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/ssa_rewrite_pass.cpp"
 PIN_BASIC=ROOT/"sources/eden/src/shader_recompiler/frontend/ir/basic_block.h"
 PIN_SSA=ROOT/"sources/eden/src/shader_recompiler/ir_opt/ssa_rewrite_pass.cpp"
 
@@ -94,7 +94,7 @@ boost=ROOT/"sources/eden-cpm/boost/boost-1.90.0/libs"
 boost_includes=sorted(boost.glob("*/include"))
 fmt=ROOT/"sources/eden-cpm/fmt/12.1.0/include"
 cmd=[compiler,"-std=c++20","-fsyntax-only","-Wall","-Wextra","-Werror",
-     f"-I{ROOT/'encore-active/eden-shader/include'}",
+     f"-I{ROOT/'encore-active/eden/src'}",
      f"-I{ROOT/'sources/eden/src'}",
      f"-I{fmt}",
      *[f"-I{x}" for x in boost_includes],
