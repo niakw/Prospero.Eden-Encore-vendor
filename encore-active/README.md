@@ -29,13 +29,13 @@ Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, �
 
 | Chemin | Usage |
 | --- | --- |
-| `eden-threading/src/core/hle/kernel/k_thread.cpp` | Source compilée remplaçant l'original ; finalisation hors verrou |
-| `eden-threading/src/core/hle/kernel/slab_helpers.h`, `k_worker_task_manager.h` | En-têtes maintenus copiés tels quels avant compilation, sans patch CMake |
-| `eden-threading/src/core/hle/kernel/k_scheduler.cpp`, `k_thread.h`, `k_slab_heap.h` | Overrides coordonnés du threading |
-| `eden-threading/src/core/hle/kernel/k_address_arbiter.cpp`, `k_condition_variable.cpp` | Sources HLE natives |
-| `eden-threading/src/core/hle/kernel/svc/*.cpp` | Sources SVC natives |
+| `eden/src/core/hle/kernel/k_thread.cpp` | Source compilée remplaçant l'original ; finalisation hors verrou |
+| `eden/src/core/hle/kernel/slab_helpers.h`, `k_worker_task_manager.h` | En-têtes maintenus copiés tels quels avant compilation, sans patch CMake |
+| `eden/src/core/hle/kernel/k_scheduler.cpp`, `k_thread.h`, `k_slab_heap.h` | Overrides coordonnés du threading |
+| `eden/src/core/hle/kernel/k_address_arbiter.cpp`, `k_condition_variable.cpp` | Sources HLE natives |
+| `eden/src/core/hle/kernel/svc/*.cpp` | Sources SVC natives |
 | `eden/src/core/hle/kernel/k_synchronization_object.h` | En-tête natif de synchronisation, aliasing corrigé |
-| `eden-threading/native-hle-overrides.cmake` | Sélection de sources CMake, **pas** un correctif C++ généré |
+| `eden/native-hle-overrides.cmake` | Sélection de sources CMake, **pas** un correctif C++ généré |
 | `eden-core/src/core/hle/service/nvdrv/core/container.cpp` | Session nvdrv : acquisition/libération du processus avec verrou relâché avant fermeture |
 | `eden-core/src/hid_core/frontend/emulated_controller.cpp` | Vibrations virtuelles : source maintenue en remplacement du générateur CMake |
 | `eden-core/src/core/memory.cpp` | A32 fastmem source issue du backport de production ; garde explicite 32 bits, activation conditionnelle |
@@ -87,7 +87,7 @@ Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, �
 
 | `eden-core/src/video_core/dma_pusher{,_dev}.cpp` et `engines/puller{,_dev}.cpp` | Commandes GPU invité : variantes normales/DEV maintenues et parité G20 |
 
-Chaîne HLE : `headless/CMakeLists.txt` -> `eden-threading/native-hle-overrides.cmake` -> fichiers C++/en-têtes maintenus.
+Chaîne HLE : `headless/CMakeLists.txt` -> `eden/native-hle-overrides.cmake` -> fichiers C++/en-têtes maintenus.
 
 Tests associés : `tools/verify/hle/`. Ces tests ne sont pas inclus dans l'application native.
 
