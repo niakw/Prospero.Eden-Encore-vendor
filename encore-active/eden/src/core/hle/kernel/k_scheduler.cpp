@@ -146,6 +146,12 @@ void KScheduler::RescheduleCurrentCoreImpl(KernelCore& kernel) {
 }
 
 void KScheduler::Initialize(KernelCore& kernel, KThread* main_thread, KThread* idle_thread, s32 core_id) {
+    // CPU workers enter the bootstrap fiber before the normal acquisition loop.
+    // Its first Unload must return an owned context permit.
+    if (!main_thread->m_context_guard.try_acquire()) {
+        UNREACHABLE_MSG("Bootstrap thread context permit is already held");
+    }
+
     // Set core ID/idle thread/interrupt task manager.
     m_core_id = core_id;
     m_idle_thread = idle_thread;
@@ -449,13 +455,18 @@ void KScheduler::ScheduleImplFiber(KernelCore& kernel) {
 
         // We want to try to lock the highest priority thread's context.
         // Try to take it.
-        while (!highest_priority_thread->m_context_guard.try_lock()) {
+        while (!highest_priority_thread->m_context_guard.try_acquire()) {
             // The highest priority thread's context is already locked.
             // Check if we need scheduling. If we don't, we can retry directly.
             if (m_state.needs_scheduling.load(std::memory_order_seq_cst)) {
                 // If we do, another core is interfering, and we must start again.
                 goto retry;
             }
+#if defined(ARCHITECTURE_x86_64)
+            // The owner may run on the sibling Zen2 hardware thread. Avoid
+            // hammering its context semaphore while preserving retry checks.
+            __builtin_ia32_pause();
+#endif
         }
 
         // It's time to switch the thread.
@@ -465,13 +476,10 @@ void KScheduler::ScheduleImplFiber(KernelCore& kernel) {
         // Check if we need scheduling. If we do, then we can't complete the switch and should
         // retry.
         if (m_state.needs_scheduling.load(std::memory_order_seq_cst)) {
-            // Some libc++ lazily init mutex
-            [[maybe_unused]] auto const can_lock = highest_priority_thread->m_context_guard.try_lock();
-            DEBUG_ASSERT(!can_lock);
-
-            // Our switch failed.
-            // We should unlock the thread context, and then retry.
-            highest_priority_thread->m_context_guard.unlock();
+            // On retry, release the permit even if a host CPU worker
+            // changes. This is cross-thread safe, unlike mutex::unlock.
+            // Our switch failed; give the next scheduler attempt the permit.
+            highest_priority_thread->m_context_guard.release();
             goto retry;
         } else {
             break;
@@ -500,12 +508,9 @@ void KScheduler::Unload(KernelCore& kernel, KThread* thread) {
 
     // Check if the thread is terminated by checking the DPC flags.
     if ((thread->GetStackParameters().dpc_flags & static_cast<u32>(DpcFlag::Terminated)) == 0) {
-        // Some libc++ lazily init mutex
-        [[maybe_unused]] auto const can_lock = thread->m_context_guard.try_lock();
-        DEBUG_ASSERT(!can_lock);
-
-        // The thread isn't terminated, so we want to unlock it.
-        thread->m_context_guard.unlock();
+        // A guest fiber can migrate between host CPU workers.
+        // Returning the semaphore permit has no thread-owner restriction.
+        thread->m_context_guard.release();
     }
 }
 
