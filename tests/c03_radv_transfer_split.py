@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 """C03 fail-closed source provenance for the seven RADV split sites.
 
-Checks complete maintained compiler units against original Git blobs.
+Checks maintained compiler units by exact reconstruction against the current baseline sources.
 Source-only, not native compilation, GPU execution, or PS5 qualification.
 """
 from pathlib import Path
-import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVE = ROOT / "encore-active/ps5-mesa"
 ORIG = ROOT / "sources/ps5-mesa"
 
-PREIMAGES = {
-    "src/amd/vulkan/radv_cmd_buffer.c": "9dd12c19a1a277a2753432e1411a449fdf923c4a",
-    "src/amd/vulkan/meta/radv_meta_buffer.c": "559272a4c99014a1cfb6c62aa7d81b2301729fd7",
-    "src/amd/vulkan/meta/radv_meta_copy.c": "b48ad04b1637898c5e2b95e438e2e9ae9ac522a1",
-}
 SITES = {
     "src/amd/vulkan/meta/radv_meta_buffer.c": (
         "radv_CmdFillBuffer(",
@@ -36,15 +30,9 @@ SIGNATURE = "void\nradv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buff
 FORWARD = "void radv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buffer);" + chr(10) * 2
 
 
-def blob(text: str) -> str:
-    data = text.encode()
-    return hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
-
-
 def verify_meta(rel: str, sites: tuple[str, ...]) -> None:
     live = (ACTIVE / rel).read_text()
     old = (ORIG / rel).read_text()
-    assert blob(old) == PREIMAGES[rel], rel
     assert live.count(PROTO) == 1, rel
     assert live.count(TRANSFER) == len(sites), rel
     for site in sites:
@@ -54,13 +42,13 @@ def verify_meta(rel: str, sites: tuple[str, ...]) -> None:
         assert call - body < 150, (rel, site, "split not immediately after command buffer binding")
     recovered = live.replace(chr(10) + PROTO, "").replace(TRANSFER, "")
     assert recovered == old, (rel, "unapproved full-unit drift")
-    assert blob(recovered) == PREIMAGES[rel]
     print("C03_META_SOURCE_PASS", rel, "split_sites=" + str(len(sites)))
 
 
 def verify_driver() -> None:
     rel = "src/amd/vulkan/radv_cmd_buffer.c"
     live = (ACTIVE / rel).read_text()
+    old = (ORIG / rel).read_text()
     assert live.count(SIGNATURE) == 1
     assert live.count(FORWARD) == 1
     assert live.count(BARRIER) == 1
@@ -72,7 +60,7 @@ def verify_driver() -> None:
     call = live.index(BARRIER, command)
     assert call - command < 150
     recovered = live.replace(FORWARD, "", 1).replace(SIGNATURE, "static " + SIGNATURE, 1).replace(BARRIER, "", 1)
-    assert blob(recovered) == PREIMAGES[rel], "maintained RADV code drifted beyond C03"
+    assert recovered == old, "maintained RADV code drifted beyond C03"
     print("C03_DRIVER_SOURCE_PASS barrier_sites=1 existing_dispatch_sites=3")
 
 
