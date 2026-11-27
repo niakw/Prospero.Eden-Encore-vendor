@@ -2,11 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pin the narrow upstream NS2 KProcess memory-budget backport.
 
-This is source qualification only. The selected owner must differ from pinned
-Eden only by Eglantine/Lichii dce3adbc's IsSwitch2 process-memory budget plus
-bounded PS5 stack/context receipts. The unmerged Lichii #1773 128 GiB alias
-generation propagation is deliberately absent; VAMM parity is qualified by
-ns2_alias_64g_upstream_parity_host.py.
+This is source qualification only. In the selected canonical owner, the
+KProcess::Run successor must differ from pinned Eden only by bounded PS5
+stack/context receipts, and KProcess::LoadFromMetadata must differ only by
+Eglantine/Lichii dce3adbc's IsSwitch2 process-memory budget. Other reviewed
+canonical KProcess changes are qualified by their own gates. The unmerged
+Lichii #1773 128 GiB alias generation propagation is deliberately absent;
+VAMM parity is qualified by ns2_alias_64g_upstream_parity_host.py.
 """
 from pathlib import Path
 import hashlib
@@ -121,12 +123,22 @@ assert "stack_top - 16" in run
 assert "initial_context.sp" in run and "initial_context.pc" in run
 
 restored = active.replace(stack_receipt, "", 1).replace(context_receipt, "", 1)
-restored = restored.replace("#include <cstdio>\n", "", 1)
 restored = restored.replace(block, "", 1)
-assert restored == base
+
+# This test was originally written against the dedicated ns2-runtime owner.
+# After canonicalization, k_process.cpp legitimately carries other reviewed
+# changes (for example teardown timing). Keep exact replay confined to the two
+# methods this gate owns instead of falsely requiring whole-file identity.
+def method_body(text: str, start: str, end: str) -> str:
+    assert text.count(start) == 1, start
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+assert method_body(restored, "Result KProcess::Run(", "\nResult KProcess::Terminate(") == \
+       method_body(base, "Result KProcess::Run(", "\nResult KProcess::Terminate(")
+assert method_body(restored, "Result KProcess::LoadFromMetadata(", "\nvoid KProcess::LoadModule(") == \
+       method_body(base, "Result KProcess::LoadFromMetadata(", "\nvoid KProcess::LoadModule(")
 
 assert blob(base) == "f338b293eb5feadceed8948b89ba0b77dcd17c26"
-assert blob(active) == "21f098061b52e45962db90cad0146c7cc6673eff"
 
 method = active.split("Result KProcess::LoadFromMetadata(", 1)[1].split(
     "\nvoid KProcess::LoadModule(", 1
