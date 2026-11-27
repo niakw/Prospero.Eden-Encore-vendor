@@ -140,6 +140,16 @@ public:
     // New batch API to update multiple ranges with a single lock acquisition.
     void UpdatePagesCachedBatch(std::span<const std::pair<DAddr, size_t>> ranges, s32 delta);
 
+    // Guest CPU writes may defer page-untrack protection changes until after
+    // BufferCache releases its word-state lock. Keep backing alive until the
+    // deferred updates have landed before an Unmap can recycle that mapping.
+    void BeginDeferredCachedUpdates() noexcept {
+        deferred_cached_updates.fetch_add(1, std::memory_order_relaxed);
+    }
+    void EndDeferredCachedUpdates() noexcept {
+        deferred_cached_updates.fetch_sub(1, std::memory_order_release);
+    }
+
 private:
     struct TranslationEntry {
         DAddr guest_page{};
@@ -288,6 +298,7 @@ private:
     std::unique_ptr<CachedPages> cached_pages;
     Common::RangeMutex counter_guard;
     std::mutex mapping_guard;
+    std::atomic<u32> deferred_cached_updates{};
 
 
 };
