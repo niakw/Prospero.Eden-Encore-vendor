@@ -14,6 +14,15 @@
 >
 > **Règle pratique : `sources/` est la dépendance ; `encore-active/` est notre code final.**
 
+## Chemin canonique
+
+La structure finale suit celle de `sources/` : **même nom de dépendance, même chemin relatif** lorsqu'un fichier upstream existe.
+
+Exemple : `sources/eden/src/core/foo.cpp` → `encore-active/eden/src/core/foo.cpp`.
+
+Un fichier nouveau propre à Encore reste sous `encore-active/<dépendance>/`, à son emplacement logique dans l'arbre de cette dépendance. Les anciens noms de familles fonctionnelles ne doivent pas devenir des propriétaires runtime parallèles. À terme, un chemin upstream donné ne doit avoir **qu'un seul owner final** dans `encore-active/`.
+
+
 > **Note / 9 November 2026:** maintained, selected source overrides for the shared NS1/NS2 engine. Historical inventories below are owner/source migration records; a file being listed is **not** proof of execution on PS5. Native console build and hardware qualification belong to the engine P5 milestone. Third-party legal attribution, GPU/SDK vocabulary and ABI identifiers are preserved. [Vendor audit](../docs/VENDOR_PRESENTATION_AUDIT_2026-11-09.md).
 
 `vendor/sources/eden` = original conservé ; `vendor/encore-active` = versions maintenues.

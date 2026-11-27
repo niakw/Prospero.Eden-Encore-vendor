@@ -18,4 +18,16 @@ En résumé : **`sources/` = dépendances upstream figées ; `encore-active/` = 
 
 Le seul contenu spécifique Eden Encore autorisé directement à la racine de ce répertoire est cette documentation de rôle ; les sous-arbres vendored restent purs.
 
+## Symétrie des chemins d'override
+
+Pour une dépendance `sources/<dépendance>/`, l'override correspondant utilise **le même nom de dépendance et le même chemin relatif** sous `encore-active/<dépendance>/`.
+
+Exemple :
+
+- base : `sources/eden/src/video_core/foo.cpp`
+- override : `encore-active/eden/src/video_core/foo.cpp`
+
+Si un fichier Encore est nouveau et n'existe pas upstream, il est créé sous `encore-active/<dépendance>/` à l'emplacement logique qu'il occuperait dans cette dépendance. Les noms de lots, tickets, plateformes ou fonctionnalités ne doivent pas créer une seconde arborescence de runtime.
+
+
 Voir aussi : `../encore-active/README.md`.
