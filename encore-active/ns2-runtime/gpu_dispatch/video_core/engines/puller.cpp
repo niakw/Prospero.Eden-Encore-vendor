@@ -120,6 +120,12 @@ template <typename Memory, typename Combine>
         } else {
             memory.template Write<u32>(*mirror, logical_after);
         }
+        // Provenance is published only after the real backend fence callback
+        // has committed both guest-visible words successfully.
+        registry.RecordGpuSemaphoreValue(
+            ticket, address, *device, guest_after);
+        registry.RecordGpuSemaphoreValue(
+            ticket, *mirror, *mirror_device, logical_after);
         return true;
     }
 
@@ -133,13 +139,18 @@ template <typename Memory, typename Combine>
         return false;
 
     memory.template Write<u32>(address, guest_after);
+    u32 logical_after = guest_after;
     if (combined && shadow &&
         direct ==
             Service::Nvidia::Devices::NativeGpuProcessRegistry::
                 SemaphoreDirectResult::Tracked) {
-        return registry.SetSemaphoreShadow(
-            ticket, *device, combine(*shadow), guest_after);
+        logical_after = combine(*shadow);
+        if (!registry.SetSemaphoreShadow(
+                ticket, *device, logical_after, guest_after))
+            return false;
     }
+    registry.RecordGpuSemaphoreValue(
+        ticket, address, *device, logical_after);
     return true;
 }
 
@@ -426,6 +437,7 @@ void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
 struct CoherentNativeSemaphoreValue {
     u32 value{};
     u64 cpu_address{};
+    bool gpu_produced{};
 };
 
 static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
@@ -448,6 +460,7 @@ static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
     if (!after || *after != *cpu_address) {
         dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: acquire page remapped during read");
     }
+    bool gpu_produced = false;
 #ifdef PS5_NATIVE
     const auto channel_ticket =
         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
@@ -456,14 +469,18 @@ static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
         dma_pusher.FailNativeSubmission(
             "Ampere SEM_EXECUTE: acquire process epoch unavailable");
     }
+    auto& process_registry =
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto process_ticket = ProcessTicket(*channel_ticket);
     if (const auto shadow =
-            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
-                .ReadSemaphoreShadow(
-                    ProcessTicket(*channel_ticket), *cpu_address, observed)) {
+            process_registry.ReadSemaphoreShadow(
+                process_ticket, *cpu_address, observed)) {
         observed = *shadow;
     }
+    gpu_produced = process_registry.IsGpuProducedSemaphoreValue(
+        process_ticket, address, *cpu_address, observed);
 #endif
-    return {observed, *cpu_address};
+    return {observed, *cpu_address, gpu_produced};
 }
 
 // Called only by the native GPFIFO scheduler when a parked submission is
@@ -513,6 +530,9 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!*ready) {
         return false;
     }
+    // GPU-produced semaphore values preserve the submit-time command image.
+    // CPU/unknown releases invalidate it before this parked channel resumes.
+    dma_pusher.NoteNativeAcquireResolved(observed.gpu_produced);
     pending_native_acquire.reset();
     return true;
 }
@@ -664,7 +684,12 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
         pending_native_acquire = PendingNativeAcquire{
             address, value, operation, observed.cpu_address};
 #endif
+        return;
     }
+    // Even an acquire already satisfied when parsed can separate a command
+    // list submitted before the guest CPU filled its later words. If that
+    // value is not proven GPU-produced, invalidate/restart a snapshot read.
+    dma_pusher.NoteNativeAcquireResolved(observed.gpu_produced);
 }
 
 void Puller::ProcessSemaphoreAcquire(DmaPusher& dma_pusher) {
@@ -1291,6 +1316,15 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                         const u64 timestamp = core->GPU().GetTicks();
                         memory->Write<u64>(address + sizeof(u64), timestamp);
                         memory->Write<u64>(address, static_cast<u64>(payload));
+                        const auto device =
+                            memory->GpuToCpuAddress(address, sizeof(u32));
+                        if (!device) {
+                            throw std::runtime_error(
+                                "Native Compute timestamp report lost CPU alias");
+                        }
+                        Service::Nvidia::Devices::NativeGpuProcessRegistry::
+                            Instance().RecordGpuSemaphoreValue(
+                                ProcessTicket(ticket), address, *device, payload);
                     } catch (...) {
 #ifdef PS5_NATIVE
                         auto failure = std::current_exception();
