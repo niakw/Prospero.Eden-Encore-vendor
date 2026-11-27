@@ -20,7 +20,7 @@ CACHE=(ROOT/"encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").rea
 RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
 # Preserve the immutable upstream snapshot and authenticate the native overlay
 # by reversing only the exact reviewed additions.
-HOT=ROOT/"encore-active/eden-core/overrides/buffer-hotpath"
+HOT=ROOT/"encore-active/eden/src"
 assert "Intersects(" not in RANGESET
 native_range=(HOT/"common/range_sets.h").read_text()
 assert native_range.replace("    // Half-open overlap query: one lookup, without enumerating dirty spans.\n    bool Intersects(AddressType base_address, size_t size) const;\n", "", 1) == RANGESET
@@ -147,7 +147,7 @@ query=CACHE[query_start:CACHE.index("\n}\n", query_start)]
 assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
 RASTERS=[
     ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp",
-    ROOT/"encore-active/eden-core/guest-bridge/vulkan_rasterizer.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_rasterizer_deferred.cpp",
     ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer.cpp",
     ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer_dev.cpp",
 ]
