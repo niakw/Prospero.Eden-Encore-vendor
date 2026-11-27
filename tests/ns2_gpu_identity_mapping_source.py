@@ -530,10 +530,10 @@ worker_header=(R/"encore-active/eden/src/video_core/gpu_thread.h").read_text()
 assert "GPUTickCommand, RetireChannelCommand>" in worker_header
 worker_cpp=(R/"encore-active/eden/src/video_core/gpu_thread.cpp").read_text()
 assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
-    assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
-        "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
-        "retire->action();") < worker_cpp.index(
-        "state.signaled_fence.store(next.fence, std::memory_order_release);")
+assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
+    "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
+    "retire->action();") < worker_cpp.index(
+    "state.signaled_fence.store(next.fence, std::memory_order_release);")
 find_channel=gpu_cpp.split("FindChannel(s32 channel_id) {",1)[1].split("\n    }",1)[0]
 assert find_channel.index("std::scoped_lock lock{channel_mutex};") < find_channel.index("channels.find(channel_id)")
 
