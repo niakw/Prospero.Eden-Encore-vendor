@@ -7,6 +7,8 @@
 #include "core/core.h"
 #include "core/hle/service/audio/audio.h"
 #include "core/hle/service/audio/audio_controller.h"
+#include "core/hle/service/audio/nx2_audio_user_client.h"
+#include "core/hle/service/nx2_streamplay.h"
 #include "core/hle/service/audio/audio_in_manager.h"
 #include "core/hle/service/audio/audio_out_manager.h"
 #include "core/hle/service/audio/audio_renderer_manager.h"
@@ -184,7 +186,22 @@ public:
 
 void LoopProcess(Core::System& system) {
     auto server_manager = std::make_unique<ServerManager>(system);
+    // Shared process-owned Sysmix registry: a single 5ms pump feeds the same
+    // real host sink for both the virtual-device and mixer services.
+    auto sysmix = std::make_shared<Nx2SysmixStreams>(system);
 
+    // Native Switch 2 aud:u delegates to Eden's maintained audout:u and
+    // audren:u interfaces, leaving all existing Switch 1 services untouched.
+    server_manager->RegisterNamedService("aud:u", std::make_shared<INx2AudioUserClient>(system));
+    // Switch 2 virtual audio device discovery is native; stream opening
+    // still refuses until the real sysmix ring/audio backend is wired.
+    server_manager->RegisterNamedService("auddmg:u",
+        std::make_shared<INx2AudioDeviceManagerService>(system, sysmix));
+    server_manager->RegisterNamedService("audsmx:u",
+        std::make_shared<INx2AudioSoundMixerService>(system, sysmix));
+    // The NS2 stream-play user service holds a real guest HID shared memory,
+    // not a placeholder event or simulated GameShare stream.
+    server_manager->RegisterNamedService("stpl:u", std::make_shared<INx2StreamPlayService>(system));
     server_manager->RegisterNamedService("aud:a", std::make_shared<IAudioSystemManagerForApplet>(system), 30);
     server_manager->RegisterNamedService("aud:d", std::make_shared<IAudioSystemManagerForDebugger>(system), 30);
 
