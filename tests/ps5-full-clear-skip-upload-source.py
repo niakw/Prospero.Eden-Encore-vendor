@@ -9,10 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 paths = [
     ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h",
-    ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h",
 ]
 bases = [
-    ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache_base.h",
     ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache_base.h",
 ]
 blocks = []
@@ -44,7 +42,7 @@ for path in paths:
         assert needle in block, (path, needle)
     assert block.index("if (overwritten_by_clear())") < block.index(
         "RefreshContents(new_image, new_image_id)")
-assert blocks[0] == blocks[1], "active/shadow full-clear safety block diverged"
+assert len(blocks) == 1, "canonical full-clear owner duplicated"
 for path in bases:
     source = path.read_text()
     assert source.count("bool clearing_render_targets = false;") == 1
@@ -77,4 +75,4 @@ for kwargs in (
 ):
     assert not eligible(**kwargs), kwargs
 
-print("PS5_FULL_CLEAR_UPLOAD_ELISION_SOURCE_PASS active_shadow_parity=1 rejection_cases=13 console_unverified=1")
+print("PS5_FULL_CLEAR_UPLOAD_ELISION_SOURCE_PASS canonical_owner=1 rejection_cases=13 console_unverified=1")
