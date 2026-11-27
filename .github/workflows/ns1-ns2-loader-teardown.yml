@@ -2,8 +2,8 @@ name: NS1/NS2 null-loader kernel teardown contract
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/core/core_native.cpp'
-      - 'encore-active/eden-core/src/core/core_standard.cpp'
+      - 'encore-active/eden/src/core/core_native.cpp'
+      - 'encore-active/eden/src/core/core_standard.cpp'
       - 'encore-active/ns2-runtime/process/core/core.cpp'
       - 'tests/ns1_ns2_missing_loader_cleanup_host.py'
       - '.github/workflows/ns1-ns2-loader-teardown.yml'

@@ -4,7 +4,7 @@ on:
     branches: [main]
     paths:
       - 'encore-active/ns2-runtime/process/core/hle/service/os/process.cpp'
-      - 'encore-active/eden-core/src/core/hle/service/filesystem/filesystem.cpp'
+      - 'encore-active/eden/src/core/hle/service/filesystem/filesystem.cpp'
       - 'encore-active/eden-core/overrides/h01-filesystem/core/hle/service/filesystem/filesystem.h'
       - 'encore-active/eden/native-hle-overrides.cmake'
       - 'tools/ns2/check_h01_process_filesystem_rollback_host.py'

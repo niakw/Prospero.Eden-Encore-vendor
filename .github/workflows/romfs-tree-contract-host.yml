@@ -2,7 +2,7 @@ name: RomFS tree traversal contract (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-core/src/core/file_sys/romfs.cpp"
+      - "encore-active/eden/src/core/file_sys/romfs.cpp"
       - "tests/ps5_romfs_tree_contract_host.py"
       - ".github/workflows/romfs-tree-contract-host.yml"
   workflow_dispatch:
