@@ -7,10 +7,10 @@ on:
       - 'encore-active/eden/src/video_core/textures/decoders.cpp'
       - 'encore-active/eden/src/video_core/textures/decoders.h'
       - 'encore-active/eden/src/video_core/memory_manager.h'
-      - 'encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
+      - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
       - 'tests/ns2_native_tiling_activation_source.py'
       - 'encore-active/eden/src/video_core/memory_manager.h'
-      - 'encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
+      - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
       - 'tests/ns2_native_tiling_activation_source.py'
       - 'encore-active/eden/src/video_core/engines/engine_upload.cpp'
       - 'encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp'
@@ -59,8 +59,8 @@ jobs:
             encore-active/eden/src/video_core/textures/decoders.cpp
             encore-active/eden/src/video_core/textures/decoders.h
             encore-active/eden/src/video_core/memory_manager.h
-            encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp
-            encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp
+            encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp
+            encore-active/eden/src/video_core/control/channel_state.cpp
             tests/ns2_native_tiling_activation_source.py
             sources/eden/src/video_core/memory_manager.h
             encore-active/eden/src/video_core/engines/engine_upload.cpp
