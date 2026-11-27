@@ -10,6 +10,7 @@
 
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
 
 namespace Shader::Backend::SPIRV {
 namespace {
@@ -114,7 +115,8 @@ std::optional<OutAttr> OutputAttrPointer(EmitContext& ctx, IR::Attribute attr) {
 }
 
 Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr, u32 element_size,
-           const IR::Value& binding, const IR::Value& offset, const Id indirect_func) {
+           const IR::Value& binding, const IR::Value& offset, const Id indirect_func,
+           u32 native_access_bytes, bool next_vector_for_pair = false) {
     Id buffer_offset;
     const Id uniform_type{ctx.uniform_types.*member_ptr};
     if (offset.IsImmediate()) {
@@ -128,43 +130,148 @@ Id GetCbuf(EmitContext& ctx, Id result_type, Id UniformDefinitions::*member_ptr,
     } else {
         buffer_offset = ctx.Def(offset);
     }
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && offset.IsImmediate() &&
+        (offset.U32() > 0x10000U - native_access_bytes ||
+         (native_access_bytes == 8 && (offset.U32() & 3U)))) {
+        // Two guest words require a word-aligned 64-bit span. An offset
+        // at 4/12 is valid: a second 8-byte vector carries its high word.
+        // Sub-word native U32x2 behavior has not been authenticated.
+        return ctx.ConstantNull(result_type);
+    }
+    if (next_vector_for_pair) {
+        // The second guest 32-bit word may occupy the following U32x2
+        // (8 bytes) or U32x4 (16 bytes) uniform vector. The first word
+        // always uses the original vector; bump only the second vector's
+        // array index at its last component boundary.
+        if (offset.IsImmediate()) {
+            if ((offset.U32() & (element_size - 1U)) >= element_size - 4U)
+                buffer_offset = ctx.OpIAdd(ctx.U32[1], buffer_offset, ctx.Const(1U));
+        } else {
+            const Id last_word{ctx.OpUGreaterThanEqual(
+                ctx.U1, ctx.OpBitwiseAnd(ctx.U32[1], ctx.Def(offset),
+                                        ctx.Const(element_size - 1U)),
+                ctx.Const(element_size - 4U))};
+            const Id delta{ctx.OpSelect(ctx.U32[1], last_word,
+                                        ctx.Const(1U), ctx.u32_zero_value)};
+            buffer_offset = ctx.OpIAdd(ctx.U32[1], buffer_offset, delta);
+        }
+    }
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && !offset.IsImmediate()) {
+        // The old index-only test silently accepted a U32x2 read at
+        // 0xfffc by rounding down to the in-range row at 0xfff8.
+        // Validate ORIGINAL guest bytes, not only the rounded SPIR-V
+        // element index. U8 through an aligned U32x4 must still admit
+        // byte 0xffff, while a genuine U32x2 cannot cross that boundary.
+        const Id valid_span{ctx.OpULessThanEqual(
+            ctx.U1, ctx.Def(offset), ctx.Const(0x10000U - native_access_bytes))};
+        const Id valid_offset{native_access_bytes != 8 ? valid_span :
+            ctx.OpLogicalAnd(ctx.U1, valid_span,
+                ctx.OpIEqual(ctx.U1,
+                    ctx.OpBitwiseAnd(ctx.U32[1], ctx.Def(offset), ctx.Const(3U)),
+                    ctx.u32_zero_value))};
+        // Both the indirect QMD3 bank switch and the direct-bank bounds
+        // guard below reject this sentinel before creating a guest pointer.
+        // No change to the legacy Maxwell compiler path.
+        buffer_offset = ctx.OpSelect(ctx.U32[1], valid_offset,
+                                     buffer_offset, ctx.Const(~u32{0}));
+    }
     if (!binding.IsImmediate()) {
         return ctx.OpFunctionCall(result_type, indirect_func, ctx.Def(binding), buffer_offset);
     }
 
+    // Compile the authentic QMD3 bank ABI, not the larger NS1 synthetic
+    // uniform table. Resource-plan validation happens AFTER SPIR-V emission;
+    // an untrusted immediate bank must not index cbufs out of bounds or
+    // compile a shader that the eight-bank QMD cannot bind.
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && binding.U32() >= 8) {
+        throw NotImplementedException(
+            "Native QMD3 CBUF bank {} outside eight-bank ABI", binding.U32());
+    }
     const Id cbuf{ctx.cbufs[binding.U32()].*member_ptr};
-    const Id access_chain{ctx.OpAccessChain(uniform_type, cbuf, ctx.u32_zero_value, buffer_offset)};
-    const Id val = ctx.OpLoad(result_type, access_chain);
+    // A numerically valid QMD bank may still have no reflected descriptor.
+    // Do not emit an OpAccessChain through an undeclared SPIR-V uniform;
+    // reject malformed native IR before Vulkan pipeline publication.
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive() && !ValidId(cbuf)) {
+        throw NotImplementedException(
+            "Native QMD3 CBUF bank {} has no declared uniform", binding.U32());
+    }
+    if (!Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+        // Byte-for-byte equivalent to the original Maxwell SPIR-V path.
+        // It remains active for Switch 1 even when NS2 source overlays are
+        // compiled into the SAME shader_recompiler binary.
+        const Id access_chain{ctx.OpAccessChain(uniform_type, cbuf, ctx.u32_zero_value, buffer_offset)};
+        const Id val = ctx.OpLoad(result_type, access_chain);
 
-    if (offset.IsImmediate() || !ctx.profile.has_broken_robust) {
-        return val;
+        if (offset.IsImmediate() || !ctx.profile.has_broken_robust) {
+            return val;
+        }
+
+        const Id cond = ctx.OpULessThanEqual(ctx.TypeBool(), buffer_offset, ctx.Const(0xFFFFu));
+        const Id zero = ctx.ConstantNull(result_type);
+        return ctx.OpSelect(result_type, cond, val, zero);
+    }
+    if (offset.IsImmediate()) {
+        // Maxwell's signed LDC immediate can fold to a large U32 constant
+        // (e.g. RZ - 4). Never let the generic used-size collector's 32-bit
+        // addition overflow create a valid-looking native out-of-bounds load.
+        // Offsets inside the 64-KiB window are aligned in element units.
+        if (offset.U32() >= 0x10000U)
+            return ctx.ConstantNull(result_type);
+        // The native QMD3 resource planner checks the reflected in-range
+        // constant offset against the real launch buffer size at dispatch.
+        const Id ptr{ctx.OpAccessChain(uniform_type, cbuf, ctx.u32_zero_value,
+                                      buffer_offset)};
+        return ctx.OpLoad(result_type, ptr);
     }
 
-    const Id cond = ctx.OpULessThanEqual(ctx.TypeBool(), buffer_offset, ctx.Const(0xFFFFu));
-    const Id zero = ctx.ConstantNull(result_type);
-    return ctx.OpSelect(result_type, cond, val, zero);
+    // NS2 native variant only. The original Maxwell path emits an unchecked
+    // direct-bank OpAccessChain and may rely on device robustness even after
+    // the subsequent zero-select. Bounds-check BEFORE pointer creation:
+    // OpSelect at the result is too late to prevent a speculative OOB load.
+    // 'buffer_offset' is already in elements (1/2/4/8/16 bytes), and the
+    // shader-CBUF uniform array always has 65536/element_size entries.
+    const Id in_bounds{ctx.OpULessThan(
+        ctx.U1, buffer_offset, ctx.Const(0x10000U / element_size))};
+    const Id safe_offset{ctx.OpSelect(ctx.U32[1], in_bounds, buffer_offset,
+                                     ctx.u32_zero_value)};
+    const Id ptr{ctx.OpAccessChain(uniform_type, cbuf, ctx.u32_zero_value,
+                                  safe_offset)};
+    const Id value{ctx.OpLoad(result_type, ptr)};
+    return ctx.OpSelect(result_type, in_bounds, value,
+                        ctx.ConstantNull(result_type));
 }
 
-Id GetCbufU32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
+Id GetCbufU32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset,
+              u32 native_access_bytes = 4) {
     return GetCbuf(ctx, ctx.U32[1], &UniformDefinitions::U32, sizeof(u32), binding, offset,
-                   ctx.load_const_func_u32);
+                   ctx.load_const_func_u32, native_access_bytes);
 }
 
-Id GetCbufU32x4(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
+Id GetCbufU32x4(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset,
+                u32 native_access_bytes = 4, bool next_vector_for_pair = false) {
     return GetCbuf(ctx, ctx.U32[4], &UniformDefinitions::U32x4, sizeof(u32[4]), binding, offset,
-                   ctx.load_const_func_u32x4);
+                   ctx.load_const_func_u32x4, native_access_bytes, next_vector_for_pair);
 }
 
-Id GetCbufElement(EmitContext& ctx, Id vector, const IR::Value& offset, u32 index_offset) {
+Id GetCbufElement(EmitContext& ctx, Id vector, const IR::Value& offset, u32 index_offset,
+                  u32 vector_components = 4) {
     if (offset.IsImmediate()) {
-        const u32 element{(offset.U32() / 4) % 4 + index_offset};
-        return ctx.OpCompositeExtract(ctx.U32[1], vector, element);
+        const u32 element{(offset.U32() / 4) % vector_components + index_offset};
+        return ctx.OpCompositeExtract(ctx.U32[1], vector,
+            Shader::Ampere::NativeSpirvCbufBoundsActive()
+                ? element % vector_components : element);
     }
     const Id shift{ctx.OpShiftRightLogical(ctx.U32[1], ctx.Def(offset), ctx.Const(2u))};
-    Id element{ctx.OpBitwiseAnd(ctx.U32[1], shift, ctx.Const(3u))};
+    Id element{ctx.OpBitwiseAnd(ctx.U32[1], shift, ctx.Const(vector_components - 1U))};
     if (index_offset > 0) {
         element = ctx.OpIAdd(ctx.U32[1], element, ctx.Const(index_offset));
     }
+    // The native pair caller may select the next uniform vector when a
+    // source U32x2 straddles its boundary. Wrap the component *inside*
+    // that vector. NS1's original four-component indexing is preserved.
+    if (index_offset && Shader::Ampere::NativeSpirvCbufBoundsActive())
+        element = ctx.OpBitwiseAnd(ctx.U32[1], element,
+                                   ctx.Const(vector_components - 1U));
     return ctx.OpVectorExtractDynamic(ctx.U32[1], vector, element);
 }
 } // Anonymous namespace
@@ -205,14 +312,14 @@ Id EmitGetCbufU8(EmitContext& ctx, const IR::Value& binding, const IR::Value& of
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int8 &&
         ctx.profile.support_uniform_and_storage_buffer_8bit) {
         const Id load{GetCbuf(ctx, ctx.U8, &UniformDefinitions::U8, sizeof(u8), binding, offset,
-                              ctx.load_const_func_u8)};
+                              ctx.load_const_func_u8, 1)};
         return ctx.OpUConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 1);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 1)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset8(offset)};
@@ -223,14 +330,14 @@ Id EmitGetCbufS8(EmitContext& ctx, const IR::Value& binding, const IR::Value& of
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int8 &&
         ctx.profile.support_uniform_and_storage_buffer_8bit) {
         const Id load{GetCbuf(ctx, ctx.S8, &UniformDefinitions::S8, sizeof(s8), binding, offset,
-                              ctx.load_const_func_u8)};
+                              ctx.load_const_func_u8, 1)};
         return ctx.OpSConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 1);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 1)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset8(offset)};
@@ -241,14 +348,14 @@ Id EmitGetCbufU16(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int16 &&
         ctx.profile.support_uniform_and_storage_buffer_16bit) {
         const Id load{GetCbuf(ctx, ctx.U16, &UniformDefinitions::U16, sizeof(u16), binding, offset,
-                              ctx.load_const_func_u16)};
+                              ctx.load_const_func_u16, 2)};
         return ctx.OpUConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 2);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 2)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset16(offset)};
@@ -259,14 +366,14 @@ Id EmitGetCbufS16(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
     if (ctx.profile.support_descriptor_aliasing && ctx.profile.support_int16 &&
         ctx.profile.support_uniform_and_storage_buffer_16bit) {
         const Id load{GetCbuf(ctx, ctx.S16, &UniformDefinitions::S16, sizeof(s16), binding, offset,
-                              ctx.load_const_func_u16)};
+                              ctx.load_const_func_u16, 2)};
         return ctx.OpSConvert(ctx.U32[1], load);
     }
     Id element{};
     if (ctx.profile.support_descriptor_aliasing) {
-        element = GetCbufU32(ctx, binding, offset);
+        element = GetCbufU32(ctx, binding, offset, 2);
     } else {
-        const Id vector{GetCbufU32x4(ctx, binding, offset)};
+        const Id vector{GetCbufU32x4(ctx, binding, offset, 2)};
         element = GetCbufElement(ctx, vector, offset, 0u);
     }
     const Id bit_offset{ctx.BitOffset16(offset)};
@@ -285,7 +392,7 @@ Id EmitGetCbufU32(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
 Id EmitGetCbufF32(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
     if (ctx.profile.support_descriptor_aliasing) {
         return GetCbuf(ctx, ctx.F32[1], &UniformDefinitions::F32, sizeof(f32), binding, offset,
-                       ctx.load_const_func_f32);
+                       ctx.load_const_func_f32, 4);
     } else {
         const Id vector{GetCbufU32x4(ctx, binding, offset)};
         return ctx.OpBitcast(ctx.F32[1], GetCbufElement(ctx, vector, offset, 0u));
@@ -294,9 +401,34 @@ Id EmitGetCbufF32(EmitContext& ctx, const IR::Value& binding, const IR::Value& o
 
 Id EmitGetCbufU32x2(EmitContext& ctx, const IR::Value& binding, const IR::Value& offset) {
     if (ctx.profile.support_descriptor_aliasing) {
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+            // Native guest U32x2 is two consecutive 32-bit words, not a
+            // rounded-down 64-bit vector. Reading at byte 4 (or 12) must
+            // combine the last component of one U32x2 uniform vector
+            // with the first component of the NEXT. Both loads preserve
+            // the original 8-byte guest-span/authenticated bank guard.
+            const Id first_row{GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2,
+                sizeof(u32[2]), binding, offset, ctx.load_const_func_u32x2, 8)};
+            const Id second_row{GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2,
+                sizeof(u32[2]), binding, offset, ctx.load_const_func_u32x2, 8, true)};
+            return ctx.OpCompositeConstruct(ctx.U32[2],
+                GetCbufElement(ctx, first_row, offset, 0u, 2),
+                GetCbufElement(ctx, second_row, offset, 1u, 2));
+        }
         return GetCbuf(ctx, ctx.U32[2], &UniformDefinitions::U32x2, sizeof(u32[2]), binding, offset,
-                       ctx.load_const_func_u32x2);
+                       ctx.load_const_func_u32x2, 8);
     } else {
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+            // Source U32x2 can straddle two aligned 16-byte uniform rows.
+            // This must not silently extract nonexistent component 4.
+            // The first/second rows share one authenticated 8-byte guest
+            // span and are independently checked before OpAccessChain.
+            const Id first_row{GetCbufU32x4(ctx, binding, offset, 8)};
+            const Id second_row{GetCbufU32x4(ctx, binding, offset, 8, true)};
+            return ctx.OpCompositeConstruct(ctx.U32[2],
+                GetCbufElement(ctx, first_row, offset, 0u),
+                GetCbufElement(ctx, second_row, offset, 1u));
+        }
         const Id vector{GetCbufU32x4(ctx, binding, offset)};
         return ctx.OpCompositeConstruct(ctx.U32[2], GetCbufElement(ctx, vector, offset, 0u),
                                         GetCbufElement(ctx, vector, offset, 1u));
@@ -416,6 +548,11 @@ Id EmitGetAttributeU32(EmitContext& ctx, IR::Attribute attr, Id) {
 void EmitSetAttribute(EmitContext& ctx, IR::Attribute attr, Id value, [[maybe_unused]] Id vertex) {
     const std::optional<OutAttr> output{OutputAttrPointer(ctx, attr)};
     if (!output) {
+        // A native Ampere shader must not be accepted after silently
+        // dropping an output that the host device or stage cannot provide.
+        // Keep Maxwell/NS1's historical optional-output policy unchanged.
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+            throw NotImplementedException("Native shader output attribute {} unavailable", attr);
         return;
     }
     if (Sirit::ValidId(output->type)) {
@@ -443,25 +580,77 @@ Id EmitGetAttributeIndexed(EmitContext& ctx, Id offset, Id vertex) {
     }
 }
 
-void EmitSetAttributeIndexed(EmitContext& ctx, Id offset, Id value, [[maybe_unused]] Id vertex) {
-    ctx.OpFunctionCall(ctx.void_id, ctx.indexed_store_func, offset, value);
+void EmitSetAttributeIndexed(EmitContext& ctx, Id offset, Id value, Id vertex) {
+    if (ctx.stage == Stage::TessellationControl) {
+        ctx.OpFunctionCall(ctx.void_id, ctx.indexed_store_func, offset, value, vertex);
+    } else {
+        ctx.OpFunctionCall(ctx.void_id, ctx.indexed_store_func, offset, value);
+    }
 }
 
 Id EmitGetPatch(EmitContext& ctx, IR::Patch patch) {
-    if (!IR::IsGeneric(patch)) {
-        throw NotImplementedException("Non-generic patch load");
+    // Generic and built-in patch inputs exist only in tessellation stages.
+    // A non-tessellation program must not emit an undeclared Input/Output
+    // access chain (or silently select the TES Input storage class).
+    const bool control{ctx.stage == Stage::TessellationControl};
+    const bool evaluation{ctx.stage == Stage::TessellationEval};
+    if (!control && !evaluation) {
+        throw NotImplementedException("Tessellation patch read outside tessellation stage");
     }
-    const u32 index{IR::GenericPatchIndex(patch)};
-    const Id element{ctx.Const(IR::GenericPatchElement(patch))};
-    const Id type{ctx.stage == Stage::TessellationControl ? ctx.output_f32 : ctx.input_f32};
-    const Id pointer{ctx.OpAccessChain(type, ctx.patches.at(index), element)};
-    return ctx.OpLoad(ctx.F32[1], pointer);
+    if (IR::IsGeneric(patch)) {
+        const u32 index{IR::GenericPatchIndex(patch)};
+        if (index >= ctx.patches.size() || !ValidId(ctx.patches.at(index))) {
+            throw NotImplementedException("Undeclared generic tessellation patch {}", patch);
+        }
+        const Id element{ctx.Const(IR::GenericPatchElement(patch))};
+        const Id type{control ? ctx.output_f32 : ctx.input_f32};
+        const Id pointer{ctx.OpAccessChain(type, ctx.patches.at(index), element)};
+        return ctx.OpLoad(ctx.F32[1], pointer);
+    }
+    Id variable{};
+    Id element{};
+    switch (patch) {
+    case IR::Patch::TessellationLodLeft:
+    case IR::Patch::TessellationLodTop:
+    case IR::Patch::TessellationLodRight:
+    case IR::Patch::TessellationLodBottom:
+        variable = control ? ctx.output_tess_level_outer : ctx.input_tess_level_outer;
+        element = ctx.Const(static_cast<u32>(patch) -
+                            static_cast<u32>(IR::Patch::TessellationLodLeft));
+        break;
+    case IR::Patch::TessellationLodInteriorU:
+        variable = control ? ctx.output_tess_level_inner : ctx.input_tess_level_inner;
+        element = ctx.u32_zero_value;
+        break;
+    case IR::Patch::TessellationLodInteriorV:
+        variable = control ? ctx.output_tess_level_inner : ctx.input_tess_level_inner;
+        element = ctx.Const(1u);
+        break;
+    default:
+        throw NotImplementedException("Unsupported tessellation patch {}", patch);
+    }
+    // Do not manufacture levels when a TCS program did not declare the
+    // corresponding output. TES always declares the read-only inputs.
+    if (!ValidId(variable)) {
+        throw NotImplementedException("Undeclared tessellation patch {}", patch);
+    }
+    const Id element_ptr{ctx.OpAccessChain(
+        control ? ctx.output_f32 : ctx.input_f32, variable, element)};
+    return ctx.OpLoad(ctx.F32[1], element_ptr);
 }
 
 void EmitSetPatch(EmitContext& ctx, IR::Patch patch, Id value) {
+    // Only a tessellation-control shader owns patch outputs. TES patch
+    // variables are read-only inputs and may not be written by an IR error.
+    if (ctx.stage != Stage::TessellationControl) {
+        throw NotImplementedException("Tessellation patch write outside control stage");
+    }
     const Id pointer{[&] {
         if (IR::IsGeneric(patch)) {
             const u32 index{IR::GenericPatchIndex(patch)};
+            if (index >= ctx.patches.size() || !ValidId(ctx.patches.at(index))) {
+                throw NotImplementedException("Undeclared generic tessellation patch {}", patch);
+            }
             const Id element{ctx.Const(IR::GenericPatchElement(patch))};
             return ctx.OpAccessChain(ctx.output_f32, ctx.patches.at(index), element);
         }
@@ -471,14 +660,21 @@ void EmitSetPatch(EmitContext& ctx, IR::Patch patch, Id value) {
         case IR::Patch::TessellationLodTop:
         case IR::Patch::TessellationLodBottom: {
             const u32 index{static_cast<u32>(patch) - u32(IR::Patch::TessellationLodLeft)};
+            if (!ValidId(ctx.output_tess_level_outer)) {
+                throw NotImplementedException("Undeclared tessellation outer patch output {}", patch);
+            }
             const Id index_id{ctx.Const(index)};
             return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_outer, index_id);
         }
         case IR::Patch::TessellationLodInteriorU:
-            return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_inner,
-                                     ctx.u32_zero_value);
-        case IR::Patch::TessellationLodInteriorV:
-            return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_inner, ctx.Const(1u));
+        case IR::Patch::TessellationLodInteriorV: {
+            if (!ValidId(ctx.output_tess_level_inner)) {
+                throw NotImplementedException("Undeclared tessellation inner patch output {}", patch);
+            }
+            const Id index_id{patch == IR::Patch::TessellationLodInteriorU
+                                  ? ctx.u32_zero_value : ctx.Const(1u)};
+            return ctx.OpAccessChain(ctx.output_f32, ctx.output_tess_level_inner, index_id);
+        }
         default:
             throw NotImplementedException("Patch {}", patch);
         }
@@ -491,7 +687,7 @@ void EmitSetFragColor(EmitContext& ctx, u32 index, u32 component, Id value) {
     const AttributeType type{ctx.runtime_info.color_output_types[index]};
     if (type == AttributeType::Float) {
         const Id pointer{ctx.OpAccessChain(ctx.output_f32, ctx.frag_color.at(index), component_id)};
-        ctx.OpStore(pointer, value);
+        ctx.OpStore(pointer, ctx.OpSelect(ctx.F32[1], ctx.OpIsNan(ctx.U1, value), ctx.Const(0.0f), value));
     } else if (type == AttributeType::UnsignedInt) {
         const Id pointer{ctx.OpAccessChain(ctx.output_u32, ctx.frag_color.at(index), component_id)};
         ctx.OpStore(pointer, ctx.OpBitcast(ctx.U32[1], value));
@@ -573,6 +769,11 @@ Id EmitInvocationInfo(EmitContext& ctx) {
     case Stage::Geometry:
         return ctx.OpShiftLeftLogical(ctx.U32[1], ctx.Const(InputTopologyVertices::vertices(ctx.runtime_info.input_topology)), ctx.Const(16u));
     default:
+        // The legacy fallback is not a real Ampere invocation topology.
+        // A native shader using this special register needs its true stage
+        // metadata; compiling a constant would publish wrong SPIR-V.
+        if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+            throw NotImplementedException("Native invocation info outside supported stage");
         LOG_WARNING(Shader, "(STUBBED) called");
         return ctx.Const(0x00ff0000u);
     }
@@ -592,11 +793,15 @@ Id EmitIsHelperInvocation(EmitContext& ctx) {
 }
 
 Id EmitSR_WScaleFactorXY(EmitContext& ctx) {
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+        throw NotImplementedException("Native WarpScaleFactorXY requires real GPU state");
     LOG_WARNING(Shader, "(STUBBED) called");
     return ctx.Const(0x00ff0000u);
 }
 
 Id EmitSR_WScaleFactorZ(EmitContext& ctx) {
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive())
+        throw NotImplementedException("Native WarpScaleFactorZ requires real GPU state");
     LOG_WARNING(Shader, "(STUBBED) called");
     return ctx.Const(0x00ff0000u);
 }
