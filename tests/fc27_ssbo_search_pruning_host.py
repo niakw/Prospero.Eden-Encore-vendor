@@ -7,8 +7,8 @@ import hashlib
 import random
 
 ROOT=Path(__file__).resolve().parents[1]
-BFS=ROOT/"encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
-ACTIVE=ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp"
+BFS=ROOT/"encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h"
+ACTIVE=ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp"
 PINNED=ROOT/"sources/eden/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp"
 
 def blob(path: Path) -> str:

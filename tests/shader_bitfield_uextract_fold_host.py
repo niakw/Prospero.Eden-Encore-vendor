@@ -9,7 +9,7 @@ from pathlib import Path
 import os, shutil, subprocess, tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-SRC=ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp"
+SRC=ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp"
 s=SRC.read_text()
 assert "if (count == 0)" in s
 assert "const u32 mask{count == 32 ? ~0U : (1U << count) - 1};" in s
