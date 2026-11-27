@@ -43,18 +43,15 @@ def git_tree_files(path: str) -> set[str]:
 source_roots = git_tree_dirs("sources")
 active_roots = git_tree_dirs("encore-active")
 
-migration_debt_roots = {
-    "eden-vulkan", "amd-fsr31",
-}
-
-unknown_active_roots = active_roots - source_roots - migration_debt_roots
+unknown_active_roots = active_roots - source_roots
 assert not unknown_active_roots, (
     "unknown encore-active dependency roots", sorted(unknown_active_roots)
 )
 
 for retired in (
     "eden-gpu", "eden-sync", "eden-threading", "eden-shader", "eden-core",
-    "ns2-a64", "ns2-astc", "ns2-runtime", "eden-build", "eden-backports",
+    "eden-vulkan", "ns2-runtime", "amd-fsr31",
+    "ns2-a64", "ns2-astc", "eden-build", "eden-backports",
 ):
     assert retired not in active_roots, ("retired active root reintroduced", retired)
 
@@ -70,5 +67,5 @@ print(
     "active=only_maintained_override_namespace",
     f"source_roots={len(source_roots)}",
     f"active_roots={len(active_roots)}",
-    f"migration_debt_roots={len(active_roots & migration_debt_roots)}",
+    "migration_debt_roots=0",
 )

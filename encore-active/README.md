@@ -57,12 +57,14 @@ Les migrations avec collision doivent être fail-closed : en cas de doute entre 
 
 Les SHA restent légitimes pour le gitlink exact, la provenance, l'intégrité d'artefacts ou des preuves historiques. Ils ne doivent pas décider quel owner source courant est valide.
 
-## Migration en cours
+## Migration historique clôturée — 2026-11-27
 
-Les racines historiques encore présentes (`eden-vulkan`, `amd-fsr31`) sont de la dette de structure. Elles doivent être repliées vers la dépendance correspondante sous `encore-active/<dépendance>/`, puis supprimées uniquement après la procédure de vérification ci-dessus. Aucun nouvel owner ne doit y être ajouté.
+Les anciennes racines fonctionnelles `ns2-runtime`, `eden-vulkan` et `amd-fsr31` ont été repliées dans `encore-active/eden` après comparaison des collisions, des consommateurs et des owners réellement sélectionnés.
 
-`ns2-runtime` a été replié vers `encore-active/eden` après comparaison exhaustive : 165 fichiers identiques byte-for-byte et 7 propriétaires canoniques plus récents, puis migration de tous les consommateurs actifs avant suppression. Il est désormais interdit de réintroduire cette racine.
+- les propriétaires NS2 sont aux mêmes chemins logiques sous `encore-active/eden/src/` ;
+- le renderer Vulkan maintenu vit sous `encore-active/eden/src/video_core/renderer_vulkan/` ;
+- l'intégration AMD FSR 3.1 vit sous `encore-active/eden/externals/amd-fsr31/`.
 
-La cible finale est simple : même dépendance, même chemin logique, un seul owner actif, aucun contenu perdu.
+Ces anciennes racines sont désormais interdites par la gate de layout et ne doivent jamais être recréées. La cible finale est atteinte : même dépendance, même chemin logique, un seul owner actif, aucun contenu supprimé faute d'équivalent upstream.
 
 `sources/` est la dépendance figée. `encore-active/` est notre version finale.
