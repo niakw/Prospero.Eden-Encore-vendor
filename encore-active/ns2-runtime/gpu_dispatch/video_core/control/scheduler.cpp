@@ -16,6 +16,16 @@
 
 namespace Tegra::Control {
 
+bool Scheduler::HasCpuBlockedNativeChannels() const {
+    const std::scoped_lock lock(pending_guard);
+    return std::ranges::any_of(
+        pending_native_channels,
+        [](const std::shared_ptr<ChannelState>& state) {
+            return state && state->payload &&
+                   state->payload->dma_pusher.HasCpuBlockedNativeAcquire();
+        });
+}
+
 void Scheduler::Push(GPU& gpu, s32 channel, CommandList&& entries) {
     {
         // Hold a SHARED channel epoch lease through submission. Channel
