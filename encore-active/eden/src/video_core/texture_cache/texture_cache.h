@@ -6,15 +6,30 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <exception>
+#include <new>
+#include <iterator>
 #include <limits>
+#include <span>
+#include <type_traits>
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VOLUME_COPY)
+#include "core/hle/service/nvdrv/devices/native_gpu_channel_registry.h"
+#endif
 #include <optional>
 #include <bit>
 #include "common/container/unordered_map.h"
 #include <boost/container/small_vector.hpp>
 
 #include "common/alignment.h"
+#include "common/scope_exit.h"
 #include "common/settings.h"
 #include "common/slot_vector.h"
+#ifdef PS5_NATIVE
+#include "image_pages.h"
+#endif
 #include "video_core/control/channel_state.h"
 #include "video_core/dirty_flags.h"
 #include "video_core/engines/kepler_compute.h"
@@ -23,10 +38,38 @@
 #include "video_core/texture_cache/image_view_base.h"
 #include "video_core/texture_cache/samples_helper.h"
 #include "video_core/texture_cache/texture_cache_base.h"
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+#include "video_core/texture_cache/ns2_astc_staging_bridge.h"
+#endif
 #include "video_core/texture_cache/util.h"
 #include "video_core/textures/decoders.h"
 
+namespace Vulkan { class TextureCacheRuntime; }
+
 namespace VideoCommon {
+
+
+inline std::vector<ImageCopy> SplitLayeredImageCopies(std::span<const ImageCopy> copies) {
+    std::vector<ImageCopy> layer_copies;
+    layer_copies.reserve(copies.size());
+    for (const ImageCopy& copy : copies) {
+        const s32 num_layers = copy.dst_subresource.num_layers;
+        if (num_layers <= 1 || copy.src_subresource.num_layers != num_layers) {
+            layer_copies.push_back(copy);
+            continue;
+        }
+        for (s32 layer = 0; layer < num_layers; ++layer) {
+            ImageCopy single = copy;
+            single.dst_subresource.base_layer += layer;
+            single.src_subresource.base_layer += layer;
+            single.dst_subresource.num_layers = 1;
+            single.src_subresource.num_layers = 1;
+            layer_copies.push_back(single);
+        }
+    }
+    return layer_copies;
+}
+
 
 using Tegra::Texture::TICEntry;
 using Tegra::Texture::TSCEntry;
@@ -125,11 +168,152 @@ void TextureCache<P>::RunGarbageCollector() {
         ticks_to_destroy = aggressive_mode ? 10ULL : high_priority_mode ? 25ULL : 50ULL;
         num_iterations = aggressive_mode ? 40 : (high_priority_mode ? 20 : 10);
     };
+#ifdef PS5_NATIVE
+    // Prefetch only a prefix of independent dirty eviction candidates. Do not
+    // change LRU order, the eviction budget, pressure policy or guest write order.
+    // A deferred staging handle remains owned until the copy AND guest write.
+    using GcMap = decltype(runtime.DownloadStagingBuffer(size_t{}));
+    // Separate traversal and eviction limits: a decoding or protected image
+    // must not consume a reclaim attempt, but scanning remains bounded.
+    constexpr size_t gc_scan_limit = 8192;
+    size_t gc_scanned = 0;
+    constexpr size_t gc_batch_count = 40;
+    constexpr size_t gc_batch_bytes = 32_MiB;
+    boost::container::small_vector<std::pair<ImageId, GcMap>, gc_batch_count> gc_maps;
+    bool gc_retired = true;
+    const auto ReleaseGcMaps = [&] {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            for (auto& entry : gc_maps) runtime.FreeDeferredStagingBuffer(entry.second);
+            gc_maps.clear();
+        }
+    };
+    SCOPE_EXIT {
+        if (!gc_retired) {
+            try {
+                runtime.Finish();
+            } catch (...) {
+                // A failed drain cannot establish retirement. Keep the pool
+                // reservations deferred rather than reuse in-flight storage.
+                return;
+            }
+        }
+        ReleaseGcMaps();
+    };
+    const auto PrefetchGc = [&] {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            if (!high_priority_mode || frame_tick < ticks_to_destroy) return;
+            boost::container::small_vector<ImageId, gc_batch_count> candidates;
+            size_t remaining = num_iterations;
+            size_t scanned = 0;
+            size_t capacity = 0;
+            u64 projected_usage = total_used_memory;
+            const u64 stop_usage = aggressive_mode ? critical_memory : expected_memory;
+            lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, [&](ImageId id) {
+                if (remaining == 0 || scanned >= gc_scan_limit ||
+                    candidates.size() == gc_batch_count) return true;
+                ++scanned;
+                const Image& image = slot_images[id];
+                if (True(image.flags & ImageFlagBits::IsDecoding) ||
+                    (!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad))) {
+                    return false;
+                }
+                // Stop at a candidate that needs ordinary cleanup. In
+                // particular never look past an overlapping or scaled image.
+                if (!IsDownloadable(image) ||
+                    True(image.flags & (ImageFlagBits::BadOverlap | ImageFlagBits::Sparse |
+                                        ImageFlagBits::Remapped | ImageFlagBits::Rescaled)) ||
+                    !image.aliased_images.empty() || !image.overlapping_images.empty() ||
+                    image.info.num_samples != 1 || image.HasScaled() ||
+                    image.cpu_addr_end <= image.cpu_addr ||
+                    FullDownloadCopies(image.info).empty()) return true;
+                const size_t bytes = image.unswizzled_size_bytes;
+                if (bytes == 0 || bytes > gc_batch_bytes) return true;
+                // The download pool rounds allocations to powers of two.
+                const size_t rounded = std::bit_ceil(bytes);
+                if (rounded > gc_batch_bytes - capacity) return true;
+                for (const ImageId previous : candidates) {
+                    const auto& other = slot_images[previous];
+                    if (image.cpu_addr < other.cpu_addr_end &&
+                        other.cpu_addr < image.cpu_addr_end) return true;
+                }
+                --remaining;
+                candidates.push_back(id);
+                capacity += rounded;
+                u64 reclaimed = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
+                if ((IsPixelFormatASTC(image.info.format) &&
+                     True(image.flags & ImageFlagBits::AcceleratedUpload)) ||
+                    True(image.flags & ImageFlagBits::Converted)) {
+                    reclaimed = TranscodedAstcSize(reclaimed, image.info.format);
+                }
+                reclaimed = Common::AlignUp(reclaimed, 1024);
+                projected_usage -= (std::min)(projected_usage, reclaimed);
+                return projected_usage < stop_usage;
+            });
+            if (candidates.size() < 2) return;
+            size_t mapped_bytes = 0;
+            for (const ImageId id : candidates) {
+                auto& image = slot_images[id];
+                auto map = [&]() -> GcMap {
+                    try {
+                        return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes, true);
+                    } catch (const std::bad_alloc&) {
+                        return {};
+                    }
+                }();
+                if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes ||
+                    map.mapped_span.size_bytes() > gc_batch_bytes - mapped_bytes) {
+                    if (map.buffer) runtime.FreeDeferredStagingBuffer(map);
+                    break;
+                }
+                // Inline storage is sufficient for all candidates. Publish
+                // the handle before any command recording can throw.
+                gc_maps.emplace_back(id, map);
+                gc_retired = false;
+                mapped_bytes += map.mapped_span.size_bytes();
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                image.DownloadMemory(gc_maps.back().second, copies);
+            }
+            if (!gc_maps.empty()) {
+                runtime.Finish();
+                gc_retired = true;
+            }
+        }
+    };
+    const auto UseGcPrefetch = [&](ImageId id, Image& image) {
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            const auto it = std::ranges::find_if(gc_maps, [id](const auto& entry) {
+                return entry.first == id;
+            });
+            if (it != gc_maps.end()) {
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies,
+                             it->second.mapped_span, swizzle_data_buffer);
+                runtime.FreeDeferredStagingBuffer(it->second);
+                gc_maps.erase(it);
+                return true;
+            }
+        }
+        return false;
+    };
+#endif
+#ifdef PS5_NATIVE
+    const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode,
+                          &UseGcPrefetch, &gc_scanned](ImageId image_id) {
+#else
     const auto Cleanup = [this, &num_iterations, &high_priority_mode, &aggressive_mode](ImageId image_id) {
-        if (num_iterations == 0) {
+#endif
+        if (num_iterations == 0
+#ifdef PS5_NATIVE
+            || gc_scanned >= gc_scan_limit
+#endif
+        ) {
             return true;
         }
+#ifdef PS5_NATIVE
+        ++gc_scanned;
+#else
         --num_iterations;
+#endif
         auto& image = slot_images[image_id];
         if (True(image.flags & ImageFlagBits::IsDecoding)) {
             return false;
@@ -138,8 +322,32 @@ void TextureCache<P>::RunGarbageCollector() {
         if ((!aggressive_mode && True(image.flags & ImageFlagBits::CostlyLoad)) || (!high_priority_mode && must_download)) {
             return false;
         }
+#ifdef PS5_NATIVE
+        // Charge each eligible attempt, including failed readbacks; only
+        // protected/skipped entries are free against the eviction budget.
+        --num_iterations;
+        if (must_download && !UseGcPrefetch(image_id, image)) {
+#else
         if (must_download) {
+#endif
+#ifdef PS5_NATIVE
+            // Failed or empty readbacks must not evict the only GPU-owned copy.
+            if (FullDownloadCopies(image.info).empty()) {
+                return false;
+            }
+            auto map = [&]() -> decltype(runtime.DownloadStagingBuffer(image.unswizzled_size_bytes)) {
+                try {
+                    return runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+                } catch (const std::bad_alloc&) {
+                    return {};
+                }
+            }();
+            if (!map.buffer || map.mapped_span.size_bytes() < image.unswizzled_size_bytes) {
+                return false;
+            }
+#else
             auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
+#endif
             const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
             image.DownloadMemory(map, copies);
             runtime.Finish();
@@ -159,19 +367,56 @@ void TextureCache<P>::RunGarbageCollector() {
         }
         return false;
     };
+    // An unsigned age subtraction is not a valid early-frame cutoff.
+    // In particular, do not rely on the LRU's signed conversion of a wrapped tick.
+    const auto CollectEligible = [&] {
+#ifdef PS5_NATIVE
+        if (frame_tick < ticks_to_destroy) return;
+        gc_scanned = 0;
+        PrefetchGc();
+#endif
+        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+#ifdef PS5_NATIVE
+        ReleaseGcMaps();
+#endif
+    };
     Configure(false);
-    lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+    CollectEligible();
     if (total_used_memory >= critical_memory) {
         Configure(true);
-        lru_cache.ForEachItemBelow(frame_tick - ticks_to_destroy, Cleanup);
+        CollectEligible();
     }
 }
 
 template <class P>
+#ifdef PS5_NATIVE
+void TextureCache<P>::TickFrame(std::optional<u64> externally_sampled_usage) {
+#else
 void TextureCache<P>::TickFrame() {
+#endif
+    // Release only oversized transient CPU scratch at the next frame boundary.
+    // The normal <= 64 MiB cached working set and GPU residency are unchanged.
+#ifdef EDEN_NS2_ASTC_SCRATCH_TRIM
+    static constexpr size_t N54ScratchTrimThreshold = size_t{64} << 20;
+    for (auto* const scratch : {&swizzle_data_buffer, &unswizzle_data_buffer}) {
+        if (scratch->capacity() > N54ScratchTrimThreshold) {
+            scratch->release();
+        }
+    }
+#endif
     // If we can obtain the memory info, use it instead of the estimate.
     if (runtime.CanReportMemoryUsage()) {
+#ifdef PS5_NATIVE
+        // Native Vulkan sampled before the TextureCache mutex was held.
+        // Other callers retain the previous synchronous query fallback.
+        if (externally_sampled_usage) {
+            total_used_memory = *externally_sampled_usage;
+        } else {
+            total_used_memory = runtime.GetDeviceMemoryUsage();
+        }
+#else
         total_used_memory = runtime.GetDeviceMemoryUsage();
+#endif
     }
     if (total_used_memory > minimum_memory) {
         RunGarbageCollector();
@@ -217,6 +462,15 @@ void TextureCache<P>::MarkModification(ImageId id) noexcept {
 
 template <class P>
 void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist) {
+#ifdef PS5_NATIVE
+    // The empty descriptor pass only clears the deletion/retry latch.
+    // Avoid initializing the draw-local TIC memo and entering the retry
+    // loop when no view can possibly be visited or blacklisted.
+    if (views.empty()) {
+        has_deleted_images = false;
+        return;
+    }
+#endif
     bool has_blacklisted = false;
     do {
         has_deleted_images = false;
@@ -224,25 +478,65 @@ void TextureCache<P>::FillImageViews(std::span<ImageViewInOut> views, bool compu
             has_blacklisted = false;
         }
 #ifdef PS5_NATIVE
-        // Reuse only the immediately preceding successful TIC binding in a
-        // read-only pass. Deletion, NULL recovery and blacklist effects must
-        // still visit every descriptor.
-        u32 previous_image_index{};
-        ImageViewId previous_view_id = NULL_IMAGE_VIEW_ID;
+        // P0.3: reuse nonadjacent TIC descriptors only in this stable draw pass.
+        // Never bypass NULL recovery, deletion-driven retry or blacklist work.
+        struct ViewMemo {
+            u32 index;
+            ImageViewId id;
+        };
+        // Use a mask instead of clearing sixteen keys under the texture lock.
+        // Unoccupied entries are never read, NULL IDs never memoized.
+        std::array<ViewMemo, 16> view_memo;
+        u32 occupied_view_slots = 0;
+        const bool memo_enabled = !blacklist && views.size() > 1;
 #endif
         for (ImageViewInOut& view : views) {
 #ifdef PS5_NATIVE
-            if (!blacklist && !has_deleted_images &&
-                previous_view_id != NULL_IMAGE_VIEW_ID &&
-                previous_image_index == view.index) {
-                view.id = previous_view_id;
-                continue;
+            // On a hot multi-texture HUD pass, several TIC indices may have
+            // the same low four bits. Preserve up to 16 distinct positive
+            // results without additional heap work or cross-draw caching.
+            ViewMemo* memo_slot = nullptr;
+            u32 memo_bit = 0;
+            bool memo_hit = false;
+            if (memo_enabled && !has_deleted_images) {
+                const std::size_t start = (view.index ^ (view.index >> 4)) & 15U;
+                for (std::size_t offset = 0; offset < view_memo.size(); ++offset) {
+                    const std::size_t slot = (start + offset) & 15U;
+                    const u32 bit = u32{1} << slot;
+                    auto& cached = view_memo[slot];
+                    if (!(occupied_view_slots & bit)) {
+                        memo_slot = &cached;
+                        memo_bit = bit;
+                        break;
+                    }
+                    if (cached.index != view.index) continue;
+                    memo_slot = &cached;
+                    memo_bit = bit;
+                    const auto& cached_view = slot_image_views[cached.id];
+                    // Never reuse a remapped view without rebuilding it.
+                    const bool remapped = !cached_view.IsBuffer() &&
+                        True(slot_images[cached_view.image_id].flags & ImageFlagBits::Remapped);
+                    if (!remapped) {
+                        view.id = cached.id;
+                        // A positive TIC hit still refreshes dirty pixels.
+                        PrepareImageView(cached.id, false, false);
+                        memo_hit = true;
+                    }
+                    break;
+                }
             }
+            if (memo_hit) continue;
 #endif
             view.id = VisitImageView(view.index, compute);
 #ifdef PS5_NATIVE
-            previous_image_index = view.index;
-            previous_view_id = view.id;
+            // A full table falls back to the original lookup without
+            // evicting any live descriptor in this draw. A deletion-driven
+            // retry uses a fresh table in the next do/while iteration.
+            if (memo_slot && !has_deleted_images && view.id != NULL_IMAGE_VIEW_ID) {
+                memo_slot->index = view.index;
+                memo_slot->id = view.id;
+                occupied_view_slots |= memo_bit;
+            }
 #endif
             if (blacklist) {
                 if (view.blacklist && view.id != NULL_IMAGE_VIEW_ID) {
@@ -340,8 +634,21 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
 
             {
                 bool is_continue = false;
+#ifdef PS5_NATIVE
+                // Only visit color targets actually attached to this depth pass.
+                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
+                while (color_slots) {
+                    const u32 slot = std::countr_zero(color_slots);
+                    if (view.id == render_targets.color_buffer_ids[slot]) {
+                        is_continue = true;
+                        break;
+                    }
+                    color_slots &= color_slots - 1;
+                }
+#else
                 for (size_t i = 0; i < 8; ++i)
                     is_continue |= (rt_active_mask & (1u << i)) && view.id == render_targets.color_buffer_ids[i];
+#endif
                 if (is_continue)
                     continue;
             }
@@ -352,8 +659,20 @@ void TextureCache<P>::CheckFeedbackLoop(std::span<const ImageViewInOut> views) {
             const ImageId view_image_id = slot_image_views[view.id].image_id;
             {
                 bool is_continue = false;
+#ifdef PS5_NATIVE
+                u32 color_slots = rt_active_mask & ((1u << NUM_RT) - 1);
+                while (color_slots) {
+                    const u32 slot = std::countr_zero(color_slots);
+                    if (view_image_id == rt_image_id[slot]) {
+                        is_continue = true;
+                        break;
+                    }
+                    color_slots &= color_slots - 1;
+                }
+#else
                 for (size_t i = 0; i < 8; ++i)
                     is_continue |= (rt_active_mask & (1u << i)) && view_image_id == rt_image_id[i];
+#endif
                 if (is_continue)
                     continue;
             }
@@ -381,8 +700,8 @@ typename P::Sampler* TextureCache<P>::GetSampler(u32 index, bool compute) {
 template <class P>
 SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_sampler_table : channel_state->graphics_sampler_table;
-    if (index > table.current_limit) {
-        LOG_DEBUG(HW_GPU, "Invalid sampler index={}", index);
+    if (index > table.current_limit || index >= table.descriptors.size()) {
+        LOG_TRACE(HW_GPU, "Invalid sampler index={}", index);
         return NULL_SAMPLER_ID;
     }
     auto const map_index = index | (compute ? Common::SlotId::TAGGED_VALUE : 0);
@@ -392,7 +711,19 @@ SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
         channel_state->sampler_ids.insert_or_assign(map_index, id);
         return id;
     }
+#ifdef PS5_NATIVE
+    // A descriptor table can retain its bytes after a channel map entry
+    // is evicted/rebuilt. Never dereference a missing sampler mapping.
+    const auto it = channel_state->sampler_ids.find(map_index);
+    if (it == channel_state->sampler_ids.end()) {
+        const auto id = FindSampler(descriptor, compute);
+        channel_state->sampler_ids.insert_or_assign(map_index, id);
+        return id;
+    }
+    return it->second;
+#else
     return channel_state->sampler_ids.find(map_index)->second;
+#endif
 }
 
 template <class P>
@@ -407,10 +738,14 @@ typename P::Sampler& TextureCache<P>::GetSampler(SamplerId id) noexcept {
 
 template <class P>
 void TextureCache<P>::SynchronizeDescriptors(bool compute) {
+    // A guest-controlled TIC/TSC limit must never allocate an unbounded
+    // descriptor array from inside DescriptorTable::Refresh() noexcept.
+    // 21-bit table indices are the conservative upstream upper bound.
+    constexpr u32 MaxDescriptorTableLimit = (1U << 21) - 1;
     if (compute) {
         const bool linked_tsc = kepler_compute->launch_description.linked_tsc;
-        const u32 tic_limit = kepler_compute->regs.tic.limit;
-        const u32 tsc_limit = linked_tsc ? tic_limit : kepler_compute->regs.tsc.limit;
+        const u32 tic_limit = (std::min)(kepler_compute->regs.tic.limit, MaxDescriptorTableLimit);
+        const u32 tsc_limit = linked_tsc ? tic_limit : (std::min)(kepler_compute->regs.tsc.limit, MaxDescriptorTableLimit);
         bool bindings_changed = false;
         if (channel_state->compute_sampler_table.Synchronize(kepler_compute->regs.tsc.Address(), tsc_limit))
             bindings_changed = true;
@@ -421,8 +756,8 @@ void TextureCache<P>::SynchronizeDescriptors(bool compute) {
         }
     } else {
         const bool linked_tsc = maxwell3d->regs.sampler_binding == Tegra::Engines::Maxwell3D::Regs::SamplerBinding::ViaHeaderBinding;
-        const u32 tic_limit = maxwell3d->regs.tex_header.limit;
-        const u32 tsc_limit = linked_tsc ? tic_limit : maxwell3d->regs.tex_sampler.limit;
+        const u32 tic_limit = (std::min)(maxwell3d->regs.tex_header.limit, MaxDescriptorTableLimit);
+        const u32 tsc_limit = linked_tsc ? tic_limit : (std::min)(maxwell3d->regs.tex_sampler.limit, MaxDescriptorTableLimit);
         bool bindings_changed = false;
         if (channel_state->graphics_sampler_table.Synchronize(maxwell3d->regs.tex_sampler.Address(), tsc_limit))
             bindings_changed = true;
@@ -533,14 +868,41 @@ bool TextureCache<P>::RescaleRenderTargets() {
 template <class P>
 void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
     using namespace VideoCommon::Dirty;
+    // Lichii/PS5 patch 0078: a full clear may create a target that immediately
+    // overwrites every guest byte. Keep this scope narrow so JoinImages can
+    // skip only that provably dead initial upload.
+    struct ClearingScope {
+        bool& flag;
+        ~ClearingScope() {
+            flag = false;
+        }
+    } clearing_scope{clearing_render_targets};
+    clearing_render_targets = is_clear;
     auto& flags = maxwell3d->dirty.flags;
     if (!flags[Dirty::RenderTargets]) {
+#ifdef PS5_NATIVE
+        // Cache the active attachment mask when render targets are reselected.
+        // On a clean draw it is current: only present views can be prepared.
+        // Preserve color-slot order, depth-last, and every live GPU refresh.
+        u32 active_colors = rt_active_mask & ((1U << NUM_RT) - 1U);
+        while (active_colors != 0) {
+            const size_t index = std::countr_zero(active_colors);
+            active_colors &= active_colors - 1U;
+            const ImageViewId color_buffer_id = render_targets.color_buffer_ids[index];
+            PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
+        }
+        if ((rt_active_mask & (1U << NUM_RT)) != 0) {
+            const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
+            PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+        }
+#else
         for (size_t index = 0; index < NUM_RT; ++index) {
             ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
             PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
         }
         const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
         PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+#endif
         return;
     }
 
@@ -608,11 +970,167 @@ typename P::Framebuffer* TextureCache<P>::GetFramebuffer() {
     return &slot_framebuffers[framebuffer_id];
 }
 
+#ifdef PS5_NATIVE
+// NS2 and NS1 use one TextureCache channel map, image slots and invalidation
+// path. Native callers have already authenticated their TIC and 49-bit GMMU.
+// Never run legacy IsValidEntry here: its 40-bit VA limit is Maxwell-only.
+template <class P>
+bool TextureCache<P>::NativeChannelMatches(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory) const noexcept {
+    // ChannelSetupCaches can switch the active space without changing the
+    // TIC bytes. Require both the actual engine and GMMU identity under
+    // texture_cache.mutex; the process registry's epoch is checked outside.
+    // BindToChannel/EraseChannel mutate these pointers under config_mutex.
+    // The renderer holds texture_cache.mutex; take the configuration lock
+    // briefly as well so a concurrent channel switch cannot race this proof.
+    std::scoped_lock channel_lock{config_mutex};
+    return channel_state && gpu_memory &&
+           kepler_compute == &expected_compute &&
+           gpu_memory == &expected_memory &&
+           &channel_state->kepler_compute == &expected_compute &&
+           &channel_state->gpu_memory == &expected_memory;
+}
+
+template <class P>
+ImageViewId TextureCache<P>::AcquireNativeImageView(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory,
+    const TICEntry& descriptor, bool is_written) {
+    // BindToChannel/EraseChannel use config_mutex, NOT texture_cache.mutex.
+    // A standalone NativeChannelMatches() returns with that lock released;
+    // the channel may change before image_views is accessed. Hold the same
+    // configuration lock through slot lookup, creation and preparation.
+    // The caller already holds texture_cache.mutex (lock order: texture,
+    // then config), exactly as NativeChannelMatches() does.
+    std::scoped_lock channel_lock{config_mutex};
+    if (!channel_state || !gpu_memory ||
+        kepler_compute != &expected_compute ||
+        gpu_memory != &expected_memory ||
+        &channel_state->kepler_compute != &expected_compute ||
+        &channel_state->gpu_memory != &expected_memory)
+        return NULL_IMAGE_VIEW_ID;
+    // Suppress only same-thread nested getStorageID locking while the
+    // configuration lease remains live; never waive locks on other threads.
+    const auto prior_native_owner = native_channel_lock_owner;
+    native_channel_lock_owner = this;
+    SCOPE_EXIT { native_channel_lock_owner = prior_native_owner; };
+    const auto [pair, is_new] = channel_state->image_views.try_emplace(descriptor);
+    bool remapped = false;
+    if (pair->second != NULL_IMAGE_VIEW_ID) {
+        const ImageViewBase& view = slot_image_views[pair->second];
+        remapped = !view.IsBuffer() &&
+            True(slot_images[view.image_id].flags & ImageFlagBits::Remapped);
+    }
+    // Invalidated NULL and remapped slots are always retried. A guest image
+    // that failed to map once must never poison this channel forever.
+    if (is_new || pair->second == NULL_IMAGE_VIEW_ID || remapped) {
+        const ImageViewId fresh = CreateImageView(descriptor);
+        if (fresh != pair->second) ++texture_bindings_serial;
+        pair->second = fresh;
+    }
+    if (pair->second != NULL_IMAGE_VIEW_ID)
+        PrepareImageView(pair->second, is_written, false);
+    return pair->second;
+}
+
+template <class P>
+SamplerId TextureCache<P>::AcquireNativeSampler(
+    const Tegra::Engines::KeplerCompute& expected_compute,
+    const Tegra::MemoryManager& expected_memory,
+    const TSCEntry& descriptor) {
+    // Hold config_mutex until FindSampler has finished its per-channel
+    // lookup. Checking the engine once and unlocking before FindSampler
+    // could publish a sampler belonging to a different channel.
+    std::scoped_lock channel_lock{config_mutex};
+    if (!channel_state || !gpu_memory ||
+        kepler_compute != &expected_compute ||
+        gpu_memory != &expected_memory ||
+        &channel_state->kepler_compute != &expected_compute ||
+        &channel_state->gpu_memory != &expected_memory)
+        return NULL_SAMPLER_ID;
+    // Suppress only same-thread nested getStorageID locking while the
+    // configuration lease remains live; never waive locks on other threads.
+    const auto prior_native_owner = native_channel_lock_owner;
+    native_channel_lock_owner = this;
+    SCOPE_EXIT { native_channel_lock_owner = prior_native_owner; };
+    // FindSampler already owns slot_samplers and the per-channel TSC
+    // descriptor key. No parallel Ampere sampler cache is permitted.
+    return FindSampler(descriptor, true);
+}
+
+template <class P>
+std::optional<typename TextureCache<P>::NativePinnedImageView>
+TextureCache<P>::PinNativeImageView(ImageViewId id) {
+    // Only the Vulkan image/sampler types own native GPU fence pins.
+    // TextureCache is also explicitly instantiated for OpenGL on PS5;
+    // its types do not expose this ownership contract. Fail closed.
+    if constexpr (!(requires(Image& image, ImageView& view) {
+        image.PinNativeGpu();
+        view.PinNativeGpu();
+    })) {
+        return std::nullopt;
+    } else {
+        // Call only under texture_cache.mutex. AcquireNativeImageView has already
+        // checked the live channel under config_mutex. Moving a cache image out
+        // of its slot during an eviction transfers its pin into the retirement
+        // queue, which waits for all external GPU owners before destroying it.
+        if (id == NULL_IMAGE_VIEW_ID || id == ImageViewId{})
+            return std::nullopt;
+        auto& view = slot_image_views[id];
+        if (view.IsBuffer() || view.image_id == NULL_IMAGE_ID ||
+            view.image_id == ImageId{})
+            return std::nullopt;
+        auto& image = slot_images[view.image_id];
+        // TIC bytes can remain identical when the GPU remaps the physical
+        // backing. Refuse the stale image even if its old Vulkan view is pinned.
+        // A subsequent acquisition rebuilds the shared cache's remapped slot.
+        const auto mapped_base = gpu_memory
+                                     ? gpu_memory->GpuToCpuAddress(image.gpu_addr)
+                                     : std::nullopt;
+        if (True(image.flags & ImageFlagBits::Remapped) || !mapped_base ||
+            *mapped_base != image.cpu_addr) {
+            image.flags |= ImageFlagBits::Remapped;
+            return std::nullopt;
+        }
+        auto image_pin = image.PinNativeGpu();
+        auto view_pin = view.PinNativeGpu();
+        if (!image_pin || !view_pin)
+            return std::nullopt;
+        return NativePinnedImageView{
+            .id = id,
+            .backing_image = std::move(image_pin),
+            .image_view = std::move(view_pin)};
+    }
+
+}
+
+template <class P>
+std::shared_ptr<u8> TextureCache<P>::PinNativeSampler(SamplerId id) {
+    // Only the Vulkan image/sampler types own native GPU fence pins.
+    // TextureCache is also explicitly instantiated for OpenGL on PS5;
+    // its types do not expose this ownership contract. Fail closed.
+    if constexpr (!(requires(Sampler& sampler) {
+        sampler.PinNativeGpu();
+    })) {
+        return {};
+    } else {
+        // Unlike images, the shared sampler slot is not separately evicted.
+        // Still hold an explicit owner until the last native GPU fence releases
+        // its descriptors; the rasterizer Finish drains cache destruction.
+        if (id == NULL_SAMPLER_ID || id == SamplerId{})
+            return {};
+        return slot_samplers[id].PinNativeGpu();
+    }
+
+}
+#endif
+
 template <class P>
 ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
     auto& table = compute ? channel_state->compute_image_table : channel_state->graphics_image_table;
-    if (index > table.current_limit) {
-        LOG_DEBUG(HW_GPU, "Invalid image view index={}", index);
+    if (index > table.current_limit || index >= table.descriptors.size()) {
+        LOG_TRACE(HW_GPU, "Invalid image view index={}", index);
         return NULL_IMAGE_VIEW_ID;
     }
     auto const map_index = index | (compute ? Common::SlotId::TAGGED_VALUE : 0);
@@ -671,9 +1189,9 @@ ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
             is_remapped_view(pair->second))
             pair->second = CreateImageView(descriptor);
         PrepareImageView(pair->second, false, false);
-        // CheckFeedbackLoop caches barrier decisions by this serial. Reviving
-        // an image without rewriting its TIC must invalidate that decision.
-        if (pair->second != NULL_IMAGE_VIEW_ID)
+        // Publish both valid->NULL and NULL->valid generation transitions.
+        // A failed reconstruction also retires the previously bound view.
+        if (pair->second != NULL_IMAGE_VIEW_ID || remapped_cached_view)
             ++texture_bindings_serial;
         channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
         return pair->second;
@@ -711,7 +1229,108 @@ FramebufferId TextureCache<P>::GetFramebufferId(const RenderTargets& key) {
 
 template <class P>
 void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    ForEachImageInRegion(cpu_addr, size, [this, cpu_addr, size](ImageId image_id, Image& image) {
+        if (image.ns2_astc_dirty) {
+            if (image.ns2_astc_dirty->MarkWrite(cpu_addr, size)) {
+                image.flags |= ImageFlagBits::CpuModified;
+                return;
+            }
+            image.ns2_astc_dirty.reset();
+        }
+        if (True(image.flags & ImageFlagBits::CpuModified)) {
+#else
     ForEachImageInRegion(cpu_addr, size, [this](ImageId image_id, Image& image) {
+        if (True(image.flags & ImageFlagBits::CpuModified)) {
+#endif
+            return;
+        }
+        image.flags |= ImageFlagBits::CpuModified;
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, image_id);
+        }
+    });
+}
+
+// DMA can update device guest memory without going through the usual CPU-write
+// callback. Mirror that write into the image cache only when the GPU has no
+// newer image data that would be lost by a subsequent upload.
+template <class P>
+void TextureCache<P>::WriteGpuMemory(GPUVAddr gpu_addr, size_t size) {
+    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {
+        if (const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr)) {
+            WriteMemory(*device_addr, piece_size);
+        }
+    }
+}
+
+template <class P>
+void TextureCache<P>::WriteDmaCopy(
+    GPUVAddr src_addr, GPUVAddr dest_addr, size_t size,
+    std::span<const std::pair<DAddr, size_t>> gpu_written_dest) {
+    if (size == 0) {
+        return;
+    }
+    const std::optional<DAddr> src = gpu_memory->GpuToCpuAddress(src_addr);
+    const std::optional<DAddr> dest = gpu_memory->GpuToCpuAddress(dest_addr);
+    if (!src || !dest ||
+        *src > (std::numeric_limits<DAddr>::max)() - size ||
+        *dest > (std::numeric_limits<DAddr>::max)() - size) {
+        return;
+    }
+    const DAddr src_end = *src + size;
+    const DAddr dest_end = *dest + size;
+
+    // BufferCache reports destination bytes whose source was newer on the GPU.
+    // Guest memory still contains older bytes there until a later download.
+    boost::container::small_vector<std::pair<DAddr, size_t>, 8> unheld;
+    unheld.reserve(gpu_written_dest.size() + 4);
+    for (const auto& [begin, length] : gpu_written_dest) {
+        if (length == 0 || begin < *dest || begin >= dest_end ||
+            length > dest_end - begin) {
+            return;
+        }
+        unheld.emplace_back(begin, length);
+    }
+
+    // GPU-written source images have the same property: DMACopy moves their
+    // host-GPU bytes, while the guest-memory mirror still holds older data.
+    ForEachImageInRegion(*src, size, [&](ImageId, Image& image) {
+        if (False(image.flags & ImageFlagBits::GpuModified)) {
+            return;
+        }
+        const DAddr begin = (std::max)(static_cast<DAddr>(image.cpu_addr), *src);
+        const DAddr end = (std::min)(static_cast<DAddr>(image.cpu_addr_end), src_end);
+        if (begin < end) {
+            unheld.emplace_back(*dest + (begin - *src), static_cast<size_t>(end - begin));
+        }
+    });
+
+    const auto overlaps_unheld = [&unheld](const Image& image) {
+        return std::ranges::any_of(unheld, [&image](const auto& range) {
+            const DAddr range_end = range.first + range.second;
+            return range.first < image.cpu_addr_end && image.cpu_addr < range_end;
+        });
+    };
+
+    ForEachImageInRegion(*dest, size, [&](ImageId image_id, Image& image) {
+        // Uploading this image would consume bytes that guest memory does not
+        // hold yet, or discard GPU-owned texels outside the copied interval.
+        const bool keeps_gpu_contents =
+            True(image.flags & ImageFlagBits::GpuModified) &&
+            (image.cpu_addr < *dest || image.cpu_addr_end > dest_end);
+        if (overlaps_unheld(image) || keeps_gpu_contents) {
+            return;
+        }
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+        if (image.ns2_astc_dirty) {
+            if (image.ns2_astc_dirty->MarkWrite(*dest, size)) {
+                image.flags |= ImageFlagBits::CpuModified;
+                return;
+            }
+            image.ns2_astc_dirty.reset();
+        }
+#endif
         if (True(image.flags & ImageFlagBits::CpuModified)) {
             return;
         }
@@ -720,6 +1339,27 @@ void TextureCache<P>::WriteMemory(DAddr cpu_addr, size_t size) {
             UntrackImage(image, image_id);
         }
     });
+}
+
+template <class P>
+bool TextureCache<P>::IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size) {
+    // GetSubmappedRange omits unmapped/reserved holes. A partial translation
+    // must never make a DMA destination look safe for a guest-memory upload.
+    // Check full half-open coverage without adding addresses that might wrap.
+    size_t covered = 0;
+    for (const auto& [piece_addr, piece_size] : gpu_memory->GetSubmappedRange(gpu_addr, size)) {
+        if (piece_addr < gpu_addr || piece_addr - gpu_addr != covered ||
+            piece_size == 0 || piece_size > size - covered) {
+            return true;
+        }
+        const auto device_addr = gpu_memory->GpuToCpuAddress(piece_addr);
+        if (!device_addr || IsRegionGpuModified(*device_addr, piece_size)) {
+            return true;
+        }
+        covered += piece_size;
+    }
+    // No segments, partial coverage, and invalid ranges all fail closed.
+    return covered != size || size == 0;
 }
 
 template <class P>
@@ -740,12 +1380,31 @@ bool TextureCache<P>::IsDownloadable(const ImageBase& image) const noexcept {
 template <class P>
 void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
     boost::container::small_vector<ImageId, 16> images;
+#ifdef PS5_NATIVE
+    // DownloadMemory can fail after clearing GPU-dirty state but before guest
+    // pixels are published. Restore every touched image on unwinding, even
+    // when an earlier staged image was already copied successfully.
+    const int uncaught_before_readback = std::uncaught_exceptions();
+    SCOPE_EXIT {
+        if (std::uncaught_exceptions() > uncaught_before_readback) {
+            for (const ImageId id : images) {
+                slot_images[id].flags |= ImageFlagBits::GpuModified;
+            }
+        }
+    };
+#endif
     ForEachImageInRegion(cpu_addr, size, [this, &images](ImageId image_id, ImageBase& image) {
         if (!IsDownloadable(image)) {
             return;
         }
+#ifdef PS5_NATIVE
+        // The list can allocate: track the image BEFORE clearing its flag.
+        images.push_back(image_id);
+        image.flags &= ~ImageFlagBits::GpuModified;
+#else
         image.flags &= ~ImageFlagBits::GpuModified;
         images.push_back(image_id);
+#endif
     });
     if (images.empty()) {
         return;
@@ -753,6 +1412,83 @@ void TextureCache<P>::DownloadMemory(DAddr cpu_addr, size_t size) {
     std::ranges::sort(images, [this](ImageId lhs, ImageId rhs) {
         return slot_images[lhs].modification_tick < slot_images[rhs].modification_tick;
     });
+#ifdef PS5_NATIVE
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        // Keep independent copies in one submission, then publish guest writes
+        // in modification order. A staging allocation stays busy until its tick.
+        using Map = decltype(runtime.DownloadStagingBuffer(size_t{}));
+        // Up to 40 small independent readbacks can now share one GPU
+        // completion fence. Keep their total staging bytes capped at 32 MiB
+        // and publish guest writes in their original modification order.
+        // Hold deferred staging until guest publication: a scheduler flush
+        // can advance the tick while another image is being recorded.
+        constexpr size_t readback_batch_limit = 40;
+        boost::container::small_vector<std::pair<ImageId, Map>, readback_batch_limit> pending;
+        constexpr size_t batch_limit = 32_MiB;
+        size_t batch_bytes = 0;
+        const auto release_batch = [&] {
+            for (auto& entry : pending) runtime.FreeDeferredStagingBuffer(entry.second);
+            pending.clear();
+            batch_bytes = 0;
+        };
+        // An exception may leave readback copies recorded but not yet
+        // completed. Never make their staging allocations reusable until the
+        // scheduler has retired the commands. No extra wait on success.
+        SCOPE_EXIT {
+            if (std::uncaught_exceptions() > uncaught_before_readback && !pending.empty()) {
+                try {
+                    runtime.Finish();
+                } catch (...) {
+                    // A failed drain cannot prove GPU retirement. Leave the
+                    // allocations deferred rather than risk reusing GPU data.
+                    return;
+                }
+            }
+            release_batch();
+        };
+        const auto finish_batch = [&] {
+            if (pending.empty()) return;
+            runtime.Finish();
+            for (auto& [image_id, map] : pending) {
+                Image& image = slot_images[image_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, map.mapped_span,
+                             swizzle_data_buffer);
+            }
+            release_batch();
+        };
+        for (const ImageId image_id : images) {
+            Image& image = slot_images[image_id];
+            const size_t bytes = image.unswizzled_size_bytes;
+            if (pending.size() == readback_batch_limit || bytes > batch_limit - batch_bytes)
+                finish_batch();
+            const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+            // No represented copy or incomplete mapping cannot satisfy a
+            // guest readback. Throw before recording GPU commands; the
+            // enclosing rollback restores the dirty flags on every image.
+            if (bytes == 0 || copies.empty()) {
+                throw std::bad_alloc{};
+            }
+            auto map = runtime.DownloadStagingBuffer(bytes, true);
+            if (!map.buffer || map.mapped_span.size_bytes() < bytes) {
+                if (map.buffer) runtime.FreeDeferredStagingBuffer(map);
+                throw std::bad_alloc{};
+            }
+            // The inline capacity is sufficient and Vulkan's map is a POD ref.
+            pending.emplace_back(image_id, std::move(map));
+            image.DownloadMemory(pending.back().second, copies);
+            // Oversized images retain the original one-image allocation/wait.
+            if (bytes >= batch_limit) {
+                finish_batch();
+            } else {
+                batch_bytes += bytes;
+            }
+        }
+        finish_batch();
+        return;
+    }
+
+#endif
     for (const ImageId image_id : images) {
         Image& image = slot_images[image_id];
         auto map = runtime.DownloadStagingBuffer(image.unswizzled_size_bytes);
@@ -811,6 +1547,9 @@ void TextureCache<P>::UnmapGPUMemory(size_t as_id, GPUVAddr gpu_addr, size_t siz
                             [&](ImageId id, Image&) { deleted_images.push_back(id); });
     for (const ImageId id : deleted_images) {
         Image& image = slot_images[id];
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+        image.ns2_astc_dirty.reset(); // mapping no longer proves previous layer residency
+#endif
         if (False(image.flags & ImageFlagBits::CpuModified)) {
             image.flags |= ImageFlagBits::CpuModified;
             if (True(image.flags & ImageFlagBits::Tracked)) {
@@ -853,6 +1592,370 @@ template <class P>
 bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
+#if defined(PS5_NATIVE) && defined(EDEN_NS2_VOLUME_COPY)
+    // Vulkan-only candidate, isolated from shared NS1 and OpenGL template instantiations.
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+    // Research-only native NS2 path. Existing Switch 1 channels always take
+    // the unchanged generic blit path below. A graphics-engine ticket also
+    // authenticates the native process/channel generation before staging.
+    const auto copy_native_volume_slice = [&]() -> bool {
+        using Fermi2D = Tegra::Engines::Fermi2D;
+        if (!maxwell3d || !channel_state ||
+            &channel_state->maxwell3d != maxwell3d ||
+            copy.operation != Fermi2D::Operation::SrcCopy ||
+            copy.filter != Fermi2D::Filter::Point) {
+            return false;
+        }
+        auto& registry = Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
+        const auto ticket = registry.CaptureGraphicsTicket(maxwell3d);
+        if (!ticket) {
+            return false;
+        }
+        const auto is_volume = [](const Fermi2D::Surface& surface) {
+            return surface.depth > 1 &&
+                   surface.linear == Fermi2D::MemoryLayout::BlockLinear &&
+                   surface.layer == 0 && surface.width != 0 && surface.height != 0;
+        };
+        // Avoid narrowing guest dimensions to signed Fermi2D coordinates.
+        if (src.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            src.height > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+            dst.height > static_cast<u32>(std::numeric_limits<s32>::max())) {
+            return false;
+        }
+        const bool whole_slice =
+            copy.src_x0 == 0 && copy.src_y0 == 0 &&
+            copy.dst_x0 == 0 && copy.dst_y0 == 0 &&
+            copy.src_x1 == static_cast<s32>(src.width) &&
+            copy.src_y1 == static_cast<s32>(src.height) &&
+            copy.dst_x1 == static_cast<s32>(dst.width) &&
+            copy.dst_y1 == static_cast<s32>(dst.height);
+        if (!is_volume(src) || !is_volume(dst) || !whole_slice ||
+            src.format != dst.format || src.width != dst.width ||
+            src.height != dst.height) {
+            return false;
+        }
+        const auto format =
+            VideoCore::Surface::PixelFormatFromRenderTargetFormat(src.format);
+        struct Slice {
+            ImageId id;
+            s32 depth;
+        };
+        const auto find_slice = [&](const Fermi2D::Surface& surface) -> std::optional<Slice> {
+            std::optional<Slice> found;
+            bool ambiguous = false;
+            const GPUVAddr address = surface.Address();
+            ForEachImageInRegionGPU(channel_state->gpu_memory.GetID(), address, 1,
+                                    [&](ImageId id, Image& image) {
+                if (image.info.type != ImageType::e3D ||
+                    image.info.format != format ||
+                    image.info.num_samples != 1 ||
+                    image.info.size.width != surface.width ||
+                    image.info.size.height != surface.height ||
+                    image.info.size.depth != surface.depth ||
+                    // An aliased/overlapping cache entry needs normal synchronization.
+                    !image.aliased_images.empty() || !image.overlapping_images.empty() ||
+                    True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse |
+                                        ImageFlagBits::Rescaled | ImageFlagBits::IsDecoding)) ||
+                    address < image.gpu_addr) {
+                    return false;
+                }
+                const u64 relative = address - image.gpu_addr;
+                if (relative >= image.guest_size_bytes ||
+                    relative > std::numeric_limits<u32>::max() ||
+                    image.slice_offsets.size() != image.slice_subresources.size()) {
+                    return false;
+                }
+                const auto it = std::ranges::find(image.slice_offsets, static_cast<u32>(relative));
+                if (it == image.slice_offsets.end()) {
+                    return false;
+                }
+                const auto index =
+                    static_cast<size_t>(std::distance(image.slice_offsets.begin(), it));
+                const SubresourceBase base = image.slice_subresources[index];
+                if (base.level != 0 || base.layer < 0 ||
+                    static_cast<u32>(base.layer) >= image.info.size.depth) {
+                    return false;
+                }
+                // A page may contain more than one otherwise suitable cached
+                // image. Never select whichever entry the hash table visits first.
+                if (found) {
+                    ambiguous = true;
+                    return false;
+                }
+                found = Slice{id, base.layer};
+                return false;
+            });
+            return ambiguous ? std::nullopt : found;
+        };
+        const auto src_slice = find_slice(src);
+        const auto dst_slice = find_slice(dst);
+        if (!src_slice || !dst_slice || src_slice->id == dst_slice->id ||
+            !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        // An image cache ID and a distinct GPU virtual address do not prove
+        // distinct physical guest backing. Reject sparse, stale, discontinuous
+        // and physically overlapping allocations, preserving generic fallback.
+        struct PhysicalSpan {
+            u64 address;
+            u64 bytes;
+        };
+        const auto capture_physical = [&](ImageId id) -> std::optional<PhysicalSpan> {
+            const Image& image = slot_images[id];
+            const u64 bytes = image.guest_size_bytes;
+            constexpr u64 max_research_span = 256ULL * 1024 * 1024;
+            if (!image.gpu_addr || !bytes || bytes > max_research_span ||
+                image.gpu_addr > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                !gpu_memory->IsContinuousRange(image.gpu_addr, bytes)) {
+                return std::nullopt;
+            }
+            const auto start = gpu_memory->GpuToCpuAddress(image.gpu_addr);
+            const auto end = gpu_memory->GpuToCpuAddress(image.gpu_addr + bytes - 1);
+            if (!start || !end || *start != image.cpu_addr ||
+                *start > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                *end != *start + bytes - 1) {
+                return std::nullopt;
+            }
+            return PhysicalSpan{*start, bytes};
+        };
+        const auto overlaps = [](PhysicalSpan lhs, PhysicalSpan rhs) {
+            return lhs.address <= rhs.address
+                ? rhs.address - lhs.address < lhs.bytes
+                : lhs.address - rhs.address < rhs.bytes;
+        };
+        const auto src_physical = capture_physical(src_slice->id);
+        const auto dst_physical = capture_physical(dst_slice->id);
+        if (!src_physical || !dst_physical || overlaps(*src_physical, *dst_physical)) {
+            return false;
+        }
+        // Distinct cache IDs can still cover intersecting guest GPU ranges.
+        // The guarded path does not implement an overlapping image transfer.
+        const Image& src_image = slot_images[src_slice->id];
+        const Image& dst_image = slot_images[dst_slice->id];
+        const bool ranges_overlap = src_image.gpu_addr <= dst_image.gpu_addr
+            ? dst_image.gpu_addr - src_image.gpu_addr < src_image.guest_size_bytes
+            : src_image.gpu_addr - dst_image.gpu_addr < dst_image.guest_size_bytes;
+        if (ranges_overlap) {
+            return false;
+        }
+        // A refused copy must not realize an unrelated pending framebuffer
+        // clear. Do this only after both cached slices and the owner agree.
+        runtime.FlushDeferredClear();
+        PrepareImage(src_slice->id, false, false);
+        // Refresh the destination before the last native channel recheck.
+        // Do not mark a rejected/revoked copy as a guest GPU write.
+        PrepareImage(dst_slice->id, false, false);
+        // RefreshContents/SynchronizeAliases can invalidate or replace cached
+        // images. Re-resolve both sides after those operations, before recording
+        // any Vulkan copy or marking a guest-visible write.
+        const auto src_after = find_slice(src);
+        const auto dst_after = find_slice(dst);
+        if (!src_after || !dst_after ||
+            src_after->id != src_slice->id || dst_after->id != dst_slice->id ||
+            src_after->depth != src_slice->depth ||
+            dst_after->depth != dst_slice->depth ||
+            !registry.IsGraphicsCurrent(maxwell3d, *ticket)) {
+            return false;
+        }
+        const auto src_physical_after = capture_physical(src_slice->id);
+        const auto dst_physical_after = capture_physical(dst_slice->id);
+        if (!src_physical_after || !dst_physical_after ||
+            src_physical_after->address != src_physical->address ||
+            dst_physical_after->address != dst_physical->address ||
+            src_physical_after->bytes != src_physical->bytes ||
+            dst_physical_after->bytes != dst_physical->bytes ||
+            overlaps(*src_physical_after, *dst_physical_after)) {
+            return false;
+        }
+        MarkModification(slot_images[dst_slice->id]);
+        const ImageCopy slice_copy{
+            .src_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+            .dst_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+            .src_offset = {0, 0, src_slice->depth},
+            .dst_offset = {0, 0, dst_slice->depth},
+            .extent = {src.width, src.height, 1},
+        };
+        runtime.CopyImage(slot_images[dst_slice->id], slot_images[src_slice->id],
+                          std::span{&slice_copy, 1});
+        return true;
+    };
+    if (copy_native_volume_slice()) {
+        return true;
+    }
+    }
+#endif
+#ifdef PS5_NATIVE
+    // NS1 / Maxwell production path for Lichii #853 semantics. NS2 address
+    // spaces enable native tiling after authenticated channel admission and
+    // keep using the separately guarded native-volume path above.
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        const auto copy_ns1_volume_slice = [&]() -> bool {
+            using Fermi2D = Tegra::Engines::Fermi2D;
+            if (!gpu_memory || gpu_memory->UsesNativeTiling() || !channel_state ||
+                copy.operation != Fermi2D::Operation::SrcCopy ||
+                copy.filter != Fermi2D::Filter::Point) {
+                return false;
+            }
+            const auto is_volume = [](const Fermi2D::Surface& surface) {
+                return surface.depth > 1 &&
+                       surface.linear == Fermi2D::MemoryLayout::BlockLinear &&
+                       surface.layer == 0 && surface.width != 0 && surface.height != 0;
+            };
+            if (src.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+                dst.width > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+                src.height > static_cast<u32>(std::numeric_limits<s32>::max()) ||
+                dst.height > static_cast<u32>(std::numeric_limits<s32>::max())) {
+                return false;
+            }
+            const bool whole_slice =
+                copy.src_x0 == 0 && copy.src_y0 == 0 &&
+                copy.dst_x0 == 0 && copy.dst_y0 == 0 &&
+                copy.src_x1 == static_cast<s32>(src.width) &&
+                copy.src_y1 == static_cast<s32>(src.height) &&
+                copy.dst_x1 == static_cast<s32>(dst.width) &&
+                copy.dst_y1 == static_cast<s32>(dst.height);
+            if (!is_volume(src) || !is_volume(dst) || !whole_slice ||
+                src.format != dst.format || src.width != dst.width ||
+                src.height != dst.height) {
+                return false;
+            }
+
+            const auto format =
+                VideoCore::Surface::PixelFormatFromRenderTargetFormat(src.format);
+            struct Slice {
+                ImageId id;
+                s32 depth;
+            };
+            const auto find_slice = [&](const Fermi2D::Surface& surface)
+                -> std::optional<Slice> {
+                std::optional<Slice> found;
+                bool ambiguous = false;
+                const GPUVAddr address = surface.Address();
+                ForEachImageInRegionGPU(channel_state->gpu_memory.GetID(), address, 1,
+                                        [&](ImageId id, Image& image) {
+                    if (image.info.type != ImageType::e3D ||
+                        image.info.format != format ||
+                        image.info.num_samples != 1 ||
+                        image.info.size.width != surface.width ||
+                        image.info.size.height != surface.height ||
+                        image.info.size.depth != surface.depth ||
+                        !image.aliased_images.empty() || !image.overlapping_images.empty() ||
+                        True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::Sparse |
+                                            ImageFlagBits::Rescaled | ImageFlagBits::IsDecoding)) ||
+                        address < image.gpu_addr) {
+                        return false;
+                    }
+                    const u64 relative = address - image.gpu_addr;
+                    if (relative >= image.guest_size_bytes ||
+                        relative > std::numeric_limits<u32>::max() ||
+                        image.slice_offsets.size() != image.slice_subresources.size()) {
+                        return false;
+                    }
+                    const auto it =
+                        std::ranges::find(image.slice_offsets, static_cast<u32>(relative));
+                    if (it == image.slice_offsets.end()) {
+                        return false;
+                    }
+                    const auto index = static_cast<size_t>(
+                        std::distance(image.slice_offsets.begin(), it));
+                    const SubresourceBase base = image.slice_subresources[index];
+                    if (base.level != 0 || base.layer < 0 ||
+                        static_cast<u32>(base.layer) >= image.info.size.depth) {
+                        return false;
+                    }
+                    if (found) {
+                        ambiguous = true;
+                        return false;
+                    }
+                    found = Slice{id, base.layer};
+                    return false;
+                });
+                return ambiguous ? std::nullopt : found;
+            };
+
+            const auto src_slice = find_slice(src);
+            const auto dst_slice = find_slice(dst);
+            if (!src_slice || !dst_slice || src_slice->id == dst_slice->id) {
+                return false;
+            }
+
+            struct PhysicalSpan {
+                u64 address;
+                u64 bytes;
+            };
+            const auto capture_physical = [&](ImageId id) -> std::optional<PhysicalSpan> {
+                const Image& image = slot_images[id];
+                const u64 bytes = image.guest_size_bytes;
+                constexpr u64 MaxVolumeBytes = 256ULL * 1024 * 1024;
+                if (!image.gpu_addr || !bytes || bytes > MaxVolumeBytes ||
+                    image.gpu_addr > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                    !gpu_memory->IsContinuousRange(image.gpu_addr, bytes)) {
+                    return std::nullopt;
+                }
+                const auto start = gpu_memory->GpuToCpuAddress(image.gpu_addr);
+                const auto end = gpu_memory->GpuToCpuAddress(image.gpu_addr + bytes - 1);
+                if (!start || !end || *start != image.cpu_addr ||
+                    *start > std::numeric_limits<u64>::max() - (bytes - 1) ||
+                    *end != *start + bytes - 1) {
+                    return std::nullopt;
+                }
+                return PhysicalSpan{*start, bytes};
+            };
+            const auto overlaps = [](PhysicalSpan lhs, PhysicalSpan rhs) {
+                return lhs.address <= rhs.address
+                    ? rhs.address - lhs.address < lhs.bytes
+                    : lhs.address - rhs.address < rhs.bytes;
+            };
+            const auto src_physical = capture_physical(src_slice->id);
+            const auto dst_physical = capture_physical(dst_slice->id);
+            if (!src_physical || !dst_physical ||
+                overlaps(*src_physical, *dst_physical)) {
+                return false;
+            }
+
+            runtime.FlushDeferredClear();
+            PrepareImage(src_slice->id, false, false);
+            PrepareImage(dst_slice->id, false, false);
+
+            // RefreshContents/SynchronizeAliases may replace either cached
+            // image. Resolve the exact slices again before publishing a write.
+            const auto src_after = find_slice(src);
+            const auto dst_after = find_slice(dst);
+            if (!src_after || !dst_after ||
+                src_after->id != src_slice->id || dst_after->id != dst_slice->id ||
+                src_after->depth != src_slice->depth ||
+                dst_after->depth != dst_slice->depth) {
+                return false;
+            }
+            const auto src_physical_after = capture_physical(src_slice->id);
+            const auto dst_physical_after = capture_physical(dst_slice->id);
+            if (!src_physical_after || !dst_physical_after ||
+                src_physical_after->address != src_physical->address ||
+                dst_physical_after->address != dst_physical->address ||
+                src_physical_after->bytes != src_physical->bytes ||
+                dst_physical_after->bytes != dst_physical->bytes ||
+                overlaps(*src_physical_after, *dst_physical_after)) {
+                return false;
+            }
+
+            MarkModification(slot_images[dst_slice->id]);
+            const ImageCopy slice_copy{
+                .src_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+                .dst_subresource = {.base_level = 0, .base_layer = 0, .num_layers = 1},
+                .src_offset = {0, 0, src_slice->depth},
+                .dst_offset = {0, 0, dst_slice->depth},
+                .extent = {src.width, src.height, 1},
+            };
+            runtime.CopyImage(slot_images[dst_slice->id], slot_images[src_slice->id],
+                              std::span{&slice_copy, 1});
+            return true;
+        };
+        if (copy_ns1_volume_slice()) {
+            return true;
+        }
+    }
+#endif
     const auto result = GetBlitImages(dst, src, copy);
     if (!result) {
         return false;
@@ -956,17 +2059,52 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
         return {};
     }
     const auto& image_map_ids = it->second;
+#ifdef PS5_NATIVE
+    // Keep the best admissible view during the scan: no small_vector growth or
+    // second pass while the compositor owns texture_cache.mutex.
+    ImageId freshest_id{};
+    bool freshest_found = false;
+    std::uint64_t freshest_tick{};
+#else
     boost::container::small_vector<ImageId, 4> valid_image_ids;
+#endif
     for (const ImageMapId map_id : image_map_ids) {
         const ImageMapView& map = slot_map_views[map_id];
         const ImageBase& image = slot_images[map.image_id];
         if (image.cpu_addr != cpu_addr) {
             continue;
         }
+#ifdef PS5_NATIVE
+        // A remapped image or one dirtied by guest CPU writes cannot be
+        // sampled as an unchanged accelerated display framebuffer. Fall back
+        // to the guest-memory upload until its Vulkan image is refreshed.
+        // Another image for this same guest address can still be clean but
+        // older. While ANY matching image decodes new pixels, no accelerated
+        // candidate can prove freshness. Upload guest bytes for this frame.
+        if (True(image.flags & ImageFlagBits::IsDecoding)) {
+            return {};
+        }
+        // A dirty or remapped sibling at the SAME guest address also
+        // invalidates older clean accelerated candidates. CPU guest bytes
+        // must win until all conflicting cache images have been refreshed.
+        if (True(image.flags & (ImageFlagBits::Remapped | ImageFlagBits::CpuModified))) {
+            return {};
+        }
+#endif
         if (image.image_view_ids.empty()) {
             continue;
         }
+#ifdef PS5_NATIVE
+        // Match ranges::max_element: the first candidate wins equal ticks.
+        if (!freshest_found ||
+            freshest_tick < image.modification_tick) {
+            freshest_id = map.image_id;
+            freshest_tick = image.modification_tick;
+            freshest_found = true;
+        }
+#else
         valid_image_ids.push_back(map.image_id);
+#endif
     }
 
     const auto view_format = [&]() {
@@ -992,6 +2130,19 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
                               slot_images[image_id].IsRescaled());
     };
 
+#ifdef PS5_NATIVE
+    if (freshest_found) [[likely]] {
+        // A newer incompatible alias must not create an invalid Vulkan view,
+        // nor silently promote an older compatible image. Preserve the raw
+        // framebuffer fallback when the freshest candidate cannot be viewed.
+        if (!VideoCore::Surface::IsViewCompatible(
+                slot_images[freshest_id].info.format, view_format,
+                runtime.HasBrokenTextureViewFormats(), runtime.HasNativeBgr())) {
+            return {};
+        }
+        return GetImageViewForFramebuffer(freshest_id);
+    }
+#else
     if (valid_image_ids.size() == 1) [[likely]] {
         return GetImageViewForFramebuffer(valid_image_ids.front());
     }
@@ -1002,7 +2153,7 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
         });
         return GetImageViewForFramebuffer(*most_recent);
     }
-
+#endif
     return {};
 }
 
@@ -1022,19 +2173,53 @@ void TextureCache<P>::CommitAsyncFlushes() {
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         auto& download_ids = uncommitted_downloads;
         if (download_ids.empty()) {
+#ifndef PS5_NATIVE
             committed_downloads.emplace_back(std::move(uncommitted_downloads));
             uncommitted_downloads.clear();
             async_buffers.emplace_back(std::move(uncommitted_async_buffers));
             uncommitted_async_buffers.clear();
             return;
+#endif
+            // Native empty batches use the same atomic pair-publication below.
         }
+#ifdef PS5_NATIVE
+        // Already-enqueued DMA staging belongs to its existing pending slots.
+        // Only the extra swizzle batch allocated below may be discarded on
+        // failed publication; never lose or duplicate earlier DMA reservations.
+        const size_t initial_staging_count = uncommitted_async_buffers.size();
+        bool batch_published = false;
+        SCOPE_EXIT {
+            if (!batch_published) {
+                while (uncommitted_async_buffers.size() > initial_staging_count) {
+                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
+                    uncommitted_async_buffers.pop_back();
+                }
+            }
+        };
+#endif
         size_t total_size_bytes = 0;
         size_t last_async_buffer_id = uncommitted_async_buffers.size();
         bool any_none_dma = false;
         for (PendingDownload& download_info : download_ids) {
             if (download_info.is_swizzle) {
+#ifdef PS5_NATIVE
+                // Both 64-byte alignment and batch accumulation must fit in
+                // size_t BEFORE staging allocation. An overflow would make a
+                // mapped buffer look large enough for a smaller, wrapped batch.
+                const size_t bytes = slot_images[download_info.object_id].unswizzled_size_bytes;
+                constexpr size_t max_bytes = (std::numeric_limits<size_t>::max)();
+                if (bytes > max_bytes - 63) {
+                    throw std::bad_alloc{};
+                }
+                const size_t aligned_bytes = Common::AlignUp(bytes, size_t{64});
+                if (aligned_bytes > max_bytes - total_size_bytes) {
+                    throw std::bad_alloc{};
+                }
+                total_size_bytes += aligned_bytes;
+#else
                 total_size_bytes +=
                     Common::AlignUp(slot_images[download_info.object_id].unswizzled_size_bytes, 64);
+#endif
                 any_none_dma = true;
                 download_info.async_buffer_id = last_async_buffer_id;
             }
@@ -1042,6 +2227,15 @@ void TextureCache<P>::CommitAsyncFlushes() {
 
         if (any_none_dma) {
             auto download_map = runtime.DownloadStagingBuffer(total_size_bytes, true);
+#ifdef PS5_NATIVE
+            // The pinned staging handle does not own its pool reservation.
+            // If command recording or queue growth fails, keep this buffer
+            // GPU-safe in the deferred pool and leave the commit retryable.
+            bool staging_transferred = false;
+            SCOPE_EXIT {
+                if (!staging_transferred) runtime.FreeDeferredStagingBuffer(download_map);
+            };
+#endif
             for (const PendingDownload& download_info : download_ids) {
                 if (download_info.is_swizzle) {
                     Image& image = slot_images[download_info.object_id];
@@ -1051,10 +2245,31 @@ void TextureCache<P>::CommitAsyncFlushes() {
                 }
             }
             uncommitted_async_buffers.emplace_back(download_map);
+#ifdef PS5_NATIVE
+            staging_transferred = true;
+#endif
         }
 
+#ifdef PS5_NATIVE
+        // Publish the buffers and their identifiers as one logical pair.
+        // A rejected second deque insertion must restore the first queue
+        // before allowing another batch to reuse these staging indices.
+        async_buffers.emplace_back(std::move(uncommitted_async_buffers));
+        try {
+            committed_downloads.emplace_back(std::move(uncommitted_downloads));
+        } catch (...) {
+            uncommitted_async_buffers = std::move(async_buffers.back());
+            async_buffers.pop_back();
+            throw;
+        }
+        batch_published = true;
+        uncommitted_async_buffers.clear();
+        uncommitted_downloads.clear();
+        return;
+#else
         async_buffers.emplace_back(std::move(uncommitted_async_buffers));
         uncommitted_async_buffers.clear();
+#endif
     }
     committed_downloads.emplace_back(std::move(uncommitted_downloads));
     uncommitted_downloads.clear();
@@ -1068,10 +2283,86 @@ void TextureCache<P>::PopAsyncFlushes() {
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         const auto& download_ids = committed_downloads.front();
         if (download_ids.empty()) {
+#ifdef PS5_NATIVE
+            // An empty async batch can still own deferred staging handles
+            // after an interrupted DMA or an empty pair publication.
+            // StagingBufferRef is non-owning: dequeueing it is not a free.
+            for (auto& buffer : async_buffers.front()) {
+                runtime.FreeDeferredStagingBuffer(buffer);
+            }
+#endif
             committed_downloads.pop_front();
             async_buffers.pop_front();
             return;
         }
+#ifdef PS5_NATIVE
+        // Keep staging queued until the entire guest download is consumed.
+        // Save only offsets (usually <= 4), not a full vector of handles.
+        auto& download_map = async_buffers.front();
+        boost::container::small_vector<size_t, 4> remaining_offsets;
+        remaining_offsets.reserve(download_map.size());
+        for (const auto& buffer : download_map) {
+            remaining_offsets.push_back(buffer.offset);
+        }
+        // Reserve deferred returns BEFORE guest writes. On any failure,
+        // discard only newly queued returns and retry the intact batch.
+        const size_t previous_death_count = async_buffers_death_ring.size();
+        bool batch_consumed = false;
+        SCOPE_EXIT {
+            if (!batch_consumed) {
+                while (async_buffers_death_ring.size() > previous_death_count) {
+                    async_buffers_death_ring.pop_back();
+                }
+            }
+        };
+        for (const auto& buffer : download_map) {
+            async_buffers_death_ring.emplace_back(buffer);
+        }
+        for (size_t i = download_ids.size(); i > 0; --i) {
+            const auto& download_info = download_ids[i - 1];
+            if (download_info.async_buffer_id >= download_map.size()) {
+                throw std::bad_alloc{};
+            }
+            const auto& download_buffer = download_map[download_info.async_buffer_id];
+            auto& offset = remaining_offsets[download_info.async_buffer_id];
+            if (!download_buffer.buffer || offset > download_buffer.mapped_span.size()) {
+                throw std::bad_alloc{};
+            }
+            if (download_info.is_swizzle) {
+                const ImageBase& image = slot_images[download_info.object_id];
+                const auto copies = FixSmallVectorADL(FullDownloadCopies(image.info));
+                const size_t bytes = image.unswizzled_size_bytes;
+                if (bytes > (std::numeric_limits<size_t>::max)() - 63) {
+                    throw std::bad_alloc{};
+                }
+                const size_t aligned = Common::AlignUp(bytes, size_t{64});
+                if (aligned > offset) {
+                    throw std::bad_alloc{};
+                }
+                offset -= aligned;
+                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
+                SwizzleImage(*gpu_memory, image.gpu_addr, image.info, copies, download_span,
+                             swizzle_data_buffer);
+            } else {
+                const BufferDownload& buffer_info = slot_buffer_downloads[download_info.object_id];
+                if (buffer_info.size > download_buffer.mapped_span.size() - offset) {
+                    throw std::bad_alloc{};
+                }
+                std::span<u8> download_span = download_buffer.mapped_span.subspan(offset);
+                gpu_memory->WriteBlockUnsafe(buffer_info.address, download_span.data(),
+                                             buffer_info.size);
+            }
+        }
+        // Do not erase DMA slots until every guest write has succeeded.
+        for (const auto& download_info : download_ids) {
+            if (!download_info.is_swizzle) {
+                slot_buffer_downloads.erase(download_info.object_id);
+            }
+        }
+        committed_downloads.pop_front();
+        async_buffers.pop_front();
+        batch_consumed = true;
+#else
         auto download_map = std::move(async_buffers.front());
         for (size_t i = download_ids.size(); i > 0; i--) {
             auto& download_info = download_ids[i - 1];
@@ -1097,6 +2388,7 @@ void TextureCache<P>::PopAsyncFlushes() {
         }
         committed_downloads.pop_front();
         async_buffers.pop_front();
+#endif
     } else {
         const auto& download_ids = committed_downloads.front();
         if (download_ids.empty()) {
@@ -1245,10 +2537,41 @@ void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* i
     if constexpr (IMPLEMENTS_ASYNC_DOWNLOADS) {
         const BufferDownload new_buffer_download{address, size};
         auto slot = slot_buffer_downloads.insert(new_buffer_download);
+#ifdef PS5_NATIVE
+        // If staging or command submission fails, the DMA must not remain
+        // registered as a completed/pending guest-memory download.
+        bool pending_recorded = false;
+        bool staging_recorded = false;
+        bool download_submitted = false;
+        SCOPE_EXIT {
+            if (!download_submitted) {
+                if (staging_recorded) {
+                    runtime.FreeDeferredStagingBuffer(uncommitted_async_buffers.back());
+                    uncommitted_async_buffers.pop_back();
+                }
+                if (pending_recorded) uncommitted_downloads.pop_back();
+                slot_buffer_downloads.erase(slot);
+            }
+        };
+#endif
         const PendingDownload new_download{false, uncommitted_async_buffers.size(), slot};
         uncommitted_downloads.emplace_back(new_download);
+#ifdef PS5_NATIVE
+        pending_recorded = true;
+#endif
         auto download_map = runtime.DownloadStagingBuffer(size, true);
+#ifdef PS5_NATIVE
+        try {
+            uncommitted_async_buffers.emplace_back(download_map);
+        } catch (...) {
+            // A non-owning staging handle still needs a deferred pool return.
+            runtime.FreeDeferredStagingBuffer(download_map);
+            throw;
+        }
+        staging_recorded = true;
+#else
         uncommitted_async_buffers.emplace_back(download_map);
+#endif
         std::array buffers{
             buffer,
             download_map.buffer,
@@ -1258,6 +2581,9 @@ void TextureCache<P>::DownloadImageIntoBuffer(typename TextureCache<P>::Image* i
             download_map.offset,
         };
         image->DownloadMemory(buffers, buffer_offsets, copies);
+#ifdef PS5_NATIVE
+        download_submitted = true;
+#endif
     } else {
         image->DownloadMemory(buffer, buffer_offset, copies);
     }
@@ -1270,23 +2596,71 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
         return;
     }
 
+#ifdef PS5_NATIVE
+    // An older decode still owns the image. Preserve the newer guest
+    // revision until its owner retires, otherwise HUD/texture pixels go stale.
+    if (True(image.flags & ImageFlagBits::IsDecoding)) {
+        return;
+    }
+#endif
     image.flags &= ~ImageFlagBits::CpuModified;
+#ifdef PS5_NATIVE
+    bool upload_completed = false;
+    SCOPE_EXIT {
+        if (!upload_completed) {
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, image_id);
+            }
+            image.flags |= ImageFlagBits::CpuModified;
+        }
+    };
+#endif
 
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    if (image.ns2_astc_dirty && Ns2AstcEligible(image)) {
+        try {
+            if (Ns2UploadDirtyLayers(image)) {
+                if (False(image.flags & ImageFlagBits::Tracked))
+                    TrackImage(image, image_id);
+                runtime.InsertUploadMemoryBarrier();
+#ifdef PS5_NATIVE
+                upload_completed = true;
+#endif
+                return;
+            }
+        } catch (...) {
+            // Preserve the complete baseline upload fallback on partial failure.
+        }
+    }
+    image.ns2_astc_dirty.reset();
+    if (False(image.flags & ImageFlagBits::Tracked))
+        TrackImage(image, image_id);
+#else
     TrackImage(image, image_id);
+#endif
 
     if (image.info.num_samples > 1 && !runtime.CanUploadMSAA()) {
         LOG_WARNING(HW_GPU, "MSAA image uploads are not implemented");
         runtime.TransitionImageLayout(image);
+#ifdef PS5_NATIVE
+        upload_completed = true;
+#endif
         return;
     }
     if (True(image.flags & ImageFlagBits::AsynchronousDecode)) {
         QueueAsyncDecode(image, image_id);
+#ifdef PS5_NATIVE
+        upload_completed = true;
+#endif
         return;
     }
 
     const bool gpu_unswizzle_enabled = Settings::values.gpu_unswizzle_enabled.GetValue();
 
     if (gpu_unswizzle_enabled &&
+#ifdef PS5_NATIVE
+        swizzle_chunk_size != 0 && swizzle_slices_per_batch != 0 &&
+#endif
         IsPixelFormatBCn(image.info.format) &&
         image.info.type == ImageType::e3D &&
         image.info.resources.levels == 1 &&
@@ -1295,12 +2669,48 @@ void TextureCache<P>::RefreshContents(Image& image, ImageId image_id) {
         False(image.flags & ImageFlagBits::GpuModified)) {
 
         QueueAsyncUnswizzle(image, image_id);
+#ifdef PS5_NATIVE
+        upload_completed = true;
+#endif
         return;
     }
+#ifdef PS5_NATIVE
+    try {
+        const size_t upload_size = MapSizeBytes(image);
+        auto staging = runtime.UploadStagingBuffer(upload_size);
+        if (!staging.buffer || staging.mapped_span.size_bytes() < upload_size) {
+            return; // Dirty state and tracking restored by the scope guard.
+        }
+#else
     auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
+#endif
     UploadImageContents(image, staging);
     runtime.InsertUploadMemoryBarrier();
+#ifdef PS5_NATIVE
+    } catch (const std::bad_alloc&) {
+        // Transient memory pressure is retryable; never advertise stale pixels.
+        return;
+    }
+#endif
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    if (Ns2AstcEligible(image)) {
+        image.ns2_astc_dirty.emplace(
+            image.cpu_addr, image.guest_size_bytes, image.info.layer_stride,
+            static_cast<u32>(image.info.resources.layers), 0, u64{64} << 20);
+        if (!image.ns2_astc_dirty->ResetAfterFullUpload())
+            image.ns2_astc_dirty.reset();
+    }
+#endif
+#ifdef PS5_NATIVE
+    upload_completed = true;
+#endif
 }
+
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+// Keep research-only cache integration in this one maintained vendor source,
+// and the generic per-layer methods in an adjacent reviewed include fragment.
+#include "video_core/texture_cache/ns2_astc_texture_cache_bridge.inc"
+#endif
 
 template <class P>
 template <typename StagingBuffer>
@@ -1309,8 +2719,16 @@ void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) 
     const GPUVAddr gpu_addr = image.gpu_addr;
 
     if (True(image.flags & ImageFlagBits::AcceleratedUpload)) {
+#ifdef PS5_NATIVE
+        // A pooled staging buffer may be power-of-two rounded and expose
+        // more mapped bytes than the image requested. Do not read unrelated
+        // guest memory or waste CPU DMA time filling the unused tail.
+        gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), MapSizeBytes(image),
+                              VideoCommon::CacheType::NoTextureCache);
+#else
         gpu_memory->ReadBlock(gpu_addr, mapped_span.data(), mapped_span.size_bytes(),
                               VideoCommon::CacheType::NoTextureCache);
+#endif
         const auto uploads = FullUploadSwizzles(image.info);
         runtime.AccelerateImageUpload(image, staging, FixSmallVectorADL(uploads), 0, 0);
         return;
@@ -1398,7 +2816,21 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
     const bool native_bgr = runtime.HasNativeBgr();
     const bool flexible_formats = True(options & RelaxedOptions::Format);
     ImageId image_id{};
+#ifdef PS5_NATIVE
+    // Keep the first highest-tick match during the existing region walk:
+    // no candidate vector, no second texture-cache slot scan under its mutex.
+    u64 newest_candidate_tick{};
+    bool has_candidate = false;
+    const auto SelectCandidate = [&](ImageId id, const ImageBase& image) {
+        if (!has_candidate || newest_candidate_tick < image.modification_tick) {
+            image_id = id;
+            newest_candidate_tick = image.modification_tick;
+            has_candidate = true;
+        }
+    };
+#else
     boost::container::small_vector<ImageId, 8> image_ids;
+#endif
     const auto lambda = [&](ImageId existing_image_id, ImageBase& existing_image) {
         if (True(existing_image.flags & ImageFlagBits::Remapped)) {
             return false;
@@ -1412,19 +2844,32 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
                 existing.pitch == info.pitch &&
                 IsPitchLinearSameSize(existing, info, strict_size) &&
                 IsViewCompatible(existing.format, info.format, broken_views, native_bgr)) {
+                #ifdef PS5_NATIVE
+                SelectCandidate(existing_image_id, existing_image);
+                #else
                 image_id = existing_image_id;
                 image_ids.push_back(existing_image_id);
+                #endif
                 return !flexible_formats && existing.format == info.format;
             }
         } else if (IsSubresource(info, existing_image, gpu_addr, options, broken_views,
                                  native_bgr)) {
+            #ifdef PS5_NATIVE
+            SelectCandidate(existing_image_id, existing_image);
+            #else
             image_id = existing_image_id;
             image_ids.push_back(existing_image_id);
+            #endif
             return !flexible_formats && existing_image.info.format == info.format;
         }
         return false;
     };
     ForEachImageInRegion(*cpu_addr, CalculateGuestSizeInBytes(info), lambda);
+#ifdef PS5_NATIVE
+    // A strict less-than comparison preserves the first equal-tick match,
+    // including ForEachImageInRegion's existing exact-match early exit.
+    return image_id;
+#else
     if (image_ids.size() <= 1) [[likely]] {
         return image_id;
     }
@@ -1434,6 +2879,7 @@ ImageId TextureCache<P>::FindImage(const ImageInfo& info, GPUVAddr gpu_addr,
         return image_a.modification_tick < image_b.modification_tick;
     };
     return *std::ranges::max_element(image_ids, image_ids_compare);
+#endif
 }
 
 template <class P>
@@ -1517,15 +2963,44 @@ u64 TextureCache<P>::GetScaledImageSizeBytes(const ImageBase& image) {
 template <class P>
 void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {
     UNIMPLEMENTED_IF(False(image.flags & ImageFlagBits::Converted));
+#ifdef PS5_NATIVE
+    // Roll back a task whose allocation or queue admission fails.
+    const bool was_decoding = True(image.flags & ImageFlagBits::IsDecoding);
+    AsyncDecodeContext* incomplete_decode{};
+    bool decode_admitted = false;
+    SCOPE_EXIT {
+        if (!decode_admitted) {
+            if (!was_decoding) {
+                image.flags &= ~ImageFlagBits::IsDecoding;
+            }
+            if (incomplete_decode && !async_decodes.empty() &&
+                async_decodes.back().get() == incomplete_decode) {
+                async_decodes.pop_back();
+            }
+        }
+    };
+#else
     LOG_INFO(HW_GPU, "Queuing async texture decode");
+#endif
 
     image.flags |= ImageFlagBits::IsDecoding;
     auto decode = std::make_unique<AsyncDecodeContext>();
     auto* decode_ptr = decode.get();
+#ifdef PS5_NATIVE
+    incomplete_decode = decode_ptr;
+#endif
     decode->image_id = image_id;
     async_decodes.push_back(std::move(decode));
 
+#ifdef PS5_NATIVE
+    // UnswizzleImage fully populates each submitted copy before ConvertImage reads it.
+    // Avoid zeroing the entire temporary under texture_cache.mutex on every cold decode.
+    // This matches the already-reviewed Vulkan owner and its O0/O2 host witness.
+    Common::ScratchBuffer<u8> local_unswizzle_data_buffer;
+    local_unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
+#else
     std::vector<u8> local_unswizzle_data_buffer(image.unswizzled_size_bytes, 0);
+#endif
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(*gpu_memory, image.gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
     auto copies = UnswizzleImage(*gpu_memory, image.gpu_addr, image.info, swizzle_data, local_unswizzle_data_buffer);
     const size_t out_size = MapSizeBytes(image);
@@ -1533,16 +3008,28 @@ void TextureCache<P>::QueueAsyncDecode(Image& image, ImageId image_id) {
     auto func = [out_size, copies, info = image.info,
                  input = std::move(local_unswizzle_data_buffer),
                  async_decode = decode_ptr]() mutable {
-        async_decode->decoded_data.resize_destructive(out_size);
-        std::span copies_span{copies.data(), copies.size()};
-        ConvertImage(input, info, async_decode->decoded_data, copies_span);
-
-        // TODO: Do we need this lock?
-        std::unique_lock lock{async_decode->mutex};
-        async_decode->copies = std::move(copies);
-        async_decode->complete = true;
+#ifdef PS5_NATIVE
+        try {
+#endif
+            async_decode->decoded_data.resize_destructive(out_size);
+            std::span copies_span{copies.data(), copies.size()};
+            ConvertImage(input, info, async_decode->decoded_data, copies_span);
+            std::unique_lock lock{async_decode->mutex};
+            async_decode->copies = std::move(copies);
+            async_decode->complete = true;
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // Keep worker alive; the consumer retries the guest revision.
+            std::unique_lock lock{async_decode->mutex};
+            async_decode->decoded_data.resize_destructive(0);
+            async_decode->complete = true;
+        }
+#endif
     };
     texture_decode_worker.QueueWork(std::move(func));
+#ifdef PS5_NATIVE
+    decode_admitted = true;
+#endif
 }
 
 template <class P>
@@ -1551,65 +3038,302 @@ void TextureCache<P>::QueueAsyncUnswizzle(Image& image, ImageId image_id) {
         return;
     }
 
+#ifndef PS5_NATIVE
     image.flags |= ImageFlagBits::IsDecoding;
-
+#endif
+    // Native: commit IsDecoding only after successful queue admission.
+    // A throwing allocation must not leave a permanently pending image.
     unswizzle_queue.push_back({
         .image_id = image_id,
         .info = image.info
     });
+#ifdef PS5_NATIVE
+    image.flags |= ImageFlagBits::IsDecoding;
+#endif
 }
 
 template <class P>
 void TextureCache<P>::TickAsyncDecode() {
+#ifdef PS5_NATIVE
+    // Usually no async decode is pending. Skip frame-local upload tracking
+    // and completion machinery entirely until the worker queues a context.
+    if (async_decodes.empty()) {
+        return;
+    }
+#endif
     bool has_uploads{};
+#ifdef PS5_NATIVE
+    // TickFrame holds texture_cache.mutex: cap completed async uploads so
+    // a burst of HUD textures cannot occupy the entire cache lock in one
+    // frame. Work not processed this tick retains its decode context.
+    constexpr size_t kMaxCompletedDecodesPerTick = 4;
+    // Invalid/stale decodes must not consume the four REAL upload slots.
+    // Still cap retirements to keep the texture mutex responsive on a burst.
+    constexpr size_t kMaxRetiredDecodesPerTick = 16;
+    size_t completed_decodes = 0;
+    size_t retired_decodes = 0;
+    // Keep every successfully submitted native texture ID in fixed storage:
+    // a rejected visibility barrier must invalidate the whole upload batch.
+    std::array<ImageId, kMaxCompletedDecodesPerTick> submitted_images{};
+    size_t submitted_count = 0;
+#endif
     auto i = async_decodes.begin();
     while (i != async_decodes.end()) {
         auto* async_decode = i->get();
+#ifdef PS5_NATIVE
+        // The worker publishes decoded bytes with the atomic completion flag.
+        // Poll unfinished decodes without contending on its mutex each frame.
+        if (!async_decode->complete.load(std::memory_order_acquire)) {
+            ++i;
+            continue;
+        }
+        if (completed_decodes == kMaxCompletedDecodesPerTick ||
+            retired_decodes == kMaxRetiredDecodesPerTick) {
+            break;
+        }
+#endif
+#ifdef PS5_NATIVE
+        // The worker publishes completion before releasing its mutex. Do
+        // not block texture_cache.mutex just because its final handoff is
+        // still locked: retry this completed item on the following frame.
+        std::unique_lock lock{async_decode->mutex, std::try_to_lock};
+        if (!lock.owns_lock()) {
+            ++i;
+            continue;
+        }
+        ++retired_decodes;
+#else
         std::unique_lock lock{async_decode->mutex};
+#endif
+#ifndef PS5_NATIVE
         if (!async_decode->complete) {
             ++i;
             continue;
         }
+#endif
         Image& image = slot_images[async_decode->image_id];
+#ifdef PS5_NATIVE
+        // A texture may have been remapped or resized while decode was queued.
+        // Do not copy the old revision beyond its current staging allocation.
+        const size_t expected_size = MapSizeBytes(image);
+        if (async_decode->decoded_data.size() == 0 ||
+            async_decode->decoded_data.size() != expected_size ||
+            True(image.flags & ImageFlagBits::CpuModified) ||
+            True(image.flags & ImageFlagBits::Remapped)) {
+            // A guest CPU revision OR remapping invalidates decoded bytes,
+            // even when dimensions have not changed (dynamic HUD).
+            // Retain CpuModified so the current mapping can be refreshed.
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, async_decode->image_id);
+            }
+            // Erasing the context destroys its mutex. Drop our lock first.
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
+        // Upload staging may fail after the decode worker completed.
+        // Never leave IsDecoding stuck or copy into an undersized buffer.
+        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(expected_size)) {
+            try {
+                return runtime.UploadStagingBuffer(expected_size);
+            } catch (...) {
+                return {};
+            }
+        }();
+        if (!staging.buffer || staging.mapped_span.size() < expected_size) {
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, async_decode->image_id);
+            }
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
+#else
         auto staging = runtime.UploadStagingBuffer(MapSizeBytes(image));
+#endif
         std::memcpy(staging.mapped_span.data(), async_decode->decoded_data.data(),
                     async_decode->decoded_data.size());
+#ifdef PS5_NATIVE
+        // A failed GPU submission must not strand a completed worker decode.
+        // Staging here is non-deferred; the pool owns its lifetime. Keep the
+        // source image dirty so a later refresh can upload a fresh revision.
+        try {
+#endif
         image.UploadMemory(staging, FixSmallVectorADL(async_decode->copies));
+#ifdef PS5_NATIVE
+        } catch (...) {
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, async_decode->image_id);
+            }
+            lock.unlock();
+            i = async_decodes.erase(i);
+            continue;
+        }
+#endif
         image.flags &= ~ImageFlagBits::IsDecoding;
         has_uploads = true;
+#ifdef PS5_NATIVE
+        submitted_images[submitted_count++] = async_decode->image_id;
+        ++completed_decodes;
+#endif
+        // The context owns async_decode->mutex. Unlock before destroying it.
+        lock.unlock();
         i = async_decodes.erase(i);
     }
     if (has_uploads) {
-        runtime.InsertUploadMemoryBarrier();
+#ifdef PS5_NATIVE
+        try {
+#endif
+            runtime.InsertUploadMemoryBarrier();
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // Re-upload current guest revisions after a rejected visibility
+            // barrier. All decoder contexts were unlocked/erased above.
+            for (size_t j = 0; j < submitted_count; ++j) {
+                const ImageId id = submitted_images[j];
+                Image& image = slot_images[id];
+                image.flags |= ImageFlagBits::CpuModified;
+                if (True(image.flags & ImageFlagBits::Tracked)) {
+                    UntrackImage(image, id);
+                }
+            }
+        }
+#endif
     }
 }
 
 template <class P>
 void TextureCache<P>::TickAsyncUnswizzle() {
     if (unswizzle_queue.empty()) {
+#ifdef PS5_NATIVE
+        // Do not carry the prior batch's 4-frame cooldown across an idle
+        // period. A future texture is a fresh request, not a queued batch.
+        current_unswizzle_frame = 0u;
+#endif
         return;
     }
 
+#ifndef PS5_NATIVE
     if(current_unswizzle_frame > 0) {
         current_unswizzle_frame--;
         return;
     }
+#endif
 
     PendingUnswizzle& task = unswizzle_queue.front();
     Image& image = slot_images[task.image_id];
+#ifdef PS5_NATIVE
+    // This task may span several frames. A new CPU write or guest remap
+    // invalidates its staged bytes even when texture dimensions do not change.
+    // Abandon the old content before dispatching another GPU upload batch.
+    if (True(image.flags & (ImageFlagBits::CpuModified | ImageFlagBits::Remapped)) ||
+        swizzle_chunk_size == 0 || swizzle_slices_per_batch == 0) {
+        if (task.initialized) {
+            // Previously submitted batches may still be on the GPU worker.
+            // Return their source buffer using the EXISTING deferred free.
+            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+        }
+        image.flags |= ImageFlagBits::CpuModified;
+        if (True(image.flags & ImageFlagBits::Tracked)) {
+            UntrackImage(image, task.image_id);
+        }
+        image.flags &= ~ImageFlagBits::IsDecoding;
+        unswizzle_queue.pop_front();
+        current_unswizzle_frame = 0u;
+        // No throttling after cancellation: the replacement can be queued
+        // as soon as RefreshContents observes the retained CPU modification.
+        return;
+    }
+#endif
+
+#ifdef PS5_NATIVE
+    if(current_unswizzle_frame > 0) {
+        current_unswizzle_frame--;
+        return;
+    }
+#endif
 
     if (!task.initialized) {
         task.total_size = MapSizeBytes(image);
+#ifndef PS5_NATIVE
         task.staging_buffer = runtime.UploadStagingBuffer(task.total_size, true);
+#endif
 
         const auto& info = image.info;
         const u32 bytes_per_block = BytesPerBlock(info.format);
         const u32 width_blocks = Common::DivCeil(info.size.width, 4u);
         const u32 height_blocks = Common::DivCeil(info.size.height, 4u);
 
+#ifdef PS5_NATIVE
+        // Widen BEFORE multiplying: an overflowing u32 stride can become 0
+        // and trigger a division by zero in the multi-frame upload below.
+        const size_t stride = static_cast<size_t>(width_blocks) * bytes_per_block;
+#else
         const u32 stride = width_blocks * bytes_per_block;
+#endif
         const u32 aligned_height = height_blocks;
+#ifdef PS5_NATIVE
+        const bool slice_overflow =
+            aligned_height != 0 && stride > std::numeric_limits<size_t>::max() / aligned_height;
+        task.bytes_per_slice = slice_overflow ? 0 : stride * aligned_height;
+        // The current staging allocation must hold complete 3D slices.
+        // Reject zero, overflow and misaligned guest sizes before ANY read or
+        // accelerated upload; an incomplete final slice can overrun staging.
+        const bool invalid_slices =
+            task.bytes_per_slice == 0 || task.bytes_per_slice > task.total_size ||
+            task.total_size % task.bytes_per_slice != 0 ||
+            // This accelerated path admits one layer/level of 3D BCn;
+            // extra slices are as invalid as missing ones. Otherwise
+            // depth - z_start can underflow in the last upload batch.
+            task.total_size / task.bytes_per_slice != static_cast<size_t>(info.size.depth);
+        if (invalid_slices) {
+            // No GPU staging exists yet; reject invalid geometry without
+            // reserving a potentially huge upload buffer.
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+#else
         task.bytes_per_slice = static_cast<size_t>(stride) * aligned_height;
+#endif
+#ifdef PS5_NATIVE
+        // A rejected/short staging allocation must not pin IsDecoding or
+        // permit guest DMA reads into an incomplete mapped GPU upload.
+        auto staging = [&]() -> decltype(runtime.UploadStagingBuffer(task.total_size, true)) {
+            try {
+                return runtime.UploadStagingBuffer(task.total_size, true);
+            } catch (...) {
+                return {};
+            }
+        }();
+        if (!staging.buffer || staging.mapped_span.size() < task.total_size) {
+            // A valid deferred buffer may have been returned with a short
+            // mapping. Release it through the existing GPU-tick mechanism.
+            if (staging.buffer) {
+                runtime.FreeDeferredStagingBuffer(staging);
+            }
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+        task.staging_buffer = staging;
+#endif
         task.last_submitted_offset = 0;
         task.initialized = true;
     }
@@ -1622,12 +3346,44 @@ void TextureCache<P>::TickAsyncUnswizzle() {
 
         if (remaining > swizzle_chunk_size) {
             copy_amount = (copy_amount / task.bytes_per_slice) * task.bytes_per_slice;
-            if (copy_amount == 0) copy_amount = task.bytes_per_slice;
+            if (copy_amount == 0) {
+#ifdef PS5_NATIVE
+                // One BCn-3D slice can exceed the per-frame read budget.
+                // Stage a partial slice; dispatch still waits until a full
+                // slice is ready. Do not copy >budget under texture mutex.
+                // A zero budget can occur if GPU unswizzle is toggled
+                // after cache construction. Retain forward progress instead
+                // of pinning IsDecoding forever on a zero-byte read.
+                copy_amount = swizzle_chunk_size != 0
+                    ? (std::min)(swizzle_chunk_size, remaining)
+                    : (std::min)(task.bytes_per_slice, remaining);
+#else
+                copy_amount = task.bytes_per_slice;
+#endif
+            }
         }
 
+#ifdef PS5_NATIVE
+        try {
+#endif
         gpu_memory->ReadBlock(image.gpu_addr + task.current_offset,
                               task.staging_buffer.mapped_span.data() + task.current_offset,
                               copy_amount);
+#ifdef PS5_NATIVE
+        } catch (...) {
+            // A failed guest read invalidates the partial GPU staging data.
+            // Deferred release also protects batches submitted earlier.
+            runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+            image.flags |= ImageFlagBits::CpuModified;
+            if (True(image.flags & ImageFlagBits::Tracked)) {
+                UntrackImage(image, task.image_id);
+            }
+            image.flags &= ~ImageFlagBits::IsDecoding;
+            unswizzle_queue.pop_front();
+            current_unswizzle_frame = 0u;
+            return;
+        }
+#endif
         task.current_offset += copy_amount;
     }
 
@@ -1641,8 +3397,27 @@ void TextureCache<P>::TickAsyncUnswizzle() {
         const u32 z_count = (std::min)(slices_to_process, image.info.size.depth - z_start);
 
         if (z_count > 0) {
+#ifdef PS5_NATIVE
+            try {
+#endif
             const auto uploads = FullUploadSwizzles(task.info);
             runtime.AccelerateImageUpload(image, task.staging_buffer, FixSmallVectorADL(uploads), z_start, z_count);
+#ifdef PS5_NATIVE
+            } catch (...) {
+                // Upload setup/recording may reject a batch. Submitted GPU
+                // commands keep their source alive through the deferred pool;
+                // reject the incomplete old revision and retry from guest data.
+                runtime.FreeDeferredStagingBuffer(task.staging_buffer);
+                image.flags |= ImageFlagBits::CpuModified;
+                if (True(image.flags & ImageFlagBits::Tracked)) {
+                    UntrackImage(image, task.image_id);
+                }
+                image.flags &= ~ImageFlagBits::IsDecoding;
+                unswizzle_queue.pop_front();
+                current_unswizzle_frame = 0u;
+                return;
+            }
+#endif
             task.last_submitted_offset += (static_cast<size_t>(z_count) * task.bytes_per_slice);
         }
     }
@@ -1656,8 +3431,14 @@ void TextureCache<P>::TickAsyncUnswizzle() {
         image.flags &= ~ImageFlagBits::IsDecoding;
         unswizzle_queue.pop_front();
 
+#ifdef PS5_NATIVE
+        // Throttle back-to-back queued uploads, not a later newly queued
+        // texture after an otherwise empty GPU frame.
+        current_unswizzle_frame = unswizzle_queue.empty() ? 0u : 4u;
+#else
         // Wait 4 frames to process the next entry
         current_unswizzle_frame = 4u;
+#endif
     }
 }
 
@@ -1829,8 +3610,67 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
         DeleteImage(overlap_id);
     }
 
-    // TODO: Only upload what we need
-    RefreshContents(new_image, new_image_id);
+    // A new render target that the clear binding overwrites whole needs no
+    // upload from guest memory first. This is the reviewed Lichii/PS5 0078
+    // path; every uncertain shape or partial clear falls back to RefreshContents.
+    const auto overwritten_by_clear = [&] {
+        if (!clearing_render_targets || !join_copies_to_do.empty() ||
+            new_info.type != ImageType::e2D || new_info.resources.levels != 1 ||
+            new_info.resources.layers != 1 || new_info.num_samples != 1) {
+            return false;
+        }
+        const auto& regs = maxwell3d->regs;
+        const auto& surface = regs.clear_surface;
+        if (surface.layer != 0) {
+            return false;
+        }
+        const u32 width = new_info.size.width;
+        const u32 height = new_info.size.height;
+        if (regs.clear_control.use_scissor != 0) {
+            const auto& scissor = regs.scissor_test[0];
+            if (scissor.min_x != 0 || scissor.min_y != 0 || scissor.max_x < width ||
+                scissor.max_y < height) {
+                return false;
+            }
+        }
+        // A clear covers the framebuffer render area, i.e. its smallest bound target.
+        for (u32 index = 0; index < regs.rt_control.count && index < NUM_RT; ++index) {
+            const auto& rt = regs.rt[index];
+            if (rt.Address() != 0 && rt.format != Tegra::RenderTargetFormat::NONE &&
+                (rt.width < width || rt.height < height)) {
+                return false;
+            }
+        }
+        if (regs.zeta_enable && regs.zeta.Address() != 0 &&
+            (regs.zeta_size.width < width || regs.zeta_size.height < height)) {
+            return false;
+        }
+        const bool is_depth_target = regs.zeta_enable && regs.zeta.Address() == gpu_addr;
+        const bool full_stencil = surface.S && regs.stencil_front_mask == 0xFF;
+        switch (VideoCore::Surface::GetFormatType(new_info.format)) {
+        case VideoCore::Surface::SurfaceType::ColorTexture: {
+            const u32 index = surface.RT;
+            return surface.R && surface.G && surface.B && surface.A && index < NUM_RT &&
+                   index < regs.rt_control.count && regs.rt[index].Address() == gpu_addr;
+        }
+        case VideoCore::Surface::SurfaceType::Depth:
+            return is_depth_target && surface.Z;
+        case VideoCore::Surface::SurfaceType::Stencil:
+            return is_depth_target && full_stencil;
+        case VideoCore::Surface::SurfaceType::DepthStencil:
+            return is_depth_target && surface.Z && full_stencil;
+        default:
+            return false;
+        }
+    };
+    if (overwritten_by_clear()) {
+        // Leave CpuModified intact. PrepareImageView skips the upload only if
+        // IsFullClear independently agrees; otherwise the normal upload occurs.
+        runtime.TransitionImageLayout(new_image);
+    } else {
+        // TODO: Only upload what we need
+        RefreshContents(new_image, new_image_id);
+    }
 
     if (can_rescale) {
         ScaleUp(new_image);
@@ -2056,8 +3896,13 @@ std::pair<u32, u32> TextureCache<P>::PrepareDmaImage(ImageId dst_id, GPUVAddr ba
     const auto& image = slot_images[dst_id];
     const auto base = image.TryFindBase(base_addr);
     PrepareImage(dst_id, mark_as_modified, false);
+#ifndef PS5_NATIVE
     const auto& new_image = slot_images[dst_id];
     lru_cache.Touch(new_image.lru_index, frame_tick);
+#else
+    // PrepareImage already touched the same LRU entry at the end; a second
+    // immediate touch adds list work under the texture mutex for DMA uploads.
+#endif
     return std::make_pair(base->level, base->layer);
 }
 
@@ -2101,7 +3946,26 @@ ImageViewId TextureCache<P>::FindDepthBuffer() {
     if (gpu_addr == 0) {
         return ImageViewId{};
     }
-    const ImageInfo info(regs.zeta, regs.zeta_size, regs.anti_alias_samples_mode);
+    // Target-independent rasterization: the depth buffer keeps the raster sample count while
+    // the color targets use anti_alias_samples_mode.
+    Tegra::Texture::MsaaMode zeta_msaa_mode = regs.anti_alias_samples_mode;
+    if (regs.anti_alias_raster != Tegra::Engines::Maxwell3D::Regs::AntiAliasRaster::Mode1x1) {
+        const auto raster_mode = static_cast<Tegra::Texture::MsaaMode>(regs.anti_alias_raster);
+        bool use_raster = regs.tir_mode == Tegra::Engines::Maxwell3D::Regs::TIRMode::RasterNTargetM;
+        if (!use_raster && regs.anti_alias_samples_mode == Tegra::Texture::MsaaMode::Msaa1x1) {
+            // Clears can be issued before tir_mode is enabled. Only a depth buffer sized for the
+            // raster samples relative to the color target is treated as multisampled, otherwise
+            // it ping-pongs between a 1x and a multisampled image every frame.
+            const auto& rt0 = regs.rt[0];
+            use_raster = rt0.Address() != 0 && rt0.format != Tegra::RenderTargetFormat::NONE &&
+                         regs.zeta_size.width == rt0.width * NumSamplesX(raster_mode) &&
+                         regs.zeta_size.height == rt0.height * NumSamplesY(raster_mode);
+        }
+        if (use_raster) {
+            zeta_msaa_mode = raster_mode;
+        }
+    }
+    const ImageInfo info(regs.zeta, regs.zeta_size, zeta_msaa_mode);
     return FindRenderTargetView(info, gpu_addr);
 }
 
@@ -2116,7 +3980,9 @@ ImageViewId TextureCache<P>::FindRenderTargetView(const ImageInfo& info, GPUVAdd
     } while (has_deleted_images);
     has_deleted_images = delete_state;
     if (!image_id) {
-        return NULL_IMAGE_VIEW_ID;
+        // An allocation failure means no render target. NULL_IMAGE_VIEW_ID is
+        // a valid descriptor-null sentinel and has no render-target VkImageView.
+        return ImageViewId{};
     }
     Image& image = slot_images[image_id];
     const ImageViewType view_type = RenderTargetImageViewType(info);
@@ -2141,6 +4007,15 @@ void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& f
     constexpr bool BOOL_BREAK = std::is_same_v<FuncReturn, bool>;
     boost::container::small_vector<ImageId, 32> images;
     boost::container::small_vector<ImageMapId, 32> maps;
+    // Allocation or callback failure must not permanently hide a cache owner.
+    SCOPE_EXIT {
+        for (const ImageId image_id : images) {
+            slot_images[image_id].flags &= ~ImageFlagBits::Picked;
+        }
+        for (const ImageMapId map_id : maps) {
+            slot_map_views[map_id].picked = false;
+        }
+    };
     ForEachCPUPage(cpu_addr, size, [this, &images, &maps, cpu_addr, size, func](u64 page) {
         const auto it = page_table.find(page);
         if (it == page_table.end()) {
@@ -2158,14 +4033,14 @@ void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& f
             if (!map.Overlaps(cpu_addr, size)) {
                 continue;
             }
-            map.picked = true;
             maps.push_back(map_id);
+            map.picked = true;
             Image& image = slot_images[map.image_id];
             if (True(image.flags & ImageFlagBits::Picked)) {
                 continue;
             }
-            image.flags |= ImageFlagBits::Picked;
             images.push_back(map.image_id);
+            image.flags |= ImageFlagBits::Picked;
             if constexpr (BOOL_BREAK) {
                 if (func(map.image_id, image)) {
                     return true;
@@ -2178,12 +4053,6 @@ void TextureCache<P>::ForEachImageInRegion(DAddr cpu_addr, size_t size, Func&& f
             return false;
         }
     });
-    for (const ImageId image_id : images) {
-        slot_images[image_id].flags &= ~ImageFlagBits::Picked;
-    }
-    for (const ImageMapId map_id : maps) {
-        slot_map_views[map_id].picked = false;
-    }
 }
 
 template <class P>
@@ -2333,6 +4202,12 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
         (*channel_state->gpu_page_table)[page].push_back(image_id);
     });
     if (False(image.flags & ImageFlagBits::Sparse)) {
+#ifdef PS5_NATIVE
+        // RasterizerVulkan may elide later CPU/DMA texture invalidations only
+        // after this monotonic witness has been published. The shadow Vulkan
+        // cache already did this; the PS5-selected ns2-astc owner must too.
+        ::Eden::ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);
+#endif
         auto map_id =
             slot_map_views.insert(image.gpu_addr, image.cpu_addr, image.guest_size_bytes, image_id);
         ForEachCPUPage(image.cpu_addr, image.guest_size_bytes,
@@ -2343,6 +4218,9 @@ void TextureCache<P>::RegisterImage(ImageId image_id) {
     boost::container::small_vector<ImageViewId, 16> sparse_maps;
     ForEachSparseSegment(
         image, [this, image_id, &sparse_maps](GPUVAddr gpu_addr, DAddr cpu_addr, size_t size) {
+#ifdef PS5_NATIVE
+            ::Eden::ImagePages::Mark(cpu_addr, size);
+#endif
             auto map_id = slot_map_views.insert(gpu_addr, cpu_addr, size, image_id);
             ForEachCPUPage(cpu_addr, size,
                            [this, map_id](u64 page) { page_table[page].push_back(map_id); });
@@ -2490,7 +4368,12 @@ template <class P>
 void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
     ImageBase& image = slot_images[image_id];
     if (image.HasScaled()) {
+#ifdef PS5_NATIVE
+        const u64 scaled_bytes = GetScaledImageSizeBytes(image);
+        total_used_memory -= (std::min)(total_used_memory, scaled_bytes);
+#else
         total_used_memory -= GetScaledImageSizeBytes(image);
+#endif
     }
     u64 tentative_size = (std::max)(image.guest_size_bytes, image.unswizzled_size_bytes);
     if ((IsPixelFormatASTC(image.info.format) &&
@@ -2498,7 +4381,12 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
         True(image.flags & ImageFlagBits::Converted)) {
         tentative_size = TranscodedAstcSize(tentative_size, image.info.format);
     }
+#ifdef PS5_NATIVE
+    const u64 reclaimed_bytes = Common::AlignUp(tentative_size, 1024);
+    total_used_memory -= (std::min)(total_used_memory, reclaimed_bytes);
+#else
     total_used_memory -= Common::AlignUp(tentative_size, 1024);
+#endif
     const GPUVAddr gpu_addr = image.gpu_addr;
     const auto alloc_it = image_allocs_table.find(gpu_addr);
     if (alloc_it == image_allocs_table.end()) {
@@ -2553,11 +4441,23 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
                    num_removed_overlaps);
     }
     for (const ImageViewId image_view_id : image_view_ids) {
+#ifdef PS5_NATIVE
+        if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+            // Both GC and immediate eviction must retain the underlying
+            // Vulkan image view through actual GPU completion.
+            runtime.RetireGpuImageView(std::move(slot_image_views[image_view_id]));
+        } else
+#endif
         if (!immediate_delete) {
             sentenced_image_view.Push(std::move(slot_image_views[image_view_id]));
         }
         slot_image_views.erase(image_view_id);
     }
+#ifdef PS5_NATIVE
+    if constexpr (std::is_same_v<Runtime, Vulkan::TextureCacheRuntime>) {
+        runtime.RetireGpuImage(std::move(slot_images[image_id]));
+    } else
+#endif
     if (!immediate_delete) {
         sentenced_images.Push(std::move(slot_images[image_id]));
     }
@@ -2580,6 +4480,13 @@ void TextureCache<P>::DeleteImage(ImageId image_id, bool immediate_delete) {
 
 template <class P>
 void TextureCache<P>::RemoveImageViewReferences(std::span<const ImageViewId> removed_views) {
+#ifdef PS5_NATIVE
+    // Images created and retired without any view cannot be in a channel's
+    // descriptor-to-view map. Avoid scanning every channel on that path.
+    if (removed_views.empty()) {
+        return;
+    }
+#endif
     for (size_t c : active_channel_ids) {
         auto& channel_info = channel_storage[c];
         auto it = channel_info.image_views.begin();
@@ -2596,6 +4503,13 @@ void TextureCache<P>::RemoveImageViewReferences(std::span<const ImageViewId> rem
 
 template <class P>
 void TextureCache<P>::RemoveFramebuffers(std::span<const ImageViewId> removed_views) {
+#ifdef PS5_NATIVE
+    // No framebuffer can contain an absent view. Do not flush deferred
+    // clears belonging to other render targets or scan the framebuffer map.
+    if (removed_views.empty()) {
+        return;
+    }
+#endif
     runtime.FlushDeferredClear();
     auto it = framebuffers.begin();
     while (it != framebuffers.end()) {
@@ -2655,10 +4569,13 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
             ScaleDown(image);
         }
     }
+#ifndef PS5_NATIVE
+    // Desktop preserves the original eager revision publication.
     image.modification_tick = most_recent_tick;
     if (any_modified) {
         image.flags |= ImageFlagBits::GpuModified;
     }
+#endif
     std::ranges::sort(aliased_images, [this](const AliasedImage* lhs, const AliasedImage* rhs) {
         const ImageBase& lhs_image = slot_images[lhs->id];
         const ImageBase& rhs_image = slot_images[rhs->id];
@@ -2679,6 +4596,15 @@ void TextureCache<P>::SynchronizeAliases(ImageId image_id) {
         ScaleUp(aliased_image);
         CopyImage(image_id, aliased->id, aliased->copies);
     }
+#ifdef PS5_NATIVE
+    // Publish alias freshness only after all Vulkan copies were queued.
+    // A rejected/throwing copy keeps the older revision so the next draw
+    // retries instead of treating stale HUD pixels as synchronized.
+    image.modification_tick = most_recent_tick;
+    if (any_modified) {
+        image.flags |= ImageFlagBits::GpuModified;
+    }
+#endif
 }
 
 template <class P>
@@ -2749,7 +4675,7 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
     if (runtime.ShouldReinterpret(dst, src)) {
         return runtime.ReinterpretImage(dst, src, copies);
     }
-    for (const ImageCopy& copy : copies) {
+    for (const ImageCopy& copy : SplitLayeredImageCopies(copies)) {
         UNIMPLEMENTED_IF(copy.dst_subresource.num_layers != 1);
         UNIMPLEMENTED_IF(copy.src_subresource.num_layers != 1);
         UNIMPLEMENTED_IF(copy.src_offset != Offset3D{});
@@ -2767,14 +4693,26 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
         const SubresourceExtent src_extent{.levels = 1, .layers = 1};
         const SubresourceRange dst_range{.base = dst_base, .extent = dst_extent};
         const SubresourceRange src_range{.base = src_base, .extent = src_extent};
-        PixelFormat dst_format = dst.info.format;
+        // X8_D24 aliases preserve raw 32-bit storage. When either side is depth-only
+        // X8_D24, view every 4-byte colour alias as ABGR8 so the Vulkan conversion
+        // shader sees the original low three depth bytes instead of colour semantics.
+        const auto alias_conversion_format = [](PixelFormat format, PixelFormat other_format) {
+            if (other_format == PixelFormat::X8_D24_UNORM &&
+                GetFormatType(format) == SurfaceType::ColorTexture &&
+                BytesPerBlock(format) == 4) {
+                return PixelFormat::A8B8G8R8_UNORM;
+            }
+            return format;
+        };
+        PixelFormat dst_format = alias_conversion_format(dst.info.format, src.info.format);
+        const PixelFormat src_format = alias_conversion_format(src.info.format, dst.info.format);
         if (GetFormatType(src.info.format) == SurfaceType::DepthStencil &&
             GetFormatType(dst_format) == SurfaceType::ColorTexture &&
             BytesPerBlock(dst_format) == 4) {
             dst_format = PixelFormat::A8B8G8R8_UNORM;
         }
         const ImageViewInfo dst_view_info(ImageViewType::e2D, dst_format, dst_range);
-        const ImageViewInfo src_view_info(ImageViewType::e2D, src.info.format, src_range);
+        const ImageViewInfo src_view_info(ImageViewType::e2D, src_format, src_range);
         const auto [dst_framebuffer_id, dst_view_id] = RenderTargetFromImage(dst_id, dst_view_info);
         Framebuffer* const dst_framebuffer = &slot_framebuffers[dst_framebuffer_id];
         const ImageViewId src_view_id = FindOrEmplaceImageView(src_id, src_view_info);
