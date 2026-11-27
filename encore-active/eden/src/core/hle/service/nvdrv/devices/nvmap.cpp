@@ -137,24 +137,14 @@ NvResult nvmap::IocAlloc(IocAllocParams& params, DeviceFD fd) {
     }
 #endif
 
-    // Never manufacture an NVDRV session when the caller supplies a stale FD.
-    // Verify ownership before Handle::Alloc mutates its allocated state.
-    const auto session_it = sessions.find(fd);
-    if (session_it == sessions.end()) {
-        return NvResult::BadValue;
-    }
-    auto* const session = container.GetSession(session_it->second);
-    if (!session || !session->process) {
-        return NvResult::BadValue;
-    }
     const auto result = handle_description->Alloc(params.flags, params.align, params.kind,
-                                                  params.address, session_it->second);
+                                                  params.address, sessions[fd]);
     if (result != NvResult::Success) {
         LOG_CRITICAL(Service_NVDRV, "Object failed to allocate, handle={:08X}", params.handle);
         return result;
     }
     bool is_out_io{};
-    auto* const process = session->process;
+    auto process = container.GetSession(sessions[fd])->process;
 #ifdef PS5_NATIVE
     const auto map_result = process->GetPageTable().LockForMapDeviceAddressSpace(
         &is_out_io, handle_description->address, handle_description->size,
@@ -283,16 +273,8 @@ NvResult nvmap::IocFree(IocFreeParams& params, DeviceFD fd) {
         return NvResult::Success;
     }
 
-    const auto session_it = sessions.find(fd);
-    if (session_it == sessions.end()) {
-        return NvResult::BadValue;
-    }
-    auto* const session = container.GetSession(session_it->second);
-    if (!session || !session->process) {
-        return NvResult::BadValue;
-    }
     if (auto freeInfo{file.FreeHandle(params.handle, false)}) {
-        auto* const process = session->process;
+        auto process = container.GetSession(sessions[fd])->process;
         if (freeInfo->can_unlock) {
             ASSERT(process->GetPageTable()
                        .UnlockForDeviceAddressSpace(freeInfo->address, freeInfo->size)
