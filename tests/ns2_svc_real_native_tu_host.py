@@ -27,8 +27,8 @@ inc = [
     active / "ns2-runtime/gpu_dispatch",
     active / "ns2-runtime/ampere",
     active / "ns2-runtime/hle",
-    // Match production include ownership: the selected KThread comes from
-    // eden-threading, not the pristine sources/eden fallback.
+    # Match production include ownership: the selected KThread comes from
+    # eden-threading, not the pristine sources/eden fallback.
     active / "eden-threading/src",
     active / "eden-core/overrides/native-tiling",
     active / "eden-core/overrides",
