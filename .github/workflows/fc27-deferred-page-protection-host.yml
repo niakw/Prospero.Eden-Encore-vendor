@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/overrides/core/device_memory_manager.h'
-      - 'encore-active/eden-core/overrides/core/device_memory_manager.inc'
-      - 'encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h'
+      - 'encore-active/eden/src/core/device_memory_manager.h'
+      - 'encore-active/eden/src/core/device_memory_manager.inc'
+      - 'encore-active/eden/src/video_core/buffer_cache/word_manager.h'
       - 'encore-active/eden/src/video_core/gpu_thread.h'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
       - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
@@ -14,9 +14,9 @@ on:
       - '.github/workflows/fc27-deferred-page-protection-host.yml'
   pull_request:
     paths:
-      - 'encore-active/eden-core/overrides/core/device_memory_manager.h'
-      - 'encore-active/eden-core/overrides/core/device_memory_manager.inc'
-      - 'encore-active/eden-core/overrides/buffer-hotpath/video_core/buffer_cache/word_manager.h'
+      - 'encore-active/eden/src/core/device_memory_manager.h'
+      - 'encore-active/eden/src/core/device_memory_manager.inc'
+      - 'encore-active/eden/src/video_core/buffer_cache/word_manager.h'
       - 'encore-active/eden/src/video_core/gpu_thread.h'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
       - 'encore-active/eden/src/video_core/gpu_thread.cpp'
