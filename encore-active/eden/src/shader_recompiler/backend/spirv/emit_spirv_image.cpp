@@ -78,21 +78,6 @@ void DecorateNonUniform(EmitContext& ctx, Id object) {
     return true;
 }
 
-[[nodiscard]] Id CheckedTextureArrayIndex(EmitContext& ctx, const IR::Value& index,
-                                          u32 count) {
-    if (!count || index.IsEmpty() || index.Type() != IR::Type::U32) {
-        throw LogicError("Invalid image descriptor index type");
-    }
-    if (index.IsImmediate()) {
-        const u32 selected{index.U32()};
-        if (selected >= count) {
-            throw LogicError("Image descriptor array index out of range");
-        }
-        return ctx.Const(selected);
-    }
-    return ctx.Def(index);
-}
-
 class ImageOperands {
 public:
     [[maybe_unused]] static constexpr bool ImageSampleOffsetAllowed = false;
@@ -363,11 +348,11 @@ void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
 [[nodiscard]] Id CheckedTextureArrayIndex(EmitContext& ctx,
                                           const IR::Value& index, u32 count) {
     if (!count || index.IsEmpty() || index.Type() != IR::Type::U32)
-        throw LogicError("Invalid texture descriptor index type");
+        throw LogicError("Invalid image descriptor index type");
     if (index.IsImmediate()) {
         const u32 selected = index.U32();
         if (selected >= count)
-            throw LogicError("Texture descriptor array index out of range");
+            throw LogicError("Image descriptor array index out of range");
         return ctx.Const(selected);
     }
     if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
