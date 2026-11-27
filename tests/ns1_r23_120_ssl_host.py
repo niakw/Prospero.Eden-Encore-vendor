@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-DIR=ROOT/"encore-active/eden-core/src/core/hle/service/ssl"
+DIR=ROOT/"encore-active/eden/src/core/hle/service/ssl"
 EXPECTED={
  "ssl.cpp":"178c4c690b04f4140538cc2855dd48341a88b4c1",
  "ssl_backend.h":"ef6bf8f9def5f80544e75c180ac72275a0325cc9",

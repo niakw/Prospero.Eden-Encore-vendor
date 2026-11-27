@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 r=Path(__file__).resolve().parents[1]
-file=r/"encore-active/eden-core/src/dynarmic/backend/x64/emit_x64_memory.h"
+file=r/"encore-active/eden/src/dynarmic/backend/x64/emit_x64_memory.h"
 s=file.read_text()
 b=file.read_bytes()
 sha=hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
