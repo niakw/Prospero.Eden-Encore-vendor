@@ -5,7 +5,7 @@
 # Called from headless/CMakeLists.txt after the core and dependent targets exist.
 
 set(_encore_thread_root "${CMAKE_CURRENT_LIST_DIR}/src")
-get_filename_component(_encore_sync_root "${CMAKE_CURRENT_LIST_DIR}/../eden-sync/src" ABSOLUTE)
+get_filename_component(_encore_sync_root "${CMAKE_CURRENT_LIST_DIR}/../eden/src" ABSOLUTE)
 
 function(encore_replace_core_source pinned relative)
     set(maintained "${_encore_thread_root}/${relative}")
@@ -69,8 +69,7 @@ if(PS5_NATIVE)
     target_include_directories(core BEFORE PUBLIC "${_encore_h01_fs_header_root}")
     unset(_encore_h01_fs_header_root)
 
-    set(_encore_h05_header_root
-        "${CMAKE_CURRENT_LIST_DIR}/../eden-sync/overrides/h05-syncpoint")
+    set(_encore_h05_header_root "${_encore_sync_root}")
     set(_encore_h05_source
         "${_encore_sync_root}/core/hle/service/nvdrv/core/syncpoint_manager.cpp")
     if(NOT EXISTS "${_encore_h05_header_root}/core/hle/service/nvdrv/core/syncpoint_manager.h"
