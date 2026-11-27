@@ -16,7 +16,7 @@ Ce répertoire contient les dépendances tierces/upstream importées dans le ven
 
 En résumé : **`sources/` = dépendances upstream figées ; `encore-active/` = code maintenu par Eden Encore.**
 
-Le seul contenu spécifique Eden Encore autorisé directement à la racine de ce répertoire est cette documentation de rôle ; les sous-arbres vendored restent purs.
+Le seul contenu spécifique Eden Encore autorisé directement à la racine de ce répertoire est cette documentation de rôle ; les sous-arbres vendored restent purs. Une correction de sécurité, un backport ou une mise à jour de lockfile spécifique à Encore ne constitue pas une exception : elle va dans `../encore-active/<dépendance>/`.
 
 ## Symétrie des chemins d'override
 

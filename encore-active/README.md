@@ -14,6 +14,8 @@
 >
 > **Règle pratique : `sources/` est la dépendance ; `encore-active/` est notre code final.**
 
+Exemple de dépendance tierce : `sources/ps5-mihawkgen/train/requirements.txt` reste au pin upstream ; la variante de sécurité maintenue par Encore est `encore-active/ps5-mihawkgen/train/requirements.txt`. Même une correction de dépendance n'autorise pas l'édition directe de `sources/`.
+
 ## Chemin canonique
 
 La structure finale suit celle de `sources/` : **même nom de dépendance, même chemin relatif** lorsqu'un fichier upstream existe.

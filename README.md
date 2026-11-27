@@ -50,9 +50,7 @@ at commit `95f21edf13bfbd2888602f2b419dd856d6d0fbfa` per
 It is not the directory for current maintained overrides**, and its
 presence under `sources/` does not authorize copying project-owned
 runtime patches there. Maintained PS5/Eden patches are recorded only in
-`encore-active/eden-core/`, `encore-active/eden-vulkan/`,
-`encore-active/eden-backports/` and the other project-owned active
-directories.
+`encore-active/<dependency>/` using the same dependency name and logical relative path as `sources/<dependency>/`. Legacy functional roots are migration debt, not valid destinations for new owners.
 
 **These source trees are not all regulated by the three graphical Git-tree
 pins above.** Each existing dependency family retains its own pinned
@@ -70,9 +68,7 @@ python3 -B vendor/tools/check-source-tree-layout.py
 python3 -B tools/graphics/check-internalized-ps5-deps.py
 ```
 
-The first Python check verifies the vendor's three exact source tree IDs,
-model bytes and original licences, and rejects any re-import under
-`encore-active/`. The second additionally verifies the parent has **only**
+The first Python check verifies the immutable dependency snapshots, the canonical `sources/`/`encore-active/` boundary, model bytes and licences. A maintained change belongs in `encore-active/`; it never modifies the imported `sources/` tree. The second additionally verifies the parent has **only**
 the vendor Gitlink. The parent owns CMake, packaging and the host shader
 and codec regression workflows; those are not located in this repository.
 

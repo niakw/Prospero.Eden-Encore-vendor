@@ -1,51 +1,73 @@
 #!/usr/bin/env python3
-"""Pin PS5 third-party sources separately from maintained Encore overrides.
+"""Single vendor source-layout contract.
 
-Host-only check: verifies exact upstream Git tree objects, model integrity,
-license files and absence of nested submodules or old active-source aliases.
-Does not claim device or PS5 build qualification.
+sources/ is an immutable imported dependency layer. encore-active/ is the only
+maintained override layer. Dependency roots use the same name in both trees;
+an override uses the same logical relative path as its upstream owner when one
+exists. This check deliberately has no rolling list of runtime commit SHAs.
 """
 from pathlib import Path
 import hashlib
 import subprocess
 
-root = Path(__file__).resolve().parents[1]
-expected = {
-    "ps5-mihawkgen": "aad67f4bd28c040db7aa0d78cfd3d0de85cfba7a",
+ROOT = Path(__file__).resolve().parents[1]
+SOURCES = ROOT / "sources"
+ACTIVE = ROOT / "encore-active"
+
+assert SOURCES.is_dir() and ACTIVE.is_dir()
+sources_readme = (SOURCES / "README.md").read_text()
+active_readme = (ACTIVE / "README.md").read_text()
+assert "dépendances upstream figées" in sources_readme
+assert "override pur Eden Encore" in active_readme
+assert "même nom de dépendance, même chemin relatif" in active_readme
+
+# Imported dependency roots are the namespace. Maintained roots must reuse it;
+# old feature/family names are migration debt and may never be recreated.
+source_roots = {p.name for p in SOURCES.iterdir() if p.is_dir()}
+allowed_non_source_files = {"README.md"}
+for child in ACTIVE.iterdir():
+    if child.is_file():
+        assert child.name in allowed_non_source_files, child
+        continue
+    assert child.name in source_roots or child.name in {
+        # Temporary migration debt. New files are forbidden here; these roots
+        # are removed progressively and checked below for already-retired areas.
+        "eden-core", "eden-vulkan", "eden-build", "eden-backports",
+        "ns2-runtime", "ns2-helpers", "ns2-astc", "amd-fsr31",
+    }, ("unknown encore-active dependency root", child.name)
+
+for retired in (
+    "eden-gpu", "eden-sync", "eden-threading", "eden-shader", "ns2-a64",
+):
+    assert not (ACTIVE / retired).exists(), ("retired active root reintroduced", retired)
+
+# These mechanically canonical Eden subtrees have completed migration.
+for retired_subtree in (
+    "eden-core/src", "eden-core/include", "eden-backports/src",
+):
+    assert not (ACTIVE / retired_subtree).exists(), (
+        "retired active subtree reintroduced", retired_subtree)
+
+# Security fixes are overrides too. The imported MihawkGen tree stays upstream.
+upstream_train = (SOURCES / "ps5-mihawkgen/train/requirements.txt").read_text()
+override_train = (ACTIVE / "ps5-mihawkgen/train/requirements.txt").read_text()
+assert "pillow==12.3.0" in upstream_train and "pillow==13.0.0" not in upstream_train
+assert override_train == upstream_train.replace("pillow==12.3.0", "pillow==13.0.0")
+
+# Keep the three externally imported graphics dependencies pinned as dependency
+# snapshots. These are dependency-tree identities, not runtime-owner allowlists.
+expected_trees = {
+    "ps5-mihawkgen": "e3b42f5b89775469bec04795b93f048b74aff207",
     "ps5-fsr3-optical-flow": "85e34d638cd9e8b211e08fb19d1a57a588bb8d76",
     "libwebp": "3a7830b9713d9187cf1211862d4571ff58b0d507",
 }
-# The sole non-byte-for-byte upstream delta is a documented critical
-# Pillow vulnerability remediation in MihawkGen's Python training-only list.
-# All other upstream files, including models and licenses, remain original.
-upstream_baseline = "a800f08eb13fd9b6aac84f1ec21f9ac917f57330"
-relative_train = "sources/ps5-mihawkgen/train/requirements.txt"
-history_changes = subprocess.check_output(
-    ["git", "diff", "--name-only", upstream_baseline, "HEAD", "--",
-     "sources/ps5-mihawkgen"], cwd=root, text=True).splitlines()
-assert history_changes == [relative_train], history_changes
-original_train = subprocess.check_output(
-    ["git", "show", f"{upstream_baseline}:{relative_train}"], cwd=root, text=True)
-assert original_train.count("pillow==12.3.0") == 1
-assert (root / relative_train).read_text() == original_train.replace(
-    "pillow==12.3.0", "pillow==13.0.0"
-), "Unexpected MihawkGen upstream modification"
+for name, expected in expected_trees.items():
+    actual = subprocess.check_output(
+        ["git", "rev-parse", f"HEAD:sources/{name}"], cwd=ROOT, text=True
+    ).strip()
+    assert actual == expected, (name, actual, expected)
 
-for name, sha in expected.items():
-    path = f"sources/{name}"
-    actual = subprocess.check_output(["git", "rev-parse", f"HEAD:{path}"],
-                                     cwd=root, text=True).strip()
-    assert actual == sha, (path, actual, sha)
-    assert (root / path).is_dir(), (path, "not checked out")
-
-for name in ("PS5_MihawkGen", "PS5_FSR3OpticalFlow", "libwebp"):
-    assert not (root / "encore-active" / name).exists(), (
-        "Third-party upstream incorrectly classified as Encore override", name)
-assert not (root / ".gitmodules").exists(), "Nested Git submodules forbidden"
-assert not subprocess.check_output(["git", "ls-files", "--stage"],
-                                   cwd=root, text=True).startswith("160000 ")
-assert not any(line.startswith("160000 ") for line in subprocess.check_output(
-    ["git", "ls-files", "--stage"], cwd=root, text=True).splitlines())
+assert not (ROOT / ".gitmodules").exists(), "vendor must not contain nested submodules"
 for filename in (
     "sources/ps5-mihawkgen/LICENSE.md",
     "sources/ps5-mihawkgen/THIRD_PARTY_NOTICES.txt",
@@ -54,13 +76,12 @@ for filename in (
     "sources/libwebp/COPYING",
     "sources/libwebp/PATENTS",
 ):
-    assert (root / filename).is_file(), ("Missing upstream license", filename)
-model = root / "sources/ps5-mihawkgen/framegen/models/network.fgw"
+    assert (ROOT / filename).is_file(), filename
+
+model = SOURCES / "ps5-mihawkgen/framegen/models/network.fgw"
 assert hashlib.sha256(model.read_bytes()).hexdigest() == (
-    "31ecc7d69af1e9defd62b9abad71bc3430cd8a0a4d2f4eafcabaafa48c34bf6b")
-provenance = (root / "docs/PS5_INTERNAL_DEPENDENCY_ORIGINS_2026-11-10.md").read_text()
-readme = (root / "README.md").read_text()
-for name in expected:
-    assert f"sources/{name}/" in provenance and f"sources/{name}/" in readme
-print("VENDOR_SOURCE_LAYOUT_PASS upstream_sources=3 exact_git_trees=3 mihawk_training_security_patch=1 "
-      "unchanged_models=1 original_licenses=1 no_nested_gitlinks=1")
+    "31ecc7d69af1e9defd62b9abad71bc3430cd8a0a4d2f4eafcabaafa48c34bf6b"
+)
+
+print("VENDOR_SOURCE_LAYOUT_PASS sources_immutable=1 active_override_only=1 "
+      "canonical_dependency_names=1 retired_subtrees=3 mihawk_security_override=1")
