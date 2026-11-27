@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp'
+      - 'encore-active/eden/src/core/hle/service/am/service/graphics_video_decoder_session.cpp'
       - 'tools/ns2/check_h05_video_syncpoint_exhaustion_host.py'
       - 'tools/ns2/check_h05_real_syncpoint_pool_host.py'
       - 'encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp'
