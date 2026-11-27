@@ -8,8 +8,8 @@ import tempfile
 root=Path(__file__).resolve().parents[1]
 cache=(root/"encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").read_text()
 base=(root/"encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
-texture=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
-texture_base=(root/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache_base.h").read_text()
+texture=(root/"encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
+texture_base=(root/"encore-active/eden/src/video_core/texture_cache/texture_cache_base.h").read_text()
 dirty=(root/"encore-active/eden-core/overrides/core/gpu_dirty_memory_manager.h").read_text()
 rast=(root/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 manager=(root/"encore-active/eden/src/video_core/memory_manager.cpp").read_text()
