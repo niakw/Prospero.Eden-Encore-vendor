@@ -126,6 +126,14 @@ struct CommandList final {
     boost::container::small_vector<CommandListHeader, 512> command_lists;
     boost::container::small_vector<CommandHeader, 512> prefetch_command_list;
     std::optional<NativeSyncpointWait> native_syncpoint_wait;
+    // Native NS2 command words as they existed at SubmitGPFIFO. Games are
+    // allowed to refill their command rings after submission; execution must
+    // not accidentally consume a later frame. Entries that were GPU-dirty at
+    // submission stay invalid and keep the existing coherent live-read path.
+    std::vector<CommandHeader> submitted_words;
+    std::vector<std::size_t> submitted_offsets;
+    std::vector<u8> submitted_valid;
+    u64 snapshot_epoch{};
     // Host-only AS health token captured at NVDRV admission. Native queues
     // must not execute or publish completion after GSV revocation/GMMU poison.
     std::shared_ptr<const std::atomic<bool>> native_submission_lease;
@@ -152,6 +160,24 @@ public:
                (!dma_pushbuffer.empty() && dma_pushbuffer.front().native_syncpoint_wait.has_value());
     }
     [[nodiscard]] bool ResumeNativeAcquire();
+
+    // Snapshot generation shared with NVDRV submission. A CPU/unknown
+    // semaphore release invalidates queued submit-time copies; a value proven
+    // to have been published by GPU retirement keeps them valid.
+    [[nodiscard]] u64 NativeSnapshotEpoch() const noexcept {
+        return native_snapshot_epoch.load(std::memory_order_acquire);
+    }
+    void NoteNativeAcquireResolved(bool gpu_produced) noexcept {
+        if (gpu_produced) {
+            native_snapshot_resume_safe = true;
+            return;
+        }
+        native_snapshot_epoch.fetch_add(1, std::memory_order_release);
+        native_snapshot_resume_safe = false;
+        if (native_using_snapshot)
+            native_snapshot_restart = true;
+    }
+
     // Fatal native GPU decode/retirement errors share one path: on PS5 it
     // latches the process-wide cause, wakes this channel's H:17 event, then
     // rethrows. Host builds retain the same fail-closed exception semantics.
@@ -235,6 +261,13 @@ public:
         bool complete{};
     };
     std::shared_ptr<NativeInterlistFenceState> native_interlist_fence;
+
+    // Process-local command-fetch ownership. These fields affect only
+    // authenticated native NS2 channels; NS1 keeps the historical live path.
+    std::atomic<u64> native_snapshot_epoch{1};
+    bool native_snapshot_resume_safe{};
+    bool native_using_snapshot{};
+    bool native_snapshot_restart{};
 
     VideoCore::RasterizerInterface* rasterizer = nullptr;
 
