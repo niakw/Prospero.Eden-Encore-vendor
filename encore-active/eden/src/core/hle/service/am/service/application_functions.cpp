@@ -4,6 +4,11 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
+#include <cstdio>
+#include <mutex>
+#include <optional>
+
 #include <openssl/evp.h>
 
 #include "common/hex_util.h"
@@ -32,6 +37,29 @@ namespace Service::AM {
 
 namespace {
 
+// Diagnostic only: no changes to the language result or guest IPC layout.
+// Bound release stderr traffic and collapse consecutive identical replies,
+// including across repeated queries to the same AM instance.
+struct GuestLanguageReply {
+    u64 program_id;
+    u32 supported_languages;
+    int configured_index;
+    u64 language_code;
+    bool has_metadata;
+    bool operator==(const GuestLanguageReply&) const = default;
+};
+
+bool ShouldReportGuestLanguage(const GuestLanguageReply& reply) {
+    static std::mutex mutex;
+    static std::optional<GuestLanguageReply> last;
+    static unsigned emitted = 0;
+    std::scoped_lock lock{mutex};
+    if (emitted >= 32 || (last && *last == reply)) return false;
+    last = reply;
+    ++emitted;
+    return true;
+}
+
 FileSys::PatchManager::Metadata GetApplicationMetadata(Core::System& system, u64 program_id) {
     auto metadata = FileSys::PatchManager::GetMetadataFromBaseOrUpdate(system, program_id);
     if (metadata.first != nullptr) {
@@ -55,18 +83,19 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
     : ServiceFramework{system_, "IApplicationFunctions"}, m_applet{std::move(applet)} {
     // clang-format off
     static const FunctionInfo functions[] = {
+        {0, &IApplicationFunctions::StubReplyZeroed, "Unknown0"},
         {1, D<&IApplicationFunctions::PopLaunchParameter>, "PopLaunchParameter"},
-        {10, nullptr, "CreateApplicationAndPushAndRequestToStart"},
-        {11, nullptr, "CreateApplicationAndPushAndRequestToStartForQuest"},
+        {10, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationAndPushAndRequestToStart"},
+        {11, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationAndPushAndRequestToStartForQuest"},
         {12, D<&IApplicationFunctions::CreateApplicationAndRequestToStart>, "CreateApplicationAndRequestToStart"},
-        {13, nullptr, "CreateApplicationAndRequestToStartForQuest"},
-        {14, nullptr, "CreateApplicationWithAttributeAndPushAndRequestToStartForQuest"},
-        {15, nullptr, "CreateApplicationWithAttributeAndRequestToStartForQuest"},
+        {13, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationAndRequestToStartForQuest"},
+        {14, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationWithAttributeAndPushAndRequestToStartForQuest"},
+        {15, &IApplicationFunctions::StubReplyZeroed, "CreateApplicationWithAttributeAndRequestToStartForQuest"},
         {20, D<&IApplicationFunctions::EnsureSaveData>, "EnsureSaveData"},
         {21, D<&IApplicationFunctions::GetDesiredLanguage>, "GetDesiredLanguage"},
         {22, D<&IApplicationFunctions::SetTerminateResult>, "SetTerminateResult"},
         {23, D<&IApplicationFunctions::GetDisplayVersion>, "GetDisplayVersion"},
-        {24, nullptr, "GetLaunchStorageInfoForDebug"},
+        {24, &IApplicationFunctions::StubReplyZeroed, "GetLaunchStorageInfoForDebug"},
         {25, D<&IApplicationFunctions::ExtendSaveData>, "ExtendSaveData"},
         {26, D<&IApplicationFunctions::GetSaveDataSize>, "GetSaveDataSize"},
         {27, D<&IApplicationFunctions::CreateCacheStorage>, "CreateCacheStorage"},
@@ -77,52 +106,60 @@ IApplicationFunctions::IApplicationFunctions(Core::System& system_, std::shared_
         {32, D<&IApplicationFunctions::BeginBlockingHomeButton>, "BeginBlockingHomeButton"},
         {33, D<&IApplicationFunctions::EndBlockingHomeButton>, "EndBlockingHomeButton"},
         {34, nullptr, "SelectApplicationLicense"},
-        {35, nullptr, "GetDeviceSaveDataSizeMax"},
-        {36, nullptr, "GetLimitedApplicationLicense"},
-        {37, nullptr, "GetLimitedApplicationLicenseUpgradableEvent"},
+        {35, &IApplicationFunctions::StubReplyZeroed, "GetDeviceSaveDataSizeMax"},
+        {36, &IApplicationFunctions::StubReplyZeroed, "GetLimitedApplicationLicense"},
+        {37, &IApplicationFunctions::StubReplyEvent, "GetLimitedApplicationLicenseUpgradableEvent"},
         {40, D<&IApplicationFunctions::NotifyRunning>, "NotifyRunning"},
         {50, D<&IApplicationFunctions::GetPseudoDeviceId>, "GetPseudoDeviceId"},
         {60, D<&IApplicationFunctions::SetMediaPlaybackStateForApplication>, "SetMediaPlaybackStateForApplication"},
         {65, D<&IApplicationFunctions::IsGamePlayRecordingSupported>, "IsGamePlayRecordingSupported"},
         {66, D<&IApplicationFunctions::InitializeGamePlayRecording>, "InitializeGamePlayRecording"},
         {67, D<&IApplicationFunctions::SetGamePlayRecordingState>, "SetGamePlayRecordingState"},
-        {68, nullptr, "RequestFlushGamePlayingMovieForDebug"},
-        {70, nullptr, "RequestToShutdown"},
-        {71, nullptr, "RequestToReboot"},
-        {72, nullptr, "RequestToSleep"},
-        {80, nullptr, "ExitAndRequestToShowThanksMessage"},
+        {68, &IApplicationFunctions::StubReplyZeroed, "RequestFlushGamePlayingMovieForDebug"},
+        {70, &IApplicationFunctions::StubReplyZeroed, "RequestToShutdown"},
+        {71, &IApplicationFunctions::StubReplyZeroed, "RequestToReboot"},
+        {72, &IApplicationFunctions::StubReplyZeroed, "RequestToSleep"},
+        {80, &IApplicationFunctions::StubReplyZeroed, "ExitAndRequestToShowThanksMessage"},
         {90, D<&IApplicationFunctions::EnableApplicationCrashReport>, "EnableApplicationCrashReport"},
         {100, D<&IApplicationFunctions::InitializeApplicationCopyrightFrameBuffer>, "InitializeApplicationCopyrightFrameBuffer"},
         {101, D<&IApplicationFunctions::SetApplicationCopyrightImage>, "SetApplicationCopyrightImage"},
         {102, D<&IApplicationFunctions::SetApplicationCopyrightVisibility>, "SetApplicationCopyrightVisibility"},
         {110, D<&IApplicationFunctions::QueryApplicationPlayStatistics>, "QueryApplicationPlayStatistics"},
         {111, D<&IApplicationFunctions::QueryApplicationPlayStatisticsByUid>, "QueryApplicationPlayStatisticsByUid"},
+        {112, &IApplicationFunctions::StubReplyZeroed, "Unknown112"},
+        {113, &IApplicationFunctions::StubReplyZeroed, "Unknown113"},
         {120, D<&IApplicationFunctions::ExecuteProgram>, "ExecuteProgram"},
         {121, D<&IApplicationFunctions::ClearUserChannel>, "ClearUserChannel"},
         {122, D<&IApplicationFunctions::UnpopToUserChannel>, "UnpopToUserChannel"},
         {123, D<&IApplicationFunctions::GetPreviousProgramIndex>, "GetPreviousProgramIndex"},
-        {124, nullptr, "EnableApplicationAllThreadDumpOnCrash"},
+        {124, &IApplicationFunctions::StubReplyZeroed, "EnableApplicationAllThreadDumpOnCrash"},
         {130, D<&IApplicationFunctions::GetGpuErrorDetectedSystemEvent>, "GetGpuErrorDetectedSystemEvent"},
-        {131, nullptr, "SetDelayTimeToAbortOnGpuError"},
+        {131, &IApplicationFunctions::StubReplyZeroed, "SetDelayTimeToAbortOnGpuError"},
         {140, D<&IApplicationFunctions::GetFriendInvitationStorageChannelEvent>, "GetFriendInvitationStorageChannelEvent"},
         {141, D<&IApplicationFunctions::TryPopFromFriendInvitationStorageChannel>, "TryPopFromFriendInvitationStorageChannel"},
         {150, D<&IApplicationFunctions::GetNotificationStorageChannelEvent>, "GetNotificationStorageChannelEvent"},
-        {151, nullptr, "TryPopFromNotificationStorageChannel"},
+        {151, &IApplicationFunctions::StubReplyInterface, "TryPopFromNotificationStorageChannel"},
         {160, D<&IApplicationFunctions::GetHealthWarningDisappearedSystemEvent>, "GetHealthWarningDisappearedSystemEvent"},
-        {170, nullptr, "SetHdcpAuthenticationActivated"},
-        {180, nullptr, "GetLaunchRequiredVersion"},
-        {181, nullptr, "UpgradeLaunchRequiredVersion"},
-        {190, nullptr, "SendServerMaintenanceOverlayNotification"},
-        {200, nullptr, "GetLastApplicationExitReason"},
+        {170, &IApplicationFunctions::StubReplyZeroed, "SetHdcpAuthenticationActivated"},
+        {180, &IApplicationFunctions::StubReplyZeroed, "GetLaunchRequiredVersion"},
+        {181, &IApplicationFunctions::StubReplyZeroed, "UpgradeLaunchRequiredVersion"},
+        {190, &IApplicationFunctions::StubReplyZeroed, "SendServerMaintenanceOverlayNotification"},
+        {200, &IApplicationFunctions::StubReplyZeroed, "GetLastApplicationExitReason"},
         {210, D<&IApplicationFunctions::GetUnknownEvent210>, "Unknown210"},
-        {220, nullptr, "Unknown220"}, // [20.0.0+]
-        {300, nullptr, "CreateMovieWriter"}, // [19.0.0+]
-        {310, nullptr, "Unknown310"}, // [20.0.0+]
-        {320, nullptr, "Unknown320"}, // [20.0.0+]
+        {220, &IApplicationFunctions::StubReplyZeroed, "Unknown220"}, // [20.0.0+]
+        {230, &IApplicationFunctions::StubReplyZeroed, "Unknown230"},
+        {300, &IApplicationFunctions::StubReplyInterface, "CreateMovieWriter"}, // [19.0.0+]
+        {310, &IApplicationFunctions::StubReplyZeroed, "Unknown310"}, // [20.0.0+]
+        {320, D<&IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled>,
+         "GetScreenShotAndContinuousRecordingInitiallyEnabled"}, // NS2 SDK 20.0+
+        // SDKs that request 321 expect a full one-byte response, not a
+        // successful IPC reply with stale data left in the output word.
+        {321, D<&IApplicationFunctions::Unknown321>, "Unknown321"}, // Switch 2
         {330, D<&IApplicationFunctions::Unknown330>, "Unknown330"}, // [20.0.0+]
-        {500, nullptr, "StartContinuousRecordingFlushForDebug"},
-        {1000, nullptr, "CreateMovieMaker"},
+        {500, &IApplicationFunctions::StubReplyEvent, "StartContinuousRecordingFlushForDebug"},
+        {1000, &IApplicationFunctions::StubReplyInterface, "CreateMovieMaker"},
         {1001, D<&IApplicationFunctions::PrepareForJit>, "PrepareForJit"},
+        {2000, &IApplicationFunctions::StubReplyZeroed, "Unknown2000"},
     };
     // clang-format on
 
@@ -199,6 +236,22 @@ Result IApplicationFunctions::GetDesiredLanguage(Out<u64> out_language_code) {
     R_TRY(app_man->ConvertApplicationLanguageToLanguageCode(out_language_code, desired_language));
 
     LOG_DEBUG(Service_AM, "got desired_language={:016X}", *out_language_code);
+    const GuestLanguageReply reply{
+        m_applet->program_id, supported_languages,
+        static_cast<int>(Settings::values.language_index.GetValue()),
+        *out_language_code, res.first != nullptr};
+    if (ShouldReportGuestLanguage(reply)) {
+        char code[9]{};
+        for (unsigned i = 0; i < 8; ++i)
+            code[i] = static_cast<char>((reply.language_code >> (8u * i)) & 0xffu);
+        std::fprintf(stderr,
+                     "EDEN_GUEST_LANGUAGE_REPLY title=%016llX metadata=%d supported_languages=%08X configured_index=%d reply_code=%016llX reply_text=%s\n",
+                     static_cast<unsigned long long>(reply.program_id),
+                     static_cast<int>(reply.has_metadata),
+                     static_cast<unsigned>(reply.supported_languages),
+                     reply.configured_index,
+                     static_cast<unsigned long long>(reply.language_code), code);
+    }
     R_SUCCEED();
 }
 
@@ -207,6 +260,21 @@ Result IApplicationFunctions::SetTerminateResult(Result terminate_result) {
              terminate_result.GetInnerValue(),
              static_cast<u32>(terminate_result.GetModule()) + 2000,
              terminate_result.GetDescription());
+
+#ifdef PS5_NATIVE
+    // A Switch 2 SDK can call cmd 22 to report the failure that precedes an
+    // indefinite loading screen. Do not change the result or guest IPC reply.
+    // Small process-wide cap avoids flooding release stderr on repeated calls.
+    static std::atomic<unsigned> terminate_reports{0};
+    if (terminate_reports.fetch_add(1, std::memory_order_relaxed) < 32) {
+        std::fprintf(stderr,
+                     "EDEN_APP_TERMINATE_RESULT title=%016llX raw=0x%08X module=%u description=%u\n",
+                     static_cast<unsigned long long>(m_applet->program_id),
+                     static_cast<unsigned>(terminate_result.GetInnerValue()),
+                     static_cast<unsigned>(terminate_result.GetModule()),
+                     static_cast<unsigned>(terminate_result.GetDescription()));
+    }
+#endif
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->terminate_result = terminate_result;
@@ -246,13 +314,13 @@ Result IApplicationFunctions::GetDisplayVersion(Out<DisplayVersion> out_display_
 }
 
 Result IApplicationFunctions::ExtendSaveData(Out<u64> out_required_size, FileSys::SaveDataType type,
-                                             Common::UUID user_id, u64 normal_size,
+                                             u128 user_id, u64 normal_size,
                                              u64 journal_size) {
-    LOG_DEBUG(Service_AM, "called with type={} user_id={} normal={:#x} journal={:#x}",
-              static_cast<u8>(type), user_id.FormattedString(), normal_size, journal_size);
+    LOG_DEBUG(Service_AM, "called with type={} user_id={:016X}{:016X} normal={:#x} journal={:#x}",
+              static_cast<u8>(type), user_id[1], user_id[0], normal_size, journal_size);
 
     system.GetFileSystemController().OpenSaveDataController()->WriteSaveDataSize(
-        type, m_applet->program_id, user_id.AsU128(), {normal_size, journal_size});
+        type, m_applet->program_id, user_id, {normal_size, journal_size});
 
     // The following value is used to indicate the amount of space remaining on failure
     // due to running out of space. Since we always succeed, this should be 0.
@@ -262,11 +330,12 @@ Result IApplicationFunctions::ExtendSaveData(Out<u64> out_required_size, FileSys
 }
 
 Result IApplicationFunctions::GetSaveDataSize(Out<u64> out_normal_size, Out<u64> out_journal_size,
-                                              FileSys::SaveDataType type, Common::UUID user_id) {
-    LOG_DEBUG(Service_AM, "called with type={} user_id={}", type, user_id.FormattedString());
+                                              FileSys::SaveDataType type, u128 user_id) {
+    LOG_DEBUG(Service_AM, "called with type={} user_id={:016X}{:016X}",
+              static_cast<u8>(type), user_id[1], user_id[0]);
 
     const auto size = system.GetFileSystemController().OpenSaveDataController()->ReadSaveDataSize(
-        type, m_applet->program_id, user_id.AsU128());
+        type, m_applet->program_id, user_id);
 
     *out_normal_size = size.normal;
     *out_journal_size = size.journal;
@@ -378,6 +447,8 @@ Result IApplicationFunctions::GetPseudoDeviceId(Out<Common::UUID> out_pseudo_dev
     // SHA-1 must be exactly 20 bytes. Passing EVP_MAX_MD_SIZE (64) to
     // std::span<u8, 20> violates the fixed-extent constructor contract.
     R_UNLESS(ok && hash_len == 20, ResultUnknown);
+    // The maintained UUID ABI consumes the first 16 octets of the verified
+    // 20-byte SHA-1 digest when constructing the RFC 4122 v5 UUID.
     *out_pseudo_device_id = Common::UUID::MakeRFC4122V5(std::span<u8, 16>{hash, 16});
     R_SUCCEED();
 }
@@ -557,6 +628,26 @@ Result IApplicationFunctions::GetUnknownEvent210(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
     LOG_DEBUG(Service_AM, "called");
     *out_event = m_applet->unknown_event.GetHandle();
+    R_SUCCEED();
+}
+
+// Experimental NS2 AM command 320; preserve maintained Encore metadata logic.
+Result IApplicationFunctions::GetScreenShotAndContinuousRecordingInitiallyEnabled(
+    Out<bool> out_screenshot_enabled, Out<bool> out_recording_enabled) {
+    std::scoped_lock lk{m_applet->lock};
+    *out_screenshot_enabled = m_applet->screenshot_permission != ScreenshotPermission::Disable;
+    *out_recording_enabled = m_applet->game_play_recording_supported &&
+                             m_applet->game_play_recording_state == GamePlayRecordingState::Enabled;
+    LOG_DEBUG(Service_AM, "called, screenshot={}, recording={}", *out_screenshot_enabled,
+              *out_recording_enabled);
+    R_SUCCEED();
+}
+
+Result IApplicationFunctions::Unknown321(Out<u8> out) {
+    // Upstream Lichii/Eglantine NS2 initialization requires one data byte.
+    // Meaning is unknown; report a deterministic zero without auto-stubbing.
+    LOG_WARNING(Service_AM, "(STUBBED) called");
+    *out = 0;
     R_SUCCEED();
 }
 
