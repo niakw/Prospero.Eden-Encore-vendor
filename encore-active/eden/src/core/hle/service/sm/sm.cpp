@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <array>
 #include <tuple>
 #include "common/assert.h"
 #include "common/scope_exit.h"
@@ -31,6 +32,67 @@ ServiceManager::ServiceManager(Kernel::KernelCore& kernel_) : kernel{kernel_} {
     controller_interface = std::make_unique<Controller>(kernel.System());
 }
 
+bool ServiceManager::WaitForService(const std::string& name) {
+    std::unique_lock l{lock};
+    ++service_waiters;
+    SCOPE_EXIT {
+        --service_waiters;
+        waiters_changed.notify_all();
+    };
+    while (registered_services.find(name) == registered_services.end()) {
+        if (closing) {
+            LOG_INFO(Service_SM, "Gave up waiting for {}: services are closing", name);
+            return false;
+        }
+        waiters_changed.wait(l);
+    }
+    return true;
+}
+
+void ServiceManager::Close() {
+    std::unique_lock l{lock};
+    closing = true;
+    waiters_changed.notify_all();
+    waiters_changed.wait(l, [this] { return service_waiters == 0; });
+}
+
+void ServiceManager::ReleaseRegisteredHandlersForShutdown() {
+    // Closing/waking host service waiters and joining their work happens first.
+    // Keep SM itself and its kernel-owned ports alive until process shutdown,
+    // but retire factories (NVDRV included) while KProcess/Host1x still exist.
+    decltype(registered_services) retired;
+    {
+        std::unique_lock l{lock};
+        if (!closing || service_waiters != 0) {
+            LOG_ERROR(Service_SM, "Refusing to retire service handlers before SM close");
+            return;
+        }
+        retired.swap(registered_services);
+    }
+    // GPU supervisor / worker factories may hold an AS shared_ptr after its
+    // originating NVDRV FD closes. nvhost_as_gpu references Module::Container
+    // and NvMap: destroying NVDRV first leaves those references dangling, and
+    // later AS retirement tries to lock an already-destroyed mutex. Retire all
+    // other service factories before the three NVDRV aliases. Service loops
+    // are already joined and the kernel/Host1x remain alive. Moving the
+    // std::function owners costs no allocations and keeps this out of SM's lock.
+    std::array<SessionRequestHandlerFactory, 3> nvdrv_keepers{};
+    for (auto& [name, factory] : retired) {
+        if (name == "nvdrv") {
+            nvdrv_keepers[0] = std::move(factory);
+        } else if (name == "nvdrv:a") {
+            nvdrv_keepers[1] = std::move(factory);
+        } else if (name == "nvdrv:s") {
+            nvdrv_keepers[2] = std::move(factory);
+        }
+    }
+    retired.clear();
+    // Only now may NVDRV's module close its NvMap/Container and their mutexes.
+    for (auto& factory : nvdrv_keepers) {
+        factory = {};
+    }
+}
+
 ServiceManager::~ServiceManager() {
     for (auto& [name, port] : service_ports) {
         port->Close(kernel);
@@ -53,7 +115,8 @@ static Result ValidateServiceName(const std::string& name) {
     return ResultSuccess;
 }
 
-Result ServiceManager::RegisterService(Kernel::KServerPort** out_server_port, std::string name, u32 max_sessions, SessionRequestHandlerFactory handler) {
+Result ServiceManager::RegisterService(Kernel::KServerPort** out_server_port, std::string name,
+                                       u32 max_sessions, SessionRequestHandlerFactory handler) {
     R_TRY(ValidateServiceName(name));
 
     std::scoped_lock lk{lock};
@@ -70,6 +133,7 @@ Result ServiceManager::RegisterService(Kernel::KServerPort** out_server_port, st
 
     service_ports.emplace(name, std::addressof(port->GetClientPort()));
     registered_services.emplace(name, handler);
+    waiters_changed.notify_all();
     if (deferral_event) {
         deferral_event->Signal(kernel);
     }
