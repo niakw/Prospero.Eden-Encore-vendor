@@ -7,8 +7,8 @@ Source-only qualification; success here does NOT establish guest execution.
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-core = (root / "encore-active/ns2-runtime/process/core/core.cpp").read_text()
-loader = (root / "encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp").read_text()
+core = (root / "encore-active/eden/src/core/core.cpp").read_text()
+loader = (root / "encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp").read_text()
 
 start = core.index("[[nodiscard]] bool IsSwitch2LaunchProgram(")
 end = core.index("\n} // namespace", start)
@@ -41,7 +41,7 @@ assert "int(metadata.IsSwitch2())" in loader
 assert "int(metadata.UsesExtendedAcid())" in loader
 assert "int(bool(dir->GetFile(\"main\")))" in loader
 # Classification is still based on verified metadata, never the offline ID.
-metadata = (root / "encore-active/ns2-runtime/metadata/core/file_sys/program_metadata.cpp").read_text()
+metadata = (root / "encore-active/eden/src/core/file_sys/program_metadata.cpp").read_text()
 assert "PlatformMask" not in metadata
 assert "Switch2Platform" not in metadata
 assert "metadata.GetTitleID(), int(metadata.IsSwitch2())" in loader

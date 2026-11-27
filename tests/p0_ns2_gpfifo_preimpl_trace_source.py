@@ -3,7 +3,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp"
+SRC = ROOT / "encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp"
 text = SRC.read_text()
 
 # Observability must be opt-in and bounded. Normal gameplay does not consume
@@ -68,8 +68,8 @@ assert "0x80000000U" in resume
 assert "GetGuestSyncpointValue" not in resume
 # Switch 2 0xC0504821 must bind a real initialized kernel-mode
 # channel, not return success for missing GMMU or USERD/doorbell buffers.
-hdr=(ROOT/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
-pure=(ROOT/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
+hdr=(ROOT/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+pure=(ROOT/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
 assert "static_assert(sizeof(IoctlChannelSetupBind) == 80" in hdr
 for field in ("gpfifo_gpu_va", "userd_gpu_va", "usermode_mmio_gpu_va", "hw_channel_id"):
     assert field in hdr, field
