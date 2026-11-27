@@ -1,0 +1,595 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <optional>
+#include <span>
+#include <map>
+#include <new>
+#include <vector>
+#include <limits>
+#include <utility>
+#include "common/common_types.h"
+
+namespace Service::AM::GraphicsSupervisorProtocol {
+
+// Native VI2 display capability replies are device-wide SDK contracts, not
+// game-specific overrides. Keep this policy shared by the service and the
+// Clang/GCC HLE tests; unknown displays and malformed requests fail closed.
+constexpr u64 Vi2DefaultDisplayName = 0x00746c7561666564ULL; // "default"
+[[nodiscard]] constexpr bool IsDefaultVi2DisplayQuery(
+    u32 header, u32 word_count, u64 display_name, u32 command) noexcept {
+    return ((command >= 103 && command <= 107) || command == 354) &&
+           header == command + 16 && word_count == 2 &&
+           display_name == Vi2DefaultDisplayName;
+}
+[[nodiscard]] constexpr u64 Vi2MaxResolutionMode(bool docked) noexcept {
+    // SDK-defined tier: 4 = 2560x1440 docked, 2 = 1920x1080 handheld.
+    // This describes the emulated Switch 2 display, not host PS5 output.
+    return docked ? 4ULL : 2ULL;
+}
+constexpr u32 Vi2NominalRefreshRateHz = 60;
+constexpr u64 Vi2SupportedRateBits = 1ULL; // 60 Hz only; no 120 Hz or VRR.
+constexpr u64 Vi2KnownRateMask = 3ULL | (1ULL << 63);
+[[nodiscard]] constexpr bool IsDefaultVi2RefreshRateSelection(
+    u32 header, u32 word_count, u64 display_name, u64 mask) noexcept {
+    return header == 16 + 301 && word_count == 6 &&
+           display_name == Vi2DefaultDisplayName &&
+           (mask & ~Vi2KnownRateMask) == 0;
+}
+constexpr u64 Vi2SdrOutputFormat = 1;
+constexpr u32 Vi2SdrPeakNits = 400;
+constexpr u32 Vi2SdrPaperWhiteNits = 203;
+
+
+constexpr size_t RequestGroupCount = 8;
+
+enum class RequestGroupDuplicateStatus {
+    Ready,
+    OutOfRange,
+    NotConfigured,
+    MissingEvent,
+    IdentityMismatch,
+};
+
+struct RequestGroupDuplicateRequest {
+    u32 copied_handle;
+    u32 group;
+};
+
+inline std::optional<RequestGroupDuplicateRequest> DecodeRequestGroupEventDuplicate(
+    std::span<const u32> packet) {
+    if (packet.size() < 5 || packet[0] != 0x30 || packet[1] != 0x80000001 ||
+        packet[2] != 2) {
+        return std::nullopt;
+    }
+    return RequestGroupDuplicateRequest{packet[3], packet[4]};
+}
+
+constexpr RequestGroupDuplicateStatus ClassifyRequestGroupEventDuplicate(
+    u32 group, bool configured, bool exists, bool identity_matches) {
+    if (group >= RequestGroupCount) {
+        return RequestGroupDuplicateStatus::OutOfRange;
+    }
+    if (!configured) {
+        return RequestGroupDuplicateStatus::NotConfigured;
+    }
+    if (!exists) {
+        return RequestGroupDuplicateStatus::MissingEvent;
+    }
+    if (!identity_matches) {
+        return RequestGroupDuplicateStatus::IdentityMismatch;
+    }
+    return RequestGroupDuplicateStatus::Ready;
+}
+
+// libounce gsv.c _gsvSyncCreate: command 1 advertises capacity,
+// command 21 sends a u32 configured count, at most min(capacity, 0x3f).
+// Keep the historical unconfigured limit for SDKs that never send 21.
+// nn::gs::sdk::QueryApplicationGpuTimeSpan sends two u64 timestamps
+// to GSV 1121's GraphicsFrameSession TIPC 11 (27 on the wire), and
+// expects one u64 TimeSpan. This is scheduling entitlement on the
+// guest's sole application timeline, NOT renderer busy time.
+// Decode before publishing the output; saturate to signed TimeSpan.
+[[nodiscard]] inline std::optional<u64> DecodeApplicationGpuScheduledSpan(
+    std::span<const u32> packet) noexcept {
+    if (packet.size() < 6 || packet[0] != 16 + 11 || packet[1] != 4) {
+        return std::nullopt;
+    }
+    const u64 begin = u64{packet[2]} | (u64{packet[3]} << 32);
+    const u64 end = u64{packet[4]} | (u64{packet[5]} << 32);
+    if (end <= begin) {
+        return 0;
+    }
+    return std::min(end - begin, static_cast<u64>(std::numeric_limits<s64>::max()));
+}
+
+constexpr u32 SyncptAdvertisedSlots = 32;
+constexpr u32 SyncptLegacySlots = 64;
+inline std::optional<u32> DecodeSyncptSlotCount(std::span<const u32> packet) {
+    if (packet.size() < 3 || packet[0] != 16 + 21 || packet[1] != 1 ||
+        packet[2] == 0 || packet[2] > SyncptAdvertisedSlots)
+        return {};
+    return packet[2];
+}
+
+struct SyncpointWait {
+    u32 slot;
+    u32 id;
+    u64 threshold;
+    bool wide;
+};
+
+inline std::optional<SyncpointWait> DecodeSyncpointWait(std::span<const u32> packet) {
+    if (packet.size() < 7 || packet[0] != 0xd9 || packet[1] != 5 ||
+        (packet[6] & 0xff) > 1) return {};
+    return SyncpointWait{packet[2], ~packet[3],
+                        u64{packet[4]} | (u64{packet[5]} << 32), bool(packet[6] & 0xff)};
+}
+
+inline bool IsSyncpointWaitSatisfied(u32 current, u64 threshold, bool wide) {
+    if (wide) return u64{current} >= threshold;
+    return ((current - static_cast<u32>(threshold)) & 0x80000000U) == 0;
+}
+
+inline std::optional<u32> DecodeVideoImageRegistration(std::span<const u32> packet) {
+    if (packet.size() < 6 || packet[0] != 0x147 || packet[1] != 4 || packet[2] == 0 ||
+        packet[3] || packet[4] || packet[5]) return {};
+    return packet[2];
+}
+
+struct VideoDecoderConfiguration {
+    u32 width;
+    u32 height;
+    u32 frame_rate;
+    u32 input_capacity;
+};
+
+inline std::optional<VideoDecoderConfiguration> DecodeVideoDecoderConfiguration(
+    std::span<const u32> packet) {
+    if (packet.size() < 13 || packet[0] != 0x100075 || packet[1] != 8 ||
+        packet[5] == 0 || packet[5] > 65535 || packet[6] == 0 || packet[6] > 65535 ||
+        packet[7] == 0 || packet[7] > 60 || packet[8] == 0 ||
+        std::any_of(packet.begin() + 9, packet.begin() + 13, [](u32 value) { return value != 0; })) return {};
+    return VideoDecoderConfiguration{packet[5], packet[6], packet[7], packet[8]};
+}
+
+struct VideoDecoderInitialization {
+    u64 memory_size;
+    u32 codec;
+    u32 input_format;
+    u32 output_format;
+    u32 output_mode;
+};
+
+inline std::optional<VideoDecoderInitialization> DecodeVideoDecoderInitialization(
+    std::span<const u32> packet) {
+    if (packet.size() < 10 || packet[0] != 0xd9 || packet[1] != 0x80000006 || packet[2] != 2) return {};
+    return VideoDecoderInitialization{u64{packet[4]} | (u64{packet[5]} << 32),
+                                      packet[6], packet[7], packet[8], packet[9]};
+}
+
+// Command 200 (gsv81 0x264fc, same implementation as 201): header 0xd8, five raw words, one copied transfer
+// memory handle: the u64 memory size, then three u32 (the SDK helper hard-codes the first as 1, the other
+// two are the input and output formats). The server passes output mode 1 itself.
+inline std::optional<VideoDecoderInitialization> DecodeVideoDecoderInitialization200(
+    std::span<const u32> packet) {
+    if (packet.size() < 9 || packet[0] != 0xd8 || packet[1] != 0x80000005 || packet[2] != 2) return {};
+    return VideoDecoderInitialization{u64{packet[4]} | (u64{packet[5]} << 32),
+                                      packet[6], packet[7], packet[8], 1};
+}
+
+struct VideoContextRequest {
+    bool remote_memory;
+    u64 library_version;
+};
+
+inline std::optional<VideoContextRequest> DecodeVideoContext(std::span<const u32> packet) {
+    if (packet.size() < 5 || packet[0] != 0x39a || packet[1] != 3 || packet[2] > 1) return {};
+    return VideoContextRequest{packet[2] != 0, u64{packet[3]} | (u64{packet[4]} << 32)};
+}
+
+// VI2 PresentClientBuffer word 12 contains (swap interval << 16) | refresh Hz.
+// The queue compositor honors the guest's requested 1..4 vblank cadence;
+// a zero/unsupported interval conservatively keeps the original single vblank.
+constexpr u32 DecodePresentSwapInterval(u32 timing) {
+    return std::clamp(timing >> 16, 1u, 4u);
+}
+
+constexpr u8 DecodeBufferSlot(u32 packed) {
+    return static_cast<u8>(packed);
+}
+
+// Firmware 19 GSV 1 boots from a process-owned TransferMemory work buffer.
+// The SDK supplies ARUID and buffer size; the process handle is authenticated
+// separately in GSV 11, and must never be inferred from untrusted raw words.
+struct BootstrapTransferMemoryRequest {
+    u32 copied_handle{};
+    u64 applet_resource_user_id{};
+    u64 size{};
+};
+[[nodiscard]] inline std::optional<BootstrapTransferMemoryRequest>
+DecodeBootstrapTransferMemory(std::span<const u32> packet) {
+    if (packet.size() < 8 || packet[0] != 16 + 1 ||
+        packet[1] != 0x80000004U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 aruid = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 size = u64{packet[6]} | (u64{packet[7]} << 32);
+    if (!size || (size & 0xfffU)) return {};
+    return BootstrapTransferMemoryRequest{packet[3], aruid, size};
+}
+
+struct BootstrapRequest {
+    u32 process_handle;
+    u64 applet_resource_user_id;
+    u64 flags;
+    std::array<u64, 4> parameters;
+};
+
+struct DisplayParameter261Request {
+    u64 display_name;
+    u32 value;
+};
+
+// Switch 2 VI2 31 and 32 refer to the same eight native event slots.
+// 32 carries one copied kernel handle before its slot; 31 is raw.
+inline std::optional<u32> DecodeVi2NativeEventSlot(
+    std::span<const u32> packet, u32 command) {
+    if (command == 31) {
+        if (packet.size() < 3 || packet[0] != 16 + 31 || packet[1] != 1 ||
+            packet[2] >= RequestGroupCount)
+            return {};
+        return packet[2];
+    }
+    if (command == 32) {
+        const auto request = DecodeRequestGroupEventDuplicate(packet);
+        if (!request || !request->copied_handle ||
+            request->group >= RequestGroupCount)
+            return {};
+        return request->group;
+    }
+    return {};
+}
+
+// VI2 261..272 (one default-display name and one native event slot).
+// Odd commands bind vsync/change notifications; even commands unbind.
+inline std::optional<DisplayParameter261Request> DecodeVi2DisplayEventBinding(
+    std::span<const u32> packet, u32 command) {
+    if (command < 261 || command > 272 || packet.size() < 5 ||
+        packet[0] != 16 + command || packet[1] != 3)
+        return {};
+    return DisplayParameter261Request{
+        u64{packet[2]} | (u64{packet[3]} << 32), packet[4]};
+}
+
+inline std::optional<DisplayParameter261Request> DecodeDisplayParameter261(
+    std::span<const u32> packet) {
+    if (packet.size() < 5 || packet[0] != 0x115 || packet[1] != 3) {
+        return std::nullopt;
+    }
+    return DisplayParameter261Request{u64{packet[2]} | (u64{packet[3]} << 32), packet[4]};
+}
+
+// Command 263 (Welcome Tour) has the same wrapper shape as 261: header 0x117, the u64 display name
+// and one u32 value, with a result-only response.
+inline std::optional<DisplayParameter261Request> DecodeDisplayParameter263(
+    std::span<const u32> packet) {
+    if (packet.size() < 5 || packet[0] != 0x117 || packet[1] != 3) {
+        return std::nullopt;
+    }
+    return DisplayParameter261Request{u64{packet[2]} | (u64{packet[3]} << 32), packet[4]};
+}
+
+// Command 301: header 0x13d, the u64 display name, a u64 value and a u64 mask. The real server
+// updates the display flags as (flags & ~mask) | (value & mask) (gsv-independent visrv2 handler at
+// vi2.autogen 0xf37e0). The SDK was seen setting bit 63 (Yoshi: value = mask = 1 << 63) and
+// clearing it (Welcome Tour: value 0, mask 1 << 63); only those two forms are accepted. The
+// response is a result only.
+constexpr bool IsSupportedDisplayParameter301(std::span<const u32> packet) {
+    constexpr u64 DefaultDisplayName = 0x00746c7561666564ULL;
+    constexpr u64 Bit63 = 1ULL << 63;
+    if (packet.size() < 8 || packet[0] != 0x13d || packet[1] != 6) {
+        return false;
+    }
+    const u64 value = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 mask = u64{packet[6]} | (u64{packet[7]} << 32);
+    return (u64{packet[2]} | (u64{packet[3]} << 32)) == DefaultDisplayName && mask == Bit63 &&
+           (value == 0 || value == Bit63);
+}
+
+constexpr bool IsSupportedDisplayParameter261(const DisplayParameter261Request& request) {
+    constexpr u64 DefaultDisplayName = 0x00746c7561666564ULL;
+    return request.display_name == DefaultDisplayName && request.value == 0;
+}
+
+// TIPC command 1111 (DragXDrive): header 0x467 with a single data word. The SDK wrapper selects the
+// word from a four-entry table (0, 0x11e, 0x13c, 0x178) by a caller index below 4, and the response
+// carries only a result.
+constexpr bool IsSupportedCommand1111(std::span<const u32> packet) {
+    if (packet.size() < 3 || packet[0] != 0x467 || packet[1] != 1) {
+        return false;
+    }
+    return packet[2] == 0 || packet[2] == 0x11e || packet[2] == 0x13c || packet[2] == 0x178;
+}
+
+// Commands 1201, 1202 and 1203 carry no payload (the SDK writes the bare header, 16 + command) and
+// the SDK issues them as one sequence. 1202 additionally returns one handle before the result.
+constexpr bool IsSupportedSequenceCommand(std::span<const u32> packet, u32 command) {
+    return (command == 1201 || command == 1202 || command == 1203) && packet.size() >= 2 &&
+           packet[0] == 16 + command && packet[1] == 0;
+}
+
+// The session returned by 1202 takes command 11 with one count word and returns one handle.
+constexpr std::optional<u32> DecodeEventSupervisorCreate(std::span<const u32> packet) {
+    if (packet.size() < 3 || packet[0] != 0x1b || packet[1] != 1) {
+        return std::nullopt;
+    }
+    return packet[2];
+}
+
+struct EventSupervisorBind {
+    u64 name;
+    u32 slot;
+};
+
+// Command 103 of the same session carries a 64-bit name and a slot index (three data words) and
+// returns only a result.
+constexpr std::optional<EventSupervisorBind> DecodeEventSupervisorBind(std::span<const u32> packet) {
+    if (packet.size() < 5 || packet[0] != 0x77 || packet[1] != 3) {
+        return std::nullopt;
+    }
+    return EventSupervisorBind{(static_cast<u64>(packet[3]) << 32) | packet[2], packet[4]};
+}
+
+constexpr bool IsSupportedDisplaySession(u64 version) {
+    // SwitchBrew GSV 305: 19.0.0 uses 0x300010000. Keep admitted later
+    // SDK versions and reject unknown values rather than faking a session.
+    return version == 0x300010000ULL || version == 0x300020000ULL ||
+           version == 0x300030000ULL || version == 0x300040000ULL;
+}
+
+// GSV 115 is a capability negotiation, not a request to initialize a
+// backing allocation. Only the native NVDRV-backed memory pathway used by
+// GSV 111/114 is currently implemented; never grant unknown feature bits.
+// The firmware-19 TransferMemory forms share the real native GSV session
+// creation path. Validate the TIPC COPY descriptor and typed work-buffer
+// layout before any kernel object or NVDRV session becomes guest-visible.
+struct NvDrvTransferSessionRequest {
+    u32 copied_handle{};
+    u64 size{};
+    u8 mode{};
+};
+[[nodiscard]] constexpr std::optional<NvDrvTransferSessionRequest>
+DecodeNvDrvTransferSession(std::span<const u32> packet) noexcept {
+    if (packet.size() < 7 || packet[0] != 16 + 1401 ||
+        packet[1] != 0x80000003U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 size = u64{packet[4]} | (u64{packet[5]} << 32);
+    if (size == 0 || (size & 0xfffU)) return {};
+    return NvDrvTransferSessionRequest{packet[3], size, static_cast<u8>(packet[6])};
+}
+
+struct GpuTransferSessionRequest {
+    u32 copied_handle{};
+    u64 version{};
+    u64 size{};
+};
+[[nodiscard]] constexpr std::optional<GpuTransferSessionRequest>
+DecodeGpuTransferSession(std::span<const u32> packet) noexcept {
+    if (packet.size() < 8 || packet[0] != 16 + 496 ||
+        packet[1] != 0x80000004U || packet[2] != 2 || packet[3] == 0)
+        return {};
+    const u64 version = u64{packet[4]} | (u64{packet[5]} << 32);
+    const u64 size = u64{packet[6]} | (u64{packet[7]} << 32);
+    if (size == 0 || (size & 0xfffU)) return {};
+    return GpuTransferSessionRequest{packet[3], version, size};
+}
+
+constexpr u64 NativeMemorySupportedFeatureMask = 0x2ULL;
+[[nodiscard]] constexpr u64 GrantNativeMemoryFeatures(u64 requested,
+                                                       bool nvdrv_available) noexcept {
+    return nvdrv_available ? (requested & NativeMemorySupportedFeatureMask) : 0;
+}
+
+constexpr u32 NativeGpuProfileForBootstrap(u64 flags) {
+    switch (flags) {
+    case 0x8000000000000005ULL: return 0x807;
+    case 0x8000000000000006ULL:
+    case 0x8000000000000007ULL: return 0x808;
+    default: return 0;
+    }
+}
+
+inline bool IsLocalBootstrap(const BootstrapRequest& request) {
+    // GSV 4 BootWithRemoteMemory has five u64 arguments. The first is the
+    // SDK version, the following three are reserved zero, and the final one
+    // comes from GetInfo(InfoType 31/32). Do not reject the legitimate
+    // kernel-provided last value as if it were a fourth reserved word.
+    // GSV 4 firmware 19.0.0 uses 0x8000...0001; 20.1.1+ uses
+    // 0x8000...0005. This is a protocol version, not a feature grant.
+    // Keep the old version's GPU profile unclassified, rather than
+    // claiming unverified hardware capabilities.
+    return (request.flags == 0x8000000000000001ULL ||
+            request.flags == 0x8000000000000005ULL ||
+            request.flags == 0x8000000000000006ULL || request.flags == 0x8000000000000007ULL) &&
+           request.parameters[0] == 0 && request.parameters[1] == 0 &&
+           request.parameters[2] == 0;
+}
+
+inline std::optional<BootstrapRequest> DecodeBootstrap(std::span<const u32> packet) {
+    // Captured remote-memory bootstrap: TIPC 4, one copied handle, 48 data bytes.
+    if (packet.size() < 16 || packet[0] != 0x14 || packet[1] != 0x8000000c ||
+        packet[2] != 2) {
+        return std::nullopt;
+    }
+    const auto Read64 = [&](size_t index) {
+        return u64{packet[index]} | (u64{packet[index + 1]} << 32);
+    };
+    return BootstrapRequest{packet[3], Read64(4), Read64(6),
+                            {Read64(8), Read64(10), Read64(12), Read64(14)}};
+}
+
+// TIPC 423 retains a real parent NVMap allocation while a child native GPU
+// allocation is bound to the same guest address range. The parser validates
+// the exact upstream packet before the real NVDRV owner is consulted.
+struct NativeParentBindRequest {
+    u32 child{};
+    u32 parent{};
+    u64 address{};
+    u64 size{};
+    u64 parent_offset{};
+};
+inline constexpr std::optional<NativeParentBindRequest> DecodeNativeParentBind(
+    std::span<const u32> packet) {
+    if (packet.size() != 14 || packet[0] != 0x1b7 || packet[1] != 12 ||
+        packet[2] == 0 || packet[7] == 0 || packet[2] == packet[7] ||
+        (packet[10] | packet[11] | packet[12] | packet[13]) != 0)
+        return {};
+    const u64 address = u64{packet[3]} | (u64{packet[4]} << 32);
+    const u64 size = u64{packet[5]} | (u64{packet[6]} << 32);
+    const u64 offset = u64{packet[8]} | (u64{packet[9]} << 32);
+    if (!address || !size || (address & 0xfff) || (size & 0xfff) ||
+        (offset & 0xfff) || size > std::numeric_limits<u64>::max() - address)
+        return {};
+    return NativeParentBindRequest{packet[2], packet[7], address, size, offset};
+}
+
+inline constexpr bool IsGraphicsFrameContextCommand(std::span<const u32> packet,
+                                                           u32 command) {
+    return (command == 1101 || command == 1102) && packet.size() == 2 &&
+           packet[0] == 16 + command && packet[1] == 0;
+}
+struct GraphicsFrameSetting {
+    u32 command{};
+    u32 value{};
+};
+inline constexpr std::optional<GraphicsFrameSetting>
+DecodeGraphicsFrameSetting(std::span<const u32> packet, u32 command) {
+    if ((command != 1111 && command != 1112 && command != 1113) ||
+        packet.size() != 3 || packet[0] != 16 + command || packet[1] != 1)
+        return {};
+    const u32 value = packet[2];
+    if (command == 1111 &&
+        value != 0 && value != 286 && value != 316 && value != 376)
+        return {};
+    if (command == 1112 && value >= 3) return {};
+    if (command == 1113 && value >= 2) return {};
+    return GraphicsFrameSetting{command, value};
+}
+
+struct NativeTransferMemoryBindRequest {
+    u32 copied_handle{};
+    u32 memory{};
+    u64 size{};
+    u64 address{};
+};
+inline constexpr std::optional<NativeTransferMemoryBindRequest>
+DecodeNativeTransferMemoryBind(std::span<const u32> packet) {
+    // nn::gs::CreateNativeMemoryWithTransferMemory: TIPC 113, one COPY
+    // KTransferMemory descriptor followed by the NativeMemory handle,
+    // exact size and original owner address.
+    if (packet.size() != 9 || packet[0] != 0x81 ||
+        packet[1] != 0x80000005U || packet[2] != 2 ||
+        packet[3] == 0 || packet[4] == 0)
+        return {};
+    const u64 size = u64{packet[5]} | (u64{packet[6]} << 32);
+    const u64 address = u64{packet[7]} | (u64{packet[8]} << 32);
+    if (!size || !address || (size & 0xfffU) || (address & 0xfffU) ||
+        size > std::numeric_limits<u64>::max() - address)
+        return {};
+    return NativeTransferMemoryBindRequest{packet[3], packet[4], size, address};
+}
+
+// NS2 GSV native-memory descriptors, not host Vulkan allocations. Commands
+// 111/112/113/114 establish a bounded, owned resource before real GPU mapping.
+// Reject unknown handles, address wrapping, duplicate binds and exhaustion.
+enum class NativeMemoryStatus {
+    Success, InvalidSize, InvalidAddress, InvalidHandle, AlreadyBound, OutOfResource,
+};
+struct NativeMemoryRecord {
+    u64 size{};
+    u64 guest_address{};
+    bool bound{};
+};
+class NativeMemoryLedger {
+public:
+    static constexpr u64 GuestPage = 0x1000;
+    static constexpr u64 MaxGuestMemory = 12ULL << 30;
+    static constexpr std::size_t MaxEntries = 2048;
+    [[nodiscard]] std::pair<NativeMemoryStatus, u32> Create(u64 size) {
+        if (!size || size > MaxGuestMemory || (size & (GuestPage - 1)))
+            return {NativeMemoryStatus::InvalidSize, 0};
+        if (m_records.size() >= MaxEntries || m_next == 0)
+            return {NativeMemoryStatus::OutOfResource, 0};
+        const u32 id = m_next;
+        // The ledger is bounded but a host map allocation can still OOM.
+        // Do not consume an ID or escape the IPC service on failed insert.
+        try {
+            if (!m_records.emplace(id, NativeMemoryRecord{size, 0, false}).second)
+                return {NativeMemoryStatus::OutOfResource, 0};
+        } catch (const std::bad_alloc&) {
+            return {NativeMemoryStatus::OutOfResource, 0};
+        }
+        ++m_next;
+        return {NativeMemoryStatus::Success, id};
+    }
+    // Production NVMap IDs come from the global handle table (multiples of 4),
+    // not the synthetic sequential IDs used by host-only Create fixtures.
+    [[nodiscard]] NativeMemoryStatus Adopt(u32 nvmap_id, u64 size) {
+        if (!nvmap_id) return NativeMemoryStatus::InvalidHandle;
+        if (!size || size > MaxGuestMemory || (size & (GuestPage - 1)))
+            return NativeMemoryStatus::InvalidSize;
+        if (m_records.contains(nvmap_id)) return NativeMemoryStatus::AlreadyBound;
+        if (m_records.size() >= MaxEntries) return NativeMemoryStatus::OutOfResource;
+        // The caller has already created a real NVMap handle. Report OOM
+        // instead of unwinding so it can release the unadopted handle.
+        try {
+            if (!m_records.emplace(nvmap_id, NativeMemoryRecord{size, 0, false}).second)
+                return NativeMemoryStatus::AlreadyBound;
+        } catch (const std::bad_alloc&) {
+            return NativeMemoryStatus::OutOfResource;
+        }
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] std::vector<u32> OwnedIds() const {
+        std::vector<u32> ids;
+        ids.reserve(m_records.size());
+        for (const auto& [id, record] : m_records) ids.push_back(id);
+        return ids;
+    }
+    [[nodiscard]] NativeMemoryStatus ValidateBind(u32 id, u64 address, u64 size) const {
+        const auto found = m_records.find(id);
+        if (found == m_records.end()) return NativeMemoryStatus::InvalidHandle;
+        if (found->second.bound) return NativeMemoryStatus::AlreadyBound;
+        if (!size || size > found->second.size || (size & (GuestPage - 1)))
+            return NativeMemoryStatus::InvalidSize;
+        if ((address & (GuestPage - 1)) || size > std::numeric_limits<u64>::max() - address)
+            return NativeMemoryStatus::InvalidAddress;
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] NativeMemoryStatus Bind(u32 id, u64 address, u64 size) {
+        const auto status = ValidateBind(id, address, size);
+        if (status != NativeMemoryStatus::Success) return status;
+        auto& record = m_records.at(id);
+        record.guest_address = address;
+        record.bound = true;
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] NativeMemoryStatus Destroy(u32 id) {
+        if (m_records.erase(id) != 1) return NativeMemoryStatus::InvalidHandle;
+        return NativeMemoryStatus::Success;
+    }
+    [[nodiscard]] std::optional<NativeMemoryRecord> Get(u32 id) const {
+        const auto found = m_records.find(id);
+        return found == m_records.end() ? std::nullopt : std::optional{found->second};
+    }
+    [[nodiscard]] std::size_t Count() const { return m_records.size(); }
+private:
+    u32 m_next{1};
+    std::map<u32, NativeMemoryRecord> m_records;
+};
+
+} // namespace Service::AM::GraphicsSupervisorProtocol

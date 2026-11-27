@@ -1,0 +1,109 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+// Experimental Switch 2 worker IPC endpoint. Having a kernel session does
+// not imply native 4-KiB VA mapping, NvMap registration or GPU submissions.
+#include <array>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <tuple>
+#include <vector>
+#include "core/hle/service/service.h"
+#include "core/hle/service/am/service/gpu_worker_protocol.h"
+
+namespace Kernel { class KProcess; class KPageGroup; }
+namespace Service::Nvidia { class Module; }
+
+namespace Service::AM {
+struct GpuWorkerSharedState;
+class IGpuWorker final : public ServiceFramework<IGpuWorker> {
+public:
+    IGpuWorker(Core::System& system, std::shared_ptr<Nvidia::Module> module,
+               Kernel::KProcess* process, std::shared_ptr<GpuWorkerSharedState> shared);
+    ~IGpuWorker() override;
+
+    Result HandleSyncRequest(Kernel::KServerSession& session,
+                             HLERequestContext& ctx) override;
+private:
+    void Handshake(HLERequestContext& ctx);
+    void CreateGpuAccessibleMemory(HLERequestContext& ctx);
+    void DestroyGpuAccessibleMemory(HLERequestContext& ctx);
+    void EnsureGpuMemoryComptags(HLERequestContext& ctx);
+    void SetGpuMemoryUserDebugLabel(HLERequestContext& ctx);
+    void SetGpuMemorySdkDebugLabel(HLERequestContext& ctx);
+    void SetGpuSegmentUserDebugLabel(HLERequestContext& ctx);
+    void SetGpuSegmentSdkDebugLabel(HLERequestContext& ctx);
+    void NormalMapGpuMemory4K(HLERequestContext& ctx);
+    void NormalModifyGpuMemory4K(HLERequestContext& ctx);
+    void NormalUnmapGpuMemory4K(HLERequestContext& ctx);
+    void CreateSparseRegion(HLERequestContext& ctx);
+    void DestroySparseRegion(HLERequestContext& ctx);
+    void ExecuteSparseMapRequests(HLERequestContext& ctx);
+    Result RegisterMemory(u64 begin, u64 end, u32 flags, u32 device, u32& id);
+    Result ReleaseMemory(u32 id, u32 notification);
+    std::mutex m_mutex;
+    std::shared_ptr<GpuWorkerSharedState> m_shared;
+    std::optional<std::size_t> m_nv_session;
+    // Only set after a sparse GMMU batch has poisoned its AS. Closing this
+    // NvCore session normally invokes UnmapAllHandles and forcibly destroys
+    // live SMMU backing, even if the poisoned AS retained GPU PTEs.
+    bool m_quarantined_nv_session{};
+    std::vector<u32> m_memory;
+    struct MemoryDebugLabels {
+        std::optional<std::array<u64, 2>> user;
+        std::optional<u64> sdk;
+    };
+    // Labels are bounded by live NVMap memory handles and erased on release.
+    std::map<u32, MemoryDebugLabels> m_memory_debug_labels;
+    struct SegmentDebugLabels {
+        std::optional<std::array<u64, 2>> user;
+        std::optional<u64> sdk;
+    };
+    // Segment labels are metadata only. Bound their host allocation by the
+    // same maximum number of worker mapping records and key them to the
+    // currently owned native GPU address space plus exact guest span.
+    std::map<std::tuple<u32, u64, u64>, SegmentDebugLabels> m_segment_debug_labels;
+    // FreeHandle can succeed before the guest page-table device unlock does.
+    // Keep the exact span and a weak NVMap lifetime so a subsequent guest
+    // release (or worker teardown) can finish without double-freeing a handle.
+    struct PendingDeviceUnlock {
+        u64 address{};
+        u64 size{};
+        std::weak_ptr<void> nvmap_lifetime;
+    };
+    std::map<u32, PendingDeviceUnlock> m_pending_device_unlocks;
+    GpuWorkerProtocol::MappingLedger m_mappings;
+    // Worker 211 mappings inside a 214 reservation overlap its VA by design.
+    // Keep their physical owners separate from the reservation ledger so 215
+    // can never erase a live 211 map and 216 can remain mutually exclusive.
+    GpuWorkerProtocol::MappingLedger m_sparse_overlays;
+    // Physical GPU-only backing is owned by the worker, not by guest handles.
+    // It must outlive every GMMU mapping and every in-flight GPU write.
+    struct DenseRegion {
+        u64 address{};
+        u64 size{};
+        u64 alias{};
+        u32 nvmap_handle{};
+        std::unique_ptr<Kernel::KPageGroup> pages;
+        // Weak ownership of the actual NVMap object detects remaining refs
+        // after our destructive FreeHandle; it does not extend its lifetime.
+        std::weak_ptr<void> nvmap_lifetime;
+        // Once FreeHandle succeeds, retry only the CPU alias unmap.
+        bool nvmap_released{};
+        // VA release and physical retirement are independently retryable.
+        bool gmmu_released{};
+    };
+    std::map<std::pair<u32, u64>, DenseRegion> m_dense_regions;
+    u64 m_dense_bytes{};
+    u64 m_alias_slot_hint{}; // Avoid retrying the same occupied alias range.
+    // Admission limits live in gpu_memory_registration.h and have host fixtures.
+    Result BackGpuOnlyRegion(u32 address_space, u64 address, u64 size,
+                             u8 page_shift);
+    bool RetireGpuOnlyRegion(u32 address_space, u64 address);
+    std::shared_ptr<Nvidia::Module> m_module;
+    Kernel::KProcess* const m_process;
+};
+} // namespace Service::AM

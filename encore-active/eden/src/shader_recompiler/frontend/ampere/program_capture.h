@@ -1,0 +1,492 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <exception>
+#include <optional>
+#include <span>
+#include <vector>
+
+#include "shader_recompiler/frontend/ampere/lower_to_maxwell.h"
+#include "shader_recompiler/frontend/ampere/maxwell_image.h"
+
+namespace Shader::Ampere {
+class ProgramCaptureState {
+public:
+    enum class Result { Continue, Complete, InvalidTarget };
+    static constexpr u32 MaximumInstructions = 65536;
+
+    Result Observe(const Instruction& instruction, u32 index) {
+        if (index < exit_prefix.size()) {
+            exit_prefix[index] = instruction;
+            if (index + 1 == exit_prefix.size()) {
+                if (const auto target = StaticAtExitTarget(exit_prefix))
+                    last_forward_target = std::max(last_forward_target, *target);
+            }
+        }
+        const u32 opcode = instruction.Bits(0, 12);
+        if (opcode == 0x944 || opcode == 0x947 || opcode == 0x945) {
+            const u64 raw = instruction.words[1] | (u64{instruction.words[2] & 0x3ffff} << 32);
+            // BRA.DIV (bit 91 and a uniform register) carries two mode bits below its word offset.
+            const bool divergence = opcode == 0x947 && (instruction.words[2] & ~0x3ffffU) == 0x0b800000U &&
+                                    (instruction.words[1] & 3) == 3;
+            const s64 relative = opcode == 0x945 ? static_cast<s32>(instruction.words[1])
+                                                : (static_cast<s64>(raw << 14) >> 14) - (divergence ? 3 : 0);
+            const s64 target = s64{index} * 16 + 16 + relative;
+            if (target < 0 || target % 16 || target >= MaximumInstructions * 16)
+                return Result::InvalidTarget;
+            if (opcode == 0x944 && instruction.Bits(12, 4) == 7) {
+                last_call_target = std::max(last_call_target, static_cast<u32>(target / 16));
+            } else {
+                last_forward_target = std::max(last_forward_target, static_cast<u32>(target / 16));
+            }
+        }
+        if (opcode == 0x94d && instruction.Bits(12, 4) == 7 && instruction.Bits(87, 4) == 7 &&
+            !instruction.Bits(84, 2) && index >= last_forward_target) {
+            if (!last_call_target) return Result::Complete;
+            main_exited = true;
+        }
+        if (opcode == 0x950 && instruction.Bits(12, 4) == 7 && main_exited &&
+            index >= last_call_target && index >= last_forward_target)
+            return Result::Complete;
+        return Result::Continue;
+    }
+
+private:
+    std::array<Instruction, 5> exit_prefix{};
+    u32 last_call_target{};
+    u32 last_forward_target{};
+    bool main_exited{};
+};
+
+// A BRX selects among its blocks through a constant-buffer table, so the furthest block can lie past the first
+// EXIT that ends the linear capture. The capture is extended through it and the per-BRX target lists are
+// reported to the environment. The tables are neither validated nor rejected (entries that are not source
+// addresses are ignored) and the translators still decide what is acceptable.
+struct CaptureIndirectBranch {
+    u32 index;       // instruction index of the BRX
+    u32 cbuf_index;  // constant bank holding the table
+    u32 cbuf_offset; // byte offset of the first entry
+    u32 entries;
+};
+
+struct CaptureIndirectTable {
+    u32 branch{};
+    u32 cbuf_index{};
+    u32 cbuf_offset{};
+    std::vector<u32> values;  // raw table words
+    std::vector<u32> targets; // sorted distinct instruction indices inside the capture
+};
+
+struct CaptureIndirectResult {
+    u32 base{};
+    bool extended{};
+    std::vector<CaptureIndirectTable> tables;
+};
+
+inline s64 CaptureRelativeOffset48(const Instruction& instruction) {
+    const u64 raw = u64{instruction.words[1] & ~3U} | (u64{instruction.words[2] & 0x3ffffU} << 32);
+    return static_cast<s64>(raw << 14) >> 14;
+}
+
+// Recognises, for every self-relative BRX, the selector sequence of the jump tables: a value clamped to
+// [0, N-1] (IMNMX), scaled by 4 (SHF), loaded from a constant bank (LDC) and branched on. A BRX that does not
+// match is simply not tracked.
+inline std::vector<CaptureIndirectBranch> TrackCaptureIndirectBranches(std::span<const Instruction> code) {
+    std::vector<CaptureIndirectBranch> result;
+    // We have no general native def-use proof for interleaved instructions.
+    // Never bind an older IMNMX/SHF/LDC sequence to a newer BRX after an
+    // intervening register write. Only canonical NOPs may separate the
+    // reviewed operations; other instruction layouts fail closed.
+    const auto transparent_gap = [&](u32 after, u32 before) {
+        if (before < after || before - after > 32) return false;
+        for (u32 i = after; i < before; ++i) {
+            const auto& instruction = code[i];
+            if (instruction.words[0] != ((7U << 12) | 0x918U) ||
+                instruction.words[1] || instruction.words[2] ||
+                instruction.words[3]) return false;
+        }
+        return true;
+    };
+    for (u32 branch_index = 0; branch_index < code.size(); ++branch_index) {
+        const auto& branch = code[branch_index];
+        if (branch.Bits(0, 12) != 0x949)
+            continue;
+        if (branch.Bits(12, 4) != 7 || (branch.words[2] & ~0x3ffffU) != 0x03800000U ||
+            s64{branch_index} * s64{sizeof(Instruction)} + s64{sizeof(Instruction)} + CaptureRelativeOffset48(branch) != 0)
+            continue;
+        const u32 branch_source = branch.Bits(24, 8);
+        std::optional<u32> load_index;
+        for (u32 index = branch_index; index-- > 0;) {
+            const auto& instruction = code[index];
+            if (instruction.Bits(0, 12) == 0xb82 && instruction.Bits(12, 4) == 7 &&
+                instruction.Bits(16, 8) == branch_source && instruction.words[2] == 0x00000800 &&
+                !(instruction.words[1] & ~((0x1fU << 22) | (0xffffU << 6))) && !((instruction.words[1] >> 6) & 3)) {
+                load_index = index;
+                break;
+            }
+        }
+        if (!load_index || !transparent_gap(*load_index + 1, branch_index))
+            continue;
+        const auto& load = code[*load_index];
+        const u32 selector = load.Bits(24, 8);
+        std::optional<u32> shift_index;
+        for (u32 index = *load_index; index-- > 0;) {
+            const auto& instruction = code[index];
+            if (instruction.Bits(0, 12) == 0x819 && instruction.Bits(12, 4) == 7 &&
+                instruction.Bits(16, 8) == selector && instruction.words[1] == 2 &&
+                instruction.words[2] == 0x000006ff) {
+                shift_index = index;
+                break;
+            }
+        }
+        if (!shift_index || !transparent_gap(*shift_index + 1, *load_index))
+            continue;
+        const u32 bounded_selector = code[*shift_index].Bits(24, 8);
+        std::optional<u32> maximum;
+        std::optional<u32> maximum_index;
+        for (u32 index = *shift_index; index-- > 0;) {
+            const auto& instruction = code[index];
+            if (instruction.Bits(0, 12) == 0x817 && instruction.Bits(12, 4) == 7 &&
+                instruction.Bits(16, 8) == bounded_selector &&
+                instruction.words[1] <= 15 && instruction.words[2] == 0x03800000) {
+                maximum = instruction.words[1];
+                maximum_index = index;
+                break;
+            }
+        }
+        if (!maximum || !maximum_index ||
+            !transparent_gap(*maximum_index + 1, *shift_index))
+            continue;
+        // CBUF tables cannot wrap the 64-KiB shader constant-buffer
+        // address space. The last entry must be entirely mapped, with
+        // U32 alignment; rejecting the motif here prevents a future GPU
+        // reader from probing an unrelated bank or a wrapped offset.
+        const u32 bank = (load.words[1] >> 22) & 0x1f;
+        const u32 offset = (load.words[1] >> 6) & 0xffff;
+        const u32 entries = *maximum + 1;
+        if (bank >= 18 || (offset & 3U) ||
+            offset > 0x10000U - entries * sizeof(u32))
+            continue;
+        result.push_back({.index = branch_index,
+                          .cbuf_index = bank,
+                          .cbuf_offset = offset,
+                          .entries = entries});
+    }
+    return result;
+}
+
+// Reads the table of every tracked BRX in `native`, extends `native` (already captured through its first
+// terminating EXIT) through the furthest in-range target and returns the per-BRX target indices.
+// Table values are offsets from the program base: they include the `header_size` bytes before instruction 0.
+// A non-zero entry below `header_size` can only be an offset from instruction 0, which selects that convention
+// instead. When there is no table, every target is already inside the capture, or the tail cannot be read to a
+// terminating EXIT, `native` and `capture` are left untouched, so shaders that capture correctly today are
+// not affected.
+template <typename ReadInstruction, typename ReadCbuf>
+CaptureIndirectResult ResolveCaptureIndirectBranches(std::vector<Instruction>& native, ProgramCaptureState& capture,
+                                                     u32 header_size, ReadInstruction&& read_instruction,
+                                                     ReadCbuf&& read_cbuf) {
+    const auto read_tables = [&] {
+        std::vector<CaptureIndirectTable> tables;
+        for (const auto& branch : TrackCaptureIndirectBranches(native)) {
+            auto& table = tables.emplace_back();
+            table.branch = branch.index;
+            table.cbuf_index = branch.cbuf_index;
+            table.cbuf_offset = branch.cbuf_offset;
+            for (u32 entry = 0; entry < branch.entries; ++entry)
+                table.values.push_back(read_cbuf(branch.cbuf_index, branch.cbuf_offset + entry * 4));
+        }
+        return tables;
+    };
+    CaptureIndirectResult result;
+    result.tables = read_tables();
+    if (result.tables.empty())
+        return result;
+    result.base = header_size;
+    for (const auto& table : result.tables)
+        for (const u32 value : table.values)
+            if (value && value < header_size)
+                result.base = 0;
+    const auto entry_index = [&](u32 value) -> std::optional<u32> {
+        if (!value || value < result.base || (value - result.base) % sizeof(Instruction))
+            return {};
+        const u32 index = (value - result.base) / sizeof(Instruction);
+        if (index >= ProgramCaptureState::MaximumInstructions)
+            return {};
+        return index;
+    };
+    u32 furthest = 0;
+    for (const auto& table : result.tables)
+        for (const u32 value : table.values)
+            if (const auto index = entry_index(value))
+                furthest = std::max(furthest, *index);
+    if (furthest >= native.size()) {
+        const auto saved_native = native;
+        const auto saved_capture = capture;
+        bool complete = false;
+        for (u32 index = static_cast<u32>(native.size()); index < ProgramCaptureState::MaximumInstructions;
+             ++index) {
+            const std::optional<Instruction> instruction = read_instruction(index);
+            if (!instruction)
+                break;
+            native.push_back(*instruction);
+            const auto status = capture.Observe(*instruction, index);
+            if (status == ProgramCaptureState::Result::InvalidTarget)
+                break;
+            if (status == ProgramCaptureState::Result::Complete && native.size() > furthest) {
+                complete = true;
+                break;
+            }
+        }
+        if (complete) {
+            result.extended = true;
+            result.tables = read_tables();
+        } else {
+            native = saved_native;
+            capture = saved_capture;
+        }
+    }
+    for (auto& table : result.tables) {
+        for (const u32 value : table.values)
+            if (const auto index = entry_index(value); index && *index < native.size())
+                table.targets.push_back(*index);
+        std::ranges::sort(table.targets);
+        table.targets.erase(std::unique(table.targets.begin(), table.targets.end()), table.targets.end());
+    }
+    return result;
+}
+// Native branch-table words and Maxwell instruction addresses are different
+// coordinate systems. In particular, a 16-byte Ampere instruction can lower
+// to multiple 8-byte Maxwell words plus scheduling slots. A raw CBUF address
+// must never be injected into Maxwell CFG or used for native BRX execution.
+enum class CaptureIndirectValueOrigin {
+    NativeCode,       // first 128-bit instruction is offset zero
+    GraphicsHeader,   // values include the 0x80-byte native graphics SPH
+};
+
+struct CaptureTranslatedIndirectEntry {
+    u32 raw_value{};
+    u32 native_code_offset{};
+    u32 maxwell_byte_offset{};
+};
+struct CaptureTranslatedIndirectTable {
+    u32 branch{};
+    u32 cbuf_index{};
+    u32 cbuf_offset{};
+    std::vector<CaptureTranslatedIndirectEntry> entries;
+};
+
+// Resolve *every* entry using the actual lowered-program map. Reject a
+// mixed-origin, unmapped, misaligned, or beyond-capture target as a whole;
+// do not publish a partially remapped branch table. Zero is a valid target
+// only for the code-relative convention. This metadata alone cannot enable
+// BRX: shader-visible LDC results must also be rewritten or compared against
+// the original native values before a translated branch can execute.
+[[nodiscard]] inline std::optional<std::vector<CaptureTranslatedIndirectTable>>
+TranslateCaptureIndirectTargets(const CaptureIndirectResult& capture,
+                                const MaxwellShaderImage& image,
+                                CaptureIndirectValueOrigin origin,
+                                u32 graphics_header_bytes = 0x80) {
+    if (!image.ValidForCompiler() || capture.tables.empty() ||
+        (origin == CaptureIndirectValueOrigin::GraphicsHeader &&
+         graphics_header_bytes != 0x80))
+        return std::nullopt;
+    const u32 origin_bytes =
+        origin == CaptureIndirectValueOrigin::GraphicsHeader
+            ? graphics_header_bytes : 0;
+    std::vector<CaptureTranslatedIndirectTable> result;
+    result.reserve(capture.tables.size());
+    for (const auto& table : capture.tables) {
+        const u32 count = static_cast<u32>(table.values.size());
+        if (count < 1 || count > 16 ||
+            table.branch >= image.consumed_native_bytes / sizeof(Instruction) ||
+            table.cbuf_index >= 18 || (table.cbuf_offset & 3U) ||
+            table.cbuf_offset > 0x10000U - count * sizeof(u32) ||
+            std::any_of(result.begin(), result.end(),
+                        [&](const auto& prior) { return prior.branch == table.branch; }))
+            return std::nullopt;
+        auto& mapped = result.emplace_back();
+        mapped.branch = table.branch;
+        mapped.cbuf_index = table.cbuf_index;
+        mapped.cbuf_offset = table.cbuf_offset;
+        for (const u32 value : table.values) {
+            if (value < origin_bytes || (value - origin_bytes) % sizeof(Instruction))
+                return std::nullopt;
+            const u32 native_offset = value - origin_bytes;
+            if (native_offset >= image.consumed_native_bytes)
+                return std::nullopt;
+            const auto maxwell = image.TranslateNativeAddress(native_offset);
+            if (!maxwell)
+                return std::nullopt;
+            // Some native instructions produce no Maxwell words. Two
+            // distinct native PCs mapping to one emitted instruction would
+            // make a computed jump skip source-level effects or enter the
+            // wrong basic block. Never publish that ambiguous branch map.
+            for (const auto& prior_table : result)
+                for (const auto& prior : prior_table.entries)
+                    if (prior.native_code_offset != native_offset &&
+                        prior.maxwell_byte_offset == *maxwell)
+                        return std::nullopt;
+            mapped.entries.push_back({value, native_offset, *maxwell});
+        }
+    }
+    return result;
+}
+
+// Strict capture of recognized native jump tables. Unlike the legacy
+// advisory resolver, this API never ignores a missing/unaligned target, never
+// guesses whether table entries include the SPH, and never keeps a partially
+// extended instruction stream after a fault. The caller supplies *verified*
+// CBUF reads, not raw GPU addresses. Still a source-capture primitive: the
+// compiled shader cannot execute BRX until shader-visible targets are lowered.
+template <typename ReadInstruction, typename ReadCbuf>
+[[nodiscard]] std::optional<CaptureIndirectResult> ResolveCaptureIndirectBranchesChecked(
+    std::vector<Instruction>& native, ProgramCaptureState& state,
+    CaptureIndirectValueOrigin origin,
+    ReadInstruction&& read_instruction, ReadCbuf&& read_cbuf) {
+    constexpr u32 MaximumCaptured = ProgramCaptureState::MaximumInstructions;
+    if (native.empty() || native.size() > MaximumCaptured) return std::nullopt;
+    const auto branches = TrackCaptureIndirectBranches(native);
+    u32 indirect_count{};
+    for (const auto& instruction : native) {
+        const u32 opcode = instruction.Bits(0, 12);
+        if (opcode == 0x958) return std::nullopt;
+        if (opcode == 0x949) ++indirect_count;
+    }
+    if (!indirect_count || indirect_count != branches.size() ||
+        branches.size() > 32) return std::nullopt;
+    const u32 origin_bytes =
+        origin == CaptureIndirectValueOrigin::GraphicsHeader ? 0x80U : 0U;
+    const std::size_t initial_size = native.size();
+    const auto initial_state = state;
+    const auto rollback = [&]() -> std::optional<CaptureIndirectResult> {
+        native.resize(initial_size);
+        state = initial_state;
+        return std::nullopt;
+    };
+    CaptureIndirectResult result;
+    result.base = origin_bytes;
+    u32 furthest{};
+    try {
+        for (const auto& branch : branches) {
+            if (branch.entries < 1 || branch.entries > 16 ||
+                branch.cbuf_index >= 18 || (branch.cbuf_offset & 3U) ||
+                branch.cbuf_offset > 0x10000U - branch.entries * sizeof(u32))
+                return rollback();
+            auto& table = result.tables.emplace_back();
+            table.branch = branch.index;
+            table.cbuf_index = branch.cbuf_index;
+            table.cbuf_offset = branch.cbuf_offset;
+            for (u32 i = 0; i < branch.entries; ++i) {
+                const auto maybe_word =
+                    read_cbuf(branch.cbuf_index, branch.cbuf_offset + i * 4);
+                if (!maybe_word || *maybe_word < origin_bytes ||
+                    (*maybe_word - origin_bytes) % sizeof(Instruction))
+                    return rollback();
+                const u32 index = (*maybe_word - origin_bytes) / sizeof(Instruction);
+                if (index >= MaximumCaptured) return rollback();
+                furthest = (std::max)(furthest, index);
+                table.values.push_back(*maybe_word);
+                table.targets.push_back(index);
+            }
+            std::ranges::sort(table.targets);
+            table.targets.erase(
+                std::unique(table.targets.begin(), table.targets.end()),
+                table.targets.end());
+        }
+        // Read only through a subsequent validated terminator, *not* to
+        // arbitrary unmapped shader pages. Do not treat an earlier EXIT as
+        // final if a recognized BRX can reach a later basic block.
+        if (furthest >= native.size()) {
+            bool terminated = false;
+            for (u32 index = static_cast<u32>(native.size());
+                 index < MaximumCaptured; ++index) {
+                const auto instruction = read_instruction(index);
+                if (!instruction) return rollback();
+                // A new indirect branch beyond the first EXIT needs its
+                // own resolved table. Never validate a tail containing an
+                // untracked native BRX or BRXU.
+                if (instruction->Bits(0, 12) == 0x949 ||
+                    instruction->Bits(0, 12) == 0x958)
+                    return rollback();
+                native.push_back(*instruction);
+                const auto observed = state.Observe(*instruction, index);
+                if (observed == ProgramCaptureState::Result::InvalidTarget)
+                    return rollback();
+                if (observed == ProgramCaptureState::Result::Complete &&
+                    index >= furthest) {
+                    terminated = true;
+                    break;
+                }
+            }
+            if (!terminated) return rollback();
+            result.extended = true;
+        }
+        // The CBUF table may be concurrently changed between the first
+        // target read and the shader capture. Never bind a stale CFG map.
+        for (const auto& table : result.tables)
+            for (u32 i = 0; i < table.values.size(); ++i) {
+                const auto live =
+                    read_cbuf(table.cbuf_index, table.cbuf_offset + i * 4);
+                if (!live || *live != table.values[i]) return rollback();
+            }
+    } catch (const std::exception&) {
+        return rollback();
+    }
+    return result;
+}
+
+// Convert a *verified* immutable CBUF snapshot into the precise dispatch
+// contract consumed by LowerToMaxwell. No guessing of SPH inclusion and no
+// fallback to the legacy BRX/JMX instruction, whose Maxwell CFG would see
+// unconverted native PCs. The caller must still bind a current shader/CBUF
+// memory snapshot to the GPU execution epoch.
+[[nodiscard]] inline std::optional<std::vector<NativeIndirectBranchPlan>>
+MakeNativeIndirectBranchPlans(const CaptureIndirectResult& capture,
+                              std::span<const Instruction> native) {
+    if (native.empty() ||
+        native.size() > ProgramCaptureState::MaximumInstructions ||
+        capture.tables.empty() || capture.tables.size() > 32 ||
+        (capture.base != 0 && capture.base != 0x80U))
+        return std::nullopt;
+    const auto motifs = TrackCaptureIndirectBranches(native);
+    if (motifs.size() != capture.tables.size())
+        return std::nullopt;
+    u32 branch_count{};
+    for (const auto& inst : native) {
+        if (inst.Bits(0, 12) == 0x958) return std::nullopt;
+        branch_count += inst.Bits(0, 12) == 0x949;
+    }
+    if (branch_count != capture.tables.size())
+        return std::nullopt;
+    std::vector<NativeIndirectBranchPlan> plans;
+    plans.reserve(capture.tables.size());
+    for (const auto& table : capture.tables) {
+        const auto motif = std::ranges::find_if(motifs, [&](const auto& entry) {
+            return entry.index == table.branch;
+        });
+        if (motif == motifs.end() || table.values.size() != motif->entries ||
+            table.cbuf_index != motif->cbuf_index ||
+            table.cbuf_offset != motif->cbuf_offset ||
+            std::ranges::any_of(plans, [&](const auto& plan) {
+                return plan.branch_instruction_index == table.branch;
+            })) return std::nullopt;
+        auto& plan = plans.emplace_back();
+        plan.branch_instruction_index = table.branch;
+        plan.raw_pc_base = capture.base;
+        for (const u32 value : table.values) {
+            if (value < capture.base ||
+                (value - capture.base) % sizeof(Instruction))
+                return std::nullopt;
+            const u32 target = (value - capture.base) / sizeof(Instruction);
+            if (target >= native.size()) return std::nullopt;
+            plan.targets.push_back({value,target});
+        }
+    }
+    return plans;
+}
+
+} // namespace Shader::Ampere

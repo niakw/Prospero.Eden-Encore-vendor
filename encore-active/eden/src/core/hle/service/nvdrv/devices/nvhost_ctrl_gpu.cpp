@@ -1,0 +1,559 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#include <array>
+#include <cstring>
+#include "core/hle/service/nvdrv/devices/native_characteristics_ioctl.h"
+#include "common/assert.h"
+#include "common/logging.h"
+#include "core/core.h"
+#include "core/core_timing.h"
+#include "core/hle/service/nvdrv/devices/ioctl_serialization.h"
+#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"
+#include "core/hle/service/nvdrv/core/container.h"
+#include "core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.h"
+#include "core/hle/service/nvdrv/nvdrv.h"
+
+namespace Service::Nvidia::Devices {
+
+nvhost_ctrl_gpu::nvhost_ctrl_gpu(Core::System& system_, EventInterface& events_interface_)
+    : nvdevice{system_}, events_interface{events_interface_} {
+    error_notifier_event = events_interface.CreateEvent("CtrlGpuErrorNotifier");
+    unknown_event = events_interface.CreateEvent("CtrlGpuUnknownEvent");
+}
+nvhost_ctrl_gpu::~nvhost_ctrl_gpu() {
+    events_interface.FreeEvent(error_notifier_event);
+    events_interface.FreeEvent(unknown_event);
+}
+
+NvResult nvhost_ctrl_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
+                                 std::span<u8> output) {
+    switch (command.group) {
+    case 'G':
+        switch (command.cmd) {
+        case 0x1:
+            return WrapFixed(this, &nvhost_ctrl_gpu::ZCullGetCtxSize, input, output);
+        case 0x2:
+            return WrapFixed(this, &nvhost_ctrl_gpu::ZCullGetInfo, input, output);
+        case 0x3:
+            return WrapFixed(this, &nvhost_ctrl_gpu::ZBCSetTable, input, output);
+        case 0x4:
+            return WrapFixed(this, &nvhost_ctrl_gpu::ZBCQueryTable, input, output);
+        //deviation
+        case 0x5:
+            return WrapFixed(this, &nvhost_ctrl_gpu::GetCharacteristics1, input, output);
+        case 0x6:
+            return WrapFixed(this, &nvhost_ctrl_gpu::GetTPCMasksNative1, input, output,
+                             UsesNativeAbi(fd));
+        case 0x7:
+            return WrapFixed(this, &nvhost_ctrl_gpu::FlushL2, input, output);
+        case 0x10: // Switch 2 NVGPU_GPU_IOCTL_WAIT_FOR_PAUSE
+            if (command.raw != 0xC0084710U) break;
+            // not implemented yet on Encore: no real GPU pause/ack boundary.
+            // Never report a paused hardware GPU while work remains pending.
+            return NvResult::NotImplemented;
+        case 0x1e: // Switch 2 NVGPU_GPU_IOCTL_SET_DETERMINISTIC_OPTS
+            if (command.raw != 0xC010471EU) break;
+            // not implemented yet on Encore: no deterministic GPU schedule.
+            return NvResult::NotImplemented;
+        case 0x11: { // NVGPU_GPU_IOCTL_GET_TPC_EXCEPTION_EN_STATUS
+            // Linux nvgpu returns a u64 mask of SMs with TPC exceptions enabled.
+            // The SM debug-mode ioctl is unsupported here, so no guest SM
+            // exception-enable state can be established. Report the actual
+            // disabled state, not a fabricated GPU exception.
+            if (command.raw != 0x80084711U) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            if (output.size() != sizeof(u64_le) ||
+                (!input.empty() && input.size() != sizeof(u64_le)))
+                return NvResult::InvalidSize;
+            const u64_le enabled_sm_exceptions{};
+            std::memcpy(output.data(), &enabled_sm_exceptions,
+                        sizeof(enabled_sm_exceptions));
+            return NvResult::Success;
+        }
+        case 0x12: {
+            // Native NVGPU_GPU_IOCTL_NUM_VSMS (0x80084712). Linux nvgpu
+            // defines exactly {u32 num_vsms, u32 reserved}, output-only.
+            // The SDK requests this count before enumerating per-SM mappings.
+            // Match the six-TPC/two-SM GA10F profile and leave NS1's former
+            // unsupported behavior intact rather than inventing topology.
+            if (command.raw != 0x80084712U) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            if (output.size() != 8 || (!input.empty() && input.size() != 8))
+                return NvResult::InvalidSize;
+            const std::array<u32_le, 2> result{
+                NativeGpuTpcsPerGpc * NativeGpuSmsPerTpc, 0U};
+            static_assert(sizeof(result) == 8);
+            std::memcpy(output.data(), result.data(), sizeof(result));
+            return NvResult::Success;
+        }
+        case 0x14:
+            return WrapFixed(this, &nvhost_ctrl_gpu::GetActiveSlotMask, input, output);
+        case 0x15:
+            return WrapFixed(this, &nvhost_ctrl_gpu::PmuGetGpuLoad, input, output);
+        case 0x1c:
+            return WrapFixed(this, &nvhost_ctrl_gpu::GetGpuTime, input, output);
+        case 0x1d: { // NVGPU_GPU_IOCTL_GET_CPU_TIME_CORRELATION_INFO
+            // Native Ampere exposes both CPU/GPU calibration timestamps in
+            // nanoseconds. Encore's NS2 GPU counter is sourced from this same
+            // CoreTiming clock, so each pair is an exact emulated correlation
+            // rather than a fabricated host-hardware timestamp.
+            if (command.raw != 0xC108471DU) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            if (input.size() != sizeof(IoctlGetCpuTimeCorrelationInfo) ||
+                output.size() != sizeof(IoctlGetCpuTimeCorrelationInfo))
+                return NvResult::InvalidSize;
+
+            IoctlGetCpuTimeCorrelationInfo params{};
+            std::memcpy(&params, input.data(), sizeof(params));
+            const u32 count = params.count;
+            const u32 source_id = params.source_id;
+            if (count > std::size(params.samples) || source_id != 1U)
+                return NvResult::BadParameter;
+
+            for (u32 i = 0; i < count; ++i) {
+                const auto now = system.CoreTiming().GetGlobalTimeNs().count();
+                const u64_le timestamp = now > 0 ? static_cast<u64>(now) : 0ULL;
+                params.samples[i].cpu_timestamp = timestamp;
+                params.samples[i].gpu_timestamp = timestamp;
+            }
+            std::memcpy(output.data(), &params, sizeof(params));
+            return NvResult::Success;
+        }
+        default:
+            break;
+        }
+        break;
+    }
+    // still unimplemented
+    std::string_view friendly_name = [raw = command.raw]() {
+        switch (raw) {
+            case 0x0d: return "INVAL_ICACHE";
+            case 0x0e: return "SET_MMU_DEBUG_MODE ";
+            case 0x0f: return "SET_SM_DEBUG_MODE";
+            case 0x10: return "WAIT_FOR_PAUSE";
+            case 0x11: return "GET_TPC_EXCEPTION_EN_STATUS";
+            case 0x12: return "NUM_VSMS";
+            case 0x13: return "VSMS_MAPPING";
+            case 0x14: return "ZBC_GET_ACTIVE_SLOT_MASK";
+            case 0x15: return "PMU_GET_GPU_LOAD";
+            case 0x16: return "SET_CG_CONTROLS";
+            case 0x17: return "GET_CG_CONTROLS";
+            case 0x18: return "SET_PG_CONTROLS";
+            case 0x19: return "GET_PG_CONTROLS";
+            case 0x1A: return "PMU_GET_ELPG_RESIDENCY_GATING";
+            case 0x1B: return "GET_ERROR_CHANNEL_USER_DATA";
+            case 0x1D: return "GET_CPU_TIME_CORRELATION_INFO";
+            default: return "UNKNOWN";
+        }
+    }();
+    UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X} {}", command.raw, friendly_name);
+    return NvResult::NotImplemented;
+}
+
+NvResult nvhost_ctrl_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
+                                 std::span<const u8> inline_input, std::span<u8> output) {
+    UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X}", command.raw);
+    return NvResult::NotImplemented;
+}
+
+NvResult nvhost_ctrl_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input,
+                                 std::span<u8> output, std::span<u8> inline_output) {
+    switch (command.group) {
+    case 'G':
+        switch (command.cmd) {
+        case 0x5: {
+            // Research-only: exact native ioctl IDs. Legacy ioctl remains untouched.
+            if (command.raw == 0xc0e04705U || command.raw == 0xc0e84705U) {
+                // This is the native extended layout, not the Maxwell
+                // fixed-layout ioctl. A mixed-FD device must never answer
+                // a foreign process with Switch 2 GPU characteristics.
+                if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+                IoctlCharacteristics legacy{};
+                GetCharacteristics3(legacy, {});
+                const std::span<const u8, 0xa0> legacy_bytes{
+                    reinterpret_cast<const u8*>(&legacy.gc), 0xa0};
+                const auto status = WriteNativeCharacteristicsIoctlReply(
+                    command.raw, input, output, inline_output, legacy_bytes);
+                return status == NativeCharacteristicsIoctlStatus::Success
+                           ? NvResult::Success
+                           : NvResult::BadParameter;
+            }
+            return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetCharacteristics3, input, output,
+                                   inline_output);
+        }
+        case 0x6:
+            return WrapFixedInlOut(this, &nvhost_ctrl_gpu::GetTPCMasksNative3, input, output,
+                                   inline_output, UsesNativeAbi(fd));
+        case 0x1f: {
+            // Switch 2 GET_ENGINE_INFO (0xC010471F) is a two-phase
+            // size query followed by an inline array of 16-byte engine
+            // descriptors. NvRm selects runlist IDs from this reply before
+            // opening a GPU channel. No host runlist is scheduled here.
+            if (command.raw != 0xC010471FU) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            struct NativeEngineInfo {
+                u32_le engine_id;
+                u32_le instance;
+                s32_le runlist_id;
+                u32_le reserved;
+            };
+            static_assert(sizeof(NativeEngineInfo) == 16);
+            const std::array<NativeEngineInfo, 2> engines{{
+                {0, 0, 0, 0}, // NVGPU_ENGINE_GR, graphics runlist 0
+                {2, 0, 1, 0}, // NVGPU_ENGINE_ASYNC_COPY, copy runlist 1
+            }};
+            constexpr u32 needed = sizeof(engines);
+            // Query the full required size even when the caller's first
+            // capacity is nonzero but smaller than the descriptor table.
+            // Per the upstream NvRm two-phase ABI, only the inline copy is
+            // omitted in that case; it is not an ioctl error.
+            if (input.size() != 16 || output.size() != 16)
+                return NvResult::InvalidSize;
+            u32_le capacity{};
+            std::memcpy(&capacity, input.data(), sizeof(capacity));
+            if (static_cast<u32>(capacity) >= needed &&
+                inline_output.size() < needed)
+                return NvResult::InvalidSize;
+            std::memcpy(output.data(), input.data(), 16);
+            const u32_le required{needed};
+            std::memcpy(output.data(), &required, sizeof(required));
+            if (static_cast<u32>(capacity) >= needed)
+                std::memcpy(inline_output.data(), engines.data(), needed);
+            return NvResult::Success;
+        }
+        case 0x13: {
+            // Switch 2 NVGPU_GPU_IOCTL_VSMS_MAPPING (0xC0084713):
+            // two argument words and one {GPC, TPC} byte pair per virtual SM.
+            // GA10F advertises six TPCs (twelve virtual SMs). Bound the
+            // inline mapping to the exact same profile returned by the
+            // native characteristics and GetTPCMasks3 reply.
+            // The Switch 1 4-byte variant remains unsupported.
+            if (command.raw != 0xC0084713U) break;
+            if (!UsesNativeAbi(fd)) return NvResult::NotImplemented;
+            constexpr size_t NativeVirtualSmCount =
+                NativeGpuTpcsPerGpc * NativeGpuSmsPerTpc;
+            if (input.size() != 8 || output.size() != 8 ||
+                inline_output.size() < 2 ||
+                (inline_output.size() % 2) != 0 ||
+                inline_output.size() > NativeVirtualSmCount * 2)
+                return NvResult::BadParameter;
+            std::memcpy(output.data(), input.data(), 8);
+            for (size_t i = 0; i < inline_output.size() / 2; ++i) {
+                inline_output[i * 2] = 0; // GPC 0
+                inline_output[i * 2 + 1] = static_cast<u8>(i / NativeGpuSmsPerTpc);
+            }
+            return NvResult::Success;
+        }
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+    UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X}, group={:01X}, command={:01X}", command.raw,
+                      command.group, command.cmd);
+    return NvResult::NotImplemented;
+}
+
+void nvhost_ctrl_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
+    sessions.insert_or_assign(fd, session_id);
+}
+void nvhost_ctrl_gpu::OnClose(DeviceFD fd) {
+    sessions.erase(fd);
+}
+
+bool nvhost_ctrl_gpu::UsesNativeAbi(DeviceFD fd) const {
+    const auto it = sessions.find(fd);
+    if (it == sessions.end() || !core) return false;
+    const auto* session = core->GetSession(it->second);
+    return session && session->process &&
+           NativeGpuProcessRegistry::Instance().Contains(session->process);
+}
+
+NvResult nvhost_ctrl_gpu::GetCharacteristics1(IoctlCharacteristics& params) {
+    LOG_DEBUG(Service_NVDRV, "called");
+    params.gc.arch = 0x120;
+    params.gc.impl = 0xb;
+    params.gc.rev = 0xa1;
+    params.gc.num_gpc = 0x1;
+    params.gc.l2_cache_size = 0x40000;
+    params.gc.on_board_video_memory_size = 0x0;
+    params.gc.num_tpc_per_gpc = 0x2;
+    params.gc.bus_type = 0x20;
+    params.gc.big_page_size = 0x20000;
+    params.gc.compression_page_size = 0x20000;
+    params.gc.pde_coverage_bit_count = 0x1B;
+    params.gc.available_big_page_sizes = 0x30000;
+    params.gc.gpc_mask = 0x1;
+    params.gc.sm_arch_sm_version = 0x503;
+    params.gc.sm_arch_spa_version = 0x503;
+    params.gc.sm_arch_warp_count = 0x80;
+    params.gc.gpu_va_bit_count = 0x28;
+    params.gc.reserved = 0x0;
+    params.gc.flags = 0x55;
+    params.gc.twod_class = 0x902D;
+    params.gc.threed_class = 0xB197;
+    params.gc.compute_class = 0xB1C0;
+    params.gc.gpfifo_class = 0xB06F;
+    params.gc.inline_to_memory_class = 0xA140;
+    params.gc.dma_copy_class = 0xB0B5;
+    params.gc.max_fbps_count = 0x1;
+    params.gc.fbp_en_mask = 0x0;
+    params.gc.max_ltc_per_fbp = 0x2;
+    params.gc.max_lts_per_ltc = 0x1;
+    params.gc.max_tex_per_tpc = 0x0;
+    params.gc.max_gpc_count = 0x1;
+    params.gc.rop_l2_en_mask_0 = 0x21D70;
+    params.gc.rop_l2_en_mask_1 = 0x0;
+    params.gc.chipname = 0x6230326D67;
+    params.gc.gr_compbit_store_base_hw = 0x0;
+    params.gpu_characteristics_buf_size = 0xA0;
+    params.gpu_characteristics_buf_addr = 0xdeadbeef; // Cannot be 0 (UNUSED)
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::GetCharacteristics3(
+    IoctlCharacteristics& params, std::span<IoctlGpuCharacteristics> gpu_characteristics) {
+    LOG_DEBUG(Service_NVDRV, "called");
+
+    params.gc.arch = 0x120;
+    params.gc.impl = 0xb;
+    params.gc.rev = 0xa1;
+    params.gc.num_gpc = 0x1;
+    params.gc.l2_cache_size = 0x40000;
+    params.gc.on_board_video_memory_size = 0x0;
+    params.gc.num_tpc_per_gpc = 0x2;
+    params.gc.bus_type = 0x20;
+    params.gc.big_page_size = 0x20000;
+    params.gc.compression_page_size = 0x20000;
+    params.gc.pde_coverage_bit_count = 0x1B;
+    params.gc.available_big_page_sizes = 0x30000;
+    params.gc.gpc_mask = 0x1;
+    params.gc.sm_arch_sm_version = 0x503;
+    params.gc.sm_arch_spa_version = 0x503;
+    params.gc.sm_arch_warp_count = 0x80;
+    params.gc.gpu_va_bit_count = 0x28;
+    params.gc.reserved = 0x0;
+    params.gc.flags = 0x55;
+    params.gc.twod_class = 0x902D;
+    params.gc.threed_class = 0xB197;
+    params.gc.compute_class = 0xB1C0;
+    params.gc.gpfifo_class = 0xB06F;
+    params.gc.inline_to_memory_class = 0xA140;
+    params.gc.dma_copy_class = 0xB0B5;
+    params.gc.max_fbps_count = 0x1;
+    params.gc.fbp_en_mask = 0x0;
+    params.gc.max_ltc_per_fbp = 0x2;
+    params.gc.max_lts_per_ltc = 0x1;
+    params.gc.max_tex_per_tpc = 0x0;
+    params.gc.max_gpc_count = 0x1;
+    params.gc.rop_l2_en_mask_0 = 0x21D70;
+    params.gc.rop_l2_en_mask_1 = 0x0;
+    params.gc.chipname = 0x6230326D67;
+    params.gc.gr_compbit_store_base_hw = 0x0;
+    params.gpu_characteristics_buf_size = 0xA0;
+    params.gpu_characteristics_buf_addr = 0xdeadbeef; // Cannot be 0 (UNUSED)
+    if (!gpu_characteristics.empty()) {
+        gpu_characteristics.front() = params.gc;
+    }
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::GetTPCMasks1(IoctlGpuGetTpcMasksArgs& params) {
+    return GetTPCMasksNative1(params, false);
+}
+
+NvResult nvhost_ctrl_gpu::GetTPCMasksNative1(IoctlGpuGetTpcMasksArgs& params, bool native) {
+    LOG_DEBUG(Service_NVDRV, "called, mask_buffer_size={:#x}", params.mask_buffer_size);
+    if (params.mask_buffer_size != 0) {
+        params.tcp_mask = native ? ((u32{1} << NativeGpuTpcsPerGpc) - 1U) : 3U;
+    }
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::GetTPCMasks3(IoctlGpuGetTpcMasksArgs& params,
+                                        std::span<u32> tpc_mask) {
+    return GetTPCMasksNative3(params, tpc_mask, false);
+}
+
+NvResult nvhost_ctrl_gpu::GetTPCMasksNative3(IoctlGpuGetTpcMasksArgs& params,
+                                              std::span<u32> tpc_mask, bool native) {
+    LOG_DEBUG(Service_NVDRV, "called, mask_buffer_size={:#x}", params.mask_buffer_size);
+    if (params.mask_buffer_size != 0) {
+        params.tcp_mask = native ? ((u32{1} << NativeGpuTpcsPerGpc) - 1U) : 3U;
+    }
+    if (!tpc_mask.empty()) {
+        tpc_mask.front() = params.tcp_mask;
+    }
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::GetActiveSlotMask(IoctlActiveSlotMask& params) {
+    LOG_DEBUG(Service_NVDRV, "called");
+
+    params.slot = 0x07;
+    params.mask = 0x01;
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::PmuGetGpuLoad(IoctlPmuGetLoad& params) {
+    LOG_WARNING(Service_NVDRV, "(stubbed) called");
+    params.pmu_gpu_load = 100;
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::ZCullGetCtxSize(IoctlZcullGetCtxSize& params) {
+    LOG_DEBUG(Service_NVDRV, "called");
+    params.size = 0x1;
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::ZCullGetInfo(IoctlNvgpuGpuZcullGetInfoArgs& params) {
+    LOG_DEBUG(Service_NVDRV, "called");
+    params.width_align_pixels = 0x20;
+    params.height_align_pixels = 0x20;
+    params.pixel_squares_by_aliquots = 0x400;
+    params.aliquot_total = 0x800;
+    params.region_byte_multiplier = 0x20;
+    params.region_header_size = 0x20;
+    params.subregion_header_size = 0xc0;
+    params.subregion_width_align_pixels = 0x20;
+    params.subregion_height_align_pixels = 0x40;
+    params.subregion_count = 0x10;
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::ZBCSetTable(IoctlZbcSetTable& params) {
+    if (params.type > supported_types) {
+        LOG_ERROR(Service_NVDRV, "ZBCSetTable: invalid type {:#x}", params.type);
+        return NvResult::BadParameter;
+    }
+
+    std::scoped_lock lk(zbc_mutex);
+
+    switch (static_cast<ZBCTypes>(params.type)) {
+        case ZBCTypes::color: {
+            ZbcColorEntry color_entry{};
+            std::copy_n(std::begin(params.color_ds), color_entry.color_ds.size(), color_entry.color_ds.begin());
+            std::copy_n(std::begin(params.color_l2), color_entry.color_l2.size(), color_entry.color_l2.begin());
+            color_entry.format = params.format;
+            color_entry.ref_cnt = 1u;
+
+            auto color_it = std::ranges::find_if(zbc_colors,
+                                                 [&](const ZbcColorEntry& color_in_question) {
+                                                     return color_entry.format == color_in_question.format &&
+                                                            color_entry.color_ds == color_in_question.color_ds &&
+                                                            color_entry.color_l2 == color_in_question.color_l2;
+                                                 });
+
+            if (color_it != zbc_colors.end()) {
+                ++color_it->ref_cnt;
+                LOG_DEBUG(Service_NVDRV, "ZBCSetTable: reused color entry fmt={:#x}, ref_cnt={:#x}",
+                          params.format, color_it->ref_cnt);
+            } else {
+                zbc_colors.push_back(color_entry);
+                LOG_DEBUG(Service_NVDRV, "ZBCSetTable: added color entry fmt={:#x}, index={:#x}",
+                          params.format, zbc_colors.size() - 1);
+            }
+            break;
+        }
+        case ZBCTypes::depth: {
+            ZbcDepthEntry depth_entry{params.depth, params.format, 1u};
+
+            auto depth_it = std::ranges::find_if(zbc_depths,
+                                                 [&](const ZbcDepthEntry& depth_entry_in_question) {
+                                                     return depth_entry.format == depth_entry_in_question.format &&
+                                                            depth_entry.depth == depth_entry_in_question.depth;
+                                                 });
+
+            if (depth_it != zbc_depths.end()) {
+                ++depth_it->ref_cnt;
+                LOG_DEBUG(Service_NVDRV, "ZBCSetTable: reused depth entry fmt={:#x}, ref_cnt={:#x}",
+                          depth_entry.format, depth_it->ref_cnt);
+            } else {
+                zbc_depths.push_back(depth_entry);
+                LOG_DEBUG(Service_NVDRV, "ZBCSetTable: added depth entry fmt={:#x}, index={:#x}",
+                          depth_entry.format, zbc_depths.size() - 1);
+            }
+        }
+    }
+
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::ZBCQueryTable(IoctlZbcQueryTable& params) {
+    if (params.type > supported_types) {
+        LOG_ERROR(Service_NVDRV, "ZBCQueryTable: invalid type {:#x}", params.type);
+        return NvResult::BadParameter;
+    }
+
+    std::scoped_lock lk(zbc_mutex);
+
+    switch (static_cast<ZBCTypes>(params.type)) {
+        case ZBCTypes::color: {
+            if (params.index_size >= zbc_colors.size()) {
+                LOG_ERROR(Service_NVDRV, "ZBCQueryTable: invalid color index {:#x}", params.index_size);
+                return NvResult::BadParameter;
+            }
+
+            const auto& colors = zbc_colors[params.index_size];
+            std::copy_n(colors.color_ds.begin(), colors.color_ds.size(), std::begin(params.color_ds));
+            std::copy_n(colors.color_l2.begin(), colors.color_l2.size(), std::begin(params.color_l2));
+            params.depth = 0;
+            params.ref_cnt = colors.ref_cnt;
+            params.format = colors.format;
+            params.index_size = static_cast<u32>(zbc_colors.size());
+            break;
+        }
+        case ZBCTypes::depth: {
+            if (params.index_size >= zbc_depths.size()) {
+                LOG_ERROR(Service_NVDRV, "ZBCQueryTable: invalid depth index {:#x}", params.index_size);
+                return NvResult::BadParameter;
+            }
+
+            const auto& depth_entry = zbc_depths[params.index_size];
+            std::fill(std::begin(params.color_ds), std::end(params.color_ds), 0);
+            std::fill(std::begin(params.color_l2), std::end(params.color_l2), 0);
+            params.depth = depth_entry.depth;
+            params.ref_cnt = depth_entry.ref_cnt;
+            params.format = depth_entry.format;
+            params.index_size = static_cast<u32>(zbc_depths.size());
+        }
+    }
+
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::FlushL2(IoctlFlushL2& params) {
+    LOG_DEBUG(Service_NVDRV, "called {:#x}", params.flush);
+    // if ((params.flush & 0x01) != 0) //l2 flush
+    //     /* we dont emulate l2 */;
+    // if ((params.flush & 0x04) != 0) //fb flush
+    //     /* we dont emulate fb */;
+    return NvResult::Success;
+}
+
+NvResult nvhost_ctrl_gpu::GetGpuTime(IoctlGetGpuTime& params) {
+    LOG_DEBUG(Service_NVDRV, "called");
+    params.gpu_time = static_cast<u64_le>(system.CoreTiming().GetGlobalTimeNs().count());
+    return NvResult::Success;
+}
+
+Kernel::KEvent* nvhost_ctrl_gpu::QueryEvent(u32 event_id) {
+    switch (event_id) {
+    case 1:
+        return error_notifier_event;
+    case 2:
+        return unknown_event;
+    default:
+        LOG_CRITICAL(Service_NVDRV, "Unknown Ctrl GPU Event {}", event_id);
+        return nullptr;
+    }
+}
+
+} // namespace Service::Nvidia::Devices

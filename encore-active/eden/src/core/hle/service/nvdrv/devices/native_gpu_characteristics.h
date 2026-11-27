@@ -1,0 +1,108 @@
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include <array>
+#include <cstring>
+#include <span>
+#include "common/common_types.h"
+#include "common/swap.h"
+
+namespace Service::Nvidia::Devices {
+
+// GA10F native Ampere profile: one GPC, six TPCs, two SMs per TPC.
+// Keep this shared between characteristics, TPC masks and VSMS_MAPPING.
+inline constexpr u32 NativeGpuTpcsPerGpc = 6;
+inline constexpr u32 NativeGpuSmsPerTpc = 2;
+inline constexpr u32 NativeGpuSubcontextCount = 64;
+
+inline constexpr size_t NativeGpuCharacteristicsSize = 0xd0;
+inline constexpr size_t ExtendedNativeGpuCharacteristicsSize = 0xd8;
+
+inline bool ApplyNativeGpuProfile(std::span<u8> characteristics, u32 version) {
+    if ((version != 0x807 && version != 0x808) || characteristics.size() < 0x78) {
+        return false;
+    }
+    const u32_le value{version};
+    std::memcpy(characteristics.data() + 0x3c, &value, sizeof(value));
+    std::memcpy(characteristics.data() + 0x40, &value, sizeof(value));
+    const u16_le channel_level{static_cast<u16>(version == 0x808 ? 0x1f : 0x1d)};
+    std::memcpy(characteristics.data() + 0x76, &channel_level, sizeof(channel_level));
+    return true;
+}
+
+template <size_t Size = NativeGpuCharacteristicsSize>
+inline std::array<u8, Size> MakeNativeGpuCharacteristics(
+    std::span<const u8, 0xa0> legacy) {
+    static_assert(Size == NativeGpuCharacteristicsSize ||
+                  Size == ExtendedNativeGpuCharacteristicsSize);
+    std::array<u8, Size> result{};
+    // The GPU description and engine classes share the legacy prefix. The native
+    // SDK consumes signed ioctl interface levels where the legacy ABI has topology.
+    std::memcpy(result.data(), legacy.data(), 0x70);
+    // This field is at 0x20 in the common legacy-prefix layout. It must
+    // agree with the native TPC mask and virtual-SM enumeration; copying
+    // Maxwell's two TPCs made the three NVN2 GPU queries contradict.
+    const u32_le tpcs_per_gpc{NativeGpuTpcsPerGpc};
+    std::memcpy(result.data() + 0x20, &tpcs_per_gpc, sizeof(tpcs_per_gpc));
+    // Select the SDK's native control ABI, whose normal mappings support
+    // 4 KiB CPU/GPU aliases. Engine execution remains a separate implementation.
+    const u32_le native_arch{0x170};
+    const u32_le native_impl{0xe};
+    std::memcpy(result.data(), &native_arch, sizeof(native_arch));
+    std::memcpy(result.data() + 4, &native_impl, sizeof(native_impl));
+    // Preserve default profiles for unnegotiated native sessions. Graphics-supervisor
+    // sessions select their shader profile independently of the reply size.
+    // Both native packet forms advertise the Ampere SM revision
+    // expected by NVN2. The optional explicit profile selector may still
+    // request 0x807; default 0x807 caused SDK class-table rejection.
+    const u32_le native_sm_version{0x808U};
+    std::memcpy(result.data() + 0x3c, &native_sm_version, sizeof(native_sm_version));
+    std::memcpy(result.data() + 0x40, &native_sm_version, sizeof(native_sm_version));
+    // Native GA10F does not advertise legacy big-page size/mask values.
+    // OunceVK import_as rejects either nonzero field before importing the VM.
+    // This changes only the public native capability reply: 4 KiB mappings
+    // and the internal address-space geometry remain owned by NVDRV AS.
+    constexpr u32_le native_big_page_size{0};
+    constexpr u32_le native_big_page_mask{0};
+    std::memcpy(result.data() + 0x28, &native_big_page_size, sizeof(native_big_page_size));
+    std::memcpy(result.data() + 0x34, &native_big_page_mask, sizeof(native_big_page_mask));
+    u64_le flags;
+    std::memcpy(&flags, legacy.data() + 0x50, sizeof(flags));
+    // Native SDK class enumeration filters 2D/3D/compute/inline/ZBC families
+    // with bits 40..44 before selecting context identities from its profile.
+    // ZBC is backed by the controller's Set/Query/ActiveSlot handlers.
+    // The native SDK gates ModifyKind (AS ioctl 12) on capability bit 34.
+    flags = static_cast<u64>(flags) | (1ULL << 8) | (1ULL << 22) | (1ULL << 26) | (1ULL << 34) | (1ULL << 35) | (0x1fULL << 40);
+    std::memcpy(result.data() + 0x50, &flags, sizeof(flags));
+    // The old 0xA0 response is Maxwell and its class IDs MUST NOT leak
+    // into the NS2 0xD0/0xD8 reply. NVN2 creates the actual GR/compute/DMA
+    // objects from these IDs. A mismatched class prevents 0xC797 from ever
+    // reaching the authenticated GPFIFO puller (Eglantine nx2 comparison).
+    constexpr u32_le ampere_3d{0xc797};
+    constexpr u32_le ampere_compute{0xc7c0};
+    constexpr u32_le ampere_gpfifo{0xc56f};
+    constexpr u32_le ampere_dma{0xc7b5};
+    std::memcpy(result.data() + 0x5c, &ampere_3d, sizeof(ampere_3d));
+    std::memcpy(result.data() + 0x60, &ampere_compute, sizeof(ampere_compute));
+    std::memcpy(result.data() + 0x64, &ampere_gpfifo, sizeof(ampere_gpfifo));
+    std::memcpy(result.data() + 0x6c, &ampere_dma, sizeof(ampere_dma));
+    constexpr std::array<s16, 9> levels{
+        0x1c, // GPU control: GetGpuTime
+        0xb,  // TSG: extended channel binding with subcontext identity
+        -1,   // GPU debugger device is unavailable
+        Size == ExtendedNativeGpuCharacteristicsSize ? 0x1f : 0x1d, // Channel interface
+        0x14, // Address space: Remap
+        0, 0, 0, 0, // Additional interfaces have not been implemented.
+    };
+    for (size_t i = 0; i < levels.size(); ++i) {
+        const u16_le value{static_cast<u16>(levels[i])};
+        std::memcpy(result.data() + 0x70 + i * sizeof(value), &value, sizeof(value));
+    }
+    const u32_le subcontext_count{NativeGpuSubcontextCount};
+    std::memcpy(result.data() + 0xb4, &subcontext_count, sizeof(subcontext_count));
+    return result;
+}
+
+} // namespace Service::Nvidia::Devices
