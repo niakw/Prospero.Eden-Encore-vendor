@@ -483,6 +483,30 @@ static CoherentNativeSemaphoreValue ReadCoherentNativeSemaphore(
     return {observed, *cpu_address, gpu_produced};
 }
 
+// A suspended Ampere acquire is CPU-blocked only when no real backend GPU
+// release for the same process/page/word is already in flight. This is the
+// generic distinction VI2 needs between "Present must return so the CPU can
+// release it" and GPU->GPU channel dependencies.
+bool Puller::PendingNativeAcquireHasGpuProducer(
+    const DmaPusher& dma_pusher) const {
+    if (!pending_native_acquire) return false;
+#ifdef PS5_NATIVE
+    const auto& pending = *pending_native_acquire;
+    const auto ticket =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureTicket(&dma_pusher.channel_state);
+    if (!ticket || ticket->process != pending.process ||
+        ticket->generation != pending.process_generation ||
+        ticket->channel_generation != pending.channel_generation)
+        return false;
+    return Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance()
+        .HasPendingGpuSemaphoreRelease(
+            ProcessTicket(*ticket), pending.address, pending.cpu_address);
+#else
+    return false;
+#endif
+}
+
 // Called only by the native GPFIFO scheduler when a parked submission is
 // reconsidered; this never busy-waits and never fabricates a semaphore write.
 bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
@@ -603,9 +627,26 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
             dma_pusher.FailNativeSubmission(
                 "Ampere SEM_EXECUTE: semaphore mirror backing unavailable");
         }
+        auto& process_registry =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+        const auto release_device =
+            dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32));
+        if (!release_device ||
+            !process_registry.BeginGpuSemaphoreRelease(
+                process_ticket, address, *release_device)) {
+            dma_pusher.FailNativeSubmission(
+                "Ampere SEM_EXECUTE: GPU producer provenance unavailable");
+        }
         if (!QueueNativeSemaphoreRelease(dma_pusher,
             [channel, memory, ticket = *ticket, process_ticket, address,
-             value, backing, mirror, mirror_backing] {
+             value, backing, mirror, mirror_backing,
+             release_device = *release_device] {
+                auto& process_registry =
+                    Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+                SCOPE_EXIT {
+                    process_registry.EndGpuSemaphoreRelease(
+                        process_ticket, address, release_device);
+                };
                 try {
                     auto& current =
                         Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
@@ -633,6 +674,8 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
                         .ReportFault(channel);
                 }
             })) {
+            process_registry.EndGpuSemaphoreRelease(
+                process_ticket, address, *release_device);
             dma_pusher.FailNativeSubmission(
                 "Ampere SEM_EXECUTE requires strict Vulkan retirement");
         }
