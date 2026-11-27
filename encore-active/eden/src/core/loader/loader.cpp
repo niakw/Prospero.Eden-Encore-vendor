@@ -30,6 +30,7 @@
 #include "core/loader/nsp.h"
 #include "core/loader/nx.h"
 #include "core/loader/xci.h"
+#include "core/loader/ns2_content_formats.h"
 
 namespace Loader {
 
@@ -127,13 +128,16 @@ bool HasApplicationProgramContent(const std::shared_ptr<FileSys::NSP>& nsp) {
 } // namespace
 
 FileType IdentifyFile(FileSys::VirtualFile file) {
-    // An ExeFS/main with its owning directory must use the directory loader.
-    // Generic NSO detection otherwise loses main.npdm identity and skips rtld/sdk.
-    // The directory validator keeps standalone NSOs on the NSO loader.
+    if (!file) {
+        return FileType::Unknown;
+    }
+    // An extracted ExeFS/main must outrank generic NSO identification,
+    // but only that exact basename can own a deconstructed title directory.
     if (file->GetName() == "main") {
         if (const auto romdir_type =
-                IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file))
+                IdentifyFileLoader<AppLoader_DeconstructedRomDirectory>(file)) {
             return *romdir_type;
+        }
     }
     if (const auto nx_type = IdentifyFileLoader<AppLoader_NX>(file)) {
         return *nx_type;
@@ -182,29 +186,37 @@ bool IsBootableGameContainer(FileSys::VirtualFile file, FileType type, u64 progr
 }
 
 FileType GuessFromFilename(const std::string& name) {
-    if (name == "main")
+    // Route only formats already recognized by Eden's existing parsers.
+    // Extensions are hints; IdentifyFile still validates actual magic.
+    // Do not infer Switch 2 content support from XCI/NSP suffixes.
+    switch (Eden::NS2::Content::IdentifyName(name)) {
+    case Eden::NS2::Content::Kind::ExeFSMain:
         return FileType::DeconstructedRomDirectory;
-    else if (name == "00")
-        return FileType::NCA;
-
-    auto const extension =
-        Common::ToLower(std::string(Common::FS::GetExtensionFromFilename(name)));
-    if (extension == "nro")
+    case Eden::NS2::Content::Kind::NRO:
         return FileType::NRO;
-    else if (extension == "nso")
+    case Eden::NS2::Content::Kind::NSO:
         return FileType::NSO;
-    else if (extension == "nca")
+    case Eden::NS2::Content::Kind::NCA:
         return FileType::NCA;
-    else if (extension == "nax")
+    case Eden::NS2::Content::Kind::NAX:
         return FileType::NAX;
-    else if (extension == "xci" || extension == "xcz" || extension == "dxci")
+    case Eden::NS2::Content::Kind::XCI:
+    case Eden::NS2::Content::Kind::XCZ:
+    case Eden::NS2::Content::Kind::DXCI:
         return FileType::XCI;
-    else if (extension == "nsp" || extension == "nsz" || extension == "dnsp")
+    case Eden::NS2::Content::Kind::NSP:
+    case Eden::NS2::Content::Kind::NSZ:
+    case Eden::NS2::Content::Kind::DNSP:
         return FileType::NSP;
-    else if (extension == "kip")
-        return FileType::KIP;
-    else if (extension == "nx")
+    case Eden::NS2::Content::Kind::NX:
         return FileType::NX;
+    case Eden::NS2::Content::Kind::KIP:
+        return FileType::KIP;
+    case Eden::NS2::Content::Kind::NPDMMetadata:
+    case Eden::NS2::Content::Kind::RomFSData:
+    case Eden::NS2::Content::Kind::Unsupported:
+        return FileType::Unknown;
+    }
     return FileType::Unknown;
 }
 
@@ -388,6 +400,16 @@ std::unique_ptr<AppLoader> GetLoader(Core::System& system, FileSys::VirtualFile 
     }
 
     FileType type = IdentifyFile(file);
+    const auto filename_kind = Eden::NS2::Content::IdentifyName(file->GetName());
+    // The shared loader enum has no distinct compressed/decrypted NSP/XCI aliases.
+    // NSZ/XCZ, DNSP/DXCI and NX must pass a real content signature probe.
+    // A recognized PFS0/XCI magic takes priority over a misleading suffix.
+    if (type == FileType::Unknown &&
+        !Eden::NS2::Content::MayFallbackByName(filename_kind)) {
+        LOG_WARNING(Loader, "Container {} has no recognized format contents; "
+                            "refusing extension-only loader fallback", file->GetName());
+        return nullptr;
+    }
     const FileType filename_type = GuessFromFilename(file->GetName());
 
     // Special case: 00 is either a NCA or NAX.
