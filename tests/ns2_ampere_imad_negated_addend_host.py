@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-imad-neg-addend-") as td:
     compile=subprocess.run(
         [compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror","-pedantic",
          "-fsanitize=undefined","-fno-sanitize-recover=all",
-         "-I",str(root/"encore-active/ns2-runtime/ampere"),
+         "-I",str(root/"encore-active/eden/src"),
          "-I",str(root/"sources/eden/src"),
          str(p/"t.cpp"),"-o",str(p/"test")],
         text=True,capture_output=True,timeout=90)

@@ -138,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-duskbloods-851-") as td:
         "-fsanitize=undefined",
         "-fno-sanitize-recover=all",
         "-I",
-        str(ROOT / "encore-active/ns2-runtime/ampere"),
+        str(ROOT / "encore-active/eden/src"),
         "-I",
         str(ROOT / "sources/eden/src"),
         str(src),
