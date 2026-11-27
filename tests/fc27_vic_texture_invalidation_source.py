@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 vic = (ROOT / "encore-active/eden/src/video_core/host1x/vic.cpp").read_text()
-guest = (ROOT / "encore-active/eden-core/overrides/core/guest_memory.h").read_text()
+guest = (ROOT / "encore-active/eden/src/core/guest_memory.h").read_text()
 raster = (ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
 texture = (ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
 
