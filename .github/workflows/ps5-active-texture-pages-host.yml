@@ -2,7 +2,7 @@ name: PS5 active texture page publication
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h'
+      - 'encore-active/eden/src/video_core/texture_cache/texture_cache.h'
       - 'encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h'
       - 'tests/ps5_active_texture_page_publication_source.py'
       - 'tests/fc27_vic_texture_invalidation_source.py'
