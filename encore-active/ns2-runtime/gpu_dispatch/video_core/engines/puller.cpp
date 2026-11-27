@@ -1283,10 +1283,26 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                 "Native Compute report semaphore backing unavailable");
         }
         const u32 reduction = (control >> 9) & 7U;
+        auto& process_registry =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+        const auto release_device =
+            memory->GpuToCpuAddress(address, sizeof(u32));
+        if (!release_device ||
+            !process_registry.BeginGpuSemaphoreRelease(
+                process_ticket, address, *release_device)) {
+            pusher.FailNativeSubmission(
+                "Native Compute report GPU producer provenance unavailable");
+        }
         if (!QueueNativeSemaphoreRelease(pusher,
             [channel, memory, ticket = *ticket, process_ticket, address,
              payload, reduction, reduction_enabled, backing, mirror,
-             mirror_backing] {
+             mirror_backing, release_device = *release_device] {
+                auto& process_registry =
+                    Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+                SCOPE_EXIT {
+                    process_registry.EndGpuSemaphoreRelease(
+                        process_ticket, address, release_device);
+                };
                 // The deferred fence may execute after a sparse GMMU unmap.
                 // Never let a guest-memory exception unwind through Vulkan
                 // retirement or fabricate a completed reduction/release.
@@ -1324,6 +1340,8 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
 #endif
                 }
             })) {
+            process_registry.EndGpuSemaphoreRelease(
+                process_ticket, address, *release_device);
             pusher.FailNativeSubmission(
                 "Native Compute report requires strict Vulkan retirement");
         }
@@ -1340,10 +1358,28 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
             pusher.FailNativeSubmission(
                 "Native Compute timestamp report backing unavailable");
         }
+        const auto process_ticket = ProcessTicket(*ticket);
+        auto& process_registry =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+        const auto release_device =
+            memory->GpuToCpuAddress(address, sizeof(u32));
+        if (!release_device ||
+            !process_registry.BeginGpuSemaphoreRelease(
+                process_ticket, address, *release_device)) {
+            pusher.FailNativeSubmission(
+                "Native Compute timestamp GPU producer provenance unavailable");
+        }
         if (!QueueNativeSemaphoreRelease(
                 pusher,
-                [channel, memory, ticket = *ticket, address, payload,
-                 value_backing, timestamp_backing, core = &pusher.system] {
+                [channel, memory, ticket = *ticket, process_ticket, address, payload,
+                 value_backing, timestamp_backing, core = &pusher.system,
+                 release_device = *release_device] {
+                    auto& process_registry =
+                        Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+                    SCOPE_EXIT {
+                        process_registry.EndGpuSemaphoreRelease(
+                            process_ticket, address, release_device);
+                    };
                     try {
                         auto& current =
                             Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance();
@@ -1367,7 +1403,7 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
                         }
                         Service::Nvidia::Devices::NativeGpuProcessRegistry::
                             Instance().RecordGpuSemaphoreValue(
-                                ProcessTicket(ticket), address, *device, payload);
+                                process_ticket, address, *device, payload);
                     } catch (...) {
 #ifdef PS5_NATIVE
                         auto failure = std::current_exception();
@@ -1377,6 +1413,8 @@ void Puller::ProcessNativeComputeReportSemaphore(DmaPusher& pusher, u32 control)
 #endif
                     }
                 })) {
+            process_registry.EndGpuSemaphoreRelease(
+                process_ticket, address, *release_device);
             pusher.FailNativeSubmission(
                 "Native Compute timestamp requires strict Vulkan retirement");
         }
@@ -1448,9 +1486,24 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
             (!pusher.memory_manager.IsFullyMappedRange(*mirror, sizeof(u32)) ||
              !mirror_backing))
             return false;
+        auto& process_registry =
+            Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+        const auto release_device =
+            pusher.memory_manager.GpuToCpuAddress(addr, sizeof(u32));
+        if (!release_device ||
+            !process_registry.BeginGpuSemaphoreRelease(
+                process_ticket, addr, *release_device))
+            return false;
         if (!QueueNativeSemaphoreRelease(pusher,
             [channel, memory, ticket = *ticket, process_ticket, addr, payload,
-             flags, backing, mirror, mirror_backing] {
+             flags, backing, mirror, mirror_backing,
+             release_device = *release_device] {
+                auto& process_registry =
+                    Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+                SCOPE_EXIT {
+                    process_registry.EndGpuSemaphoreRelease(
+                        process_ticket, addr, release_device);
+                };
                 // A QMD3 dispatch can already be accepted when this
                 // completion callback runs. If guest memory disappears or
                 // fails during Read/Write, latch the fatal worker error;
@@ -1494,7 +1547,11 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         .ReportFault(channel);
 #endif
                 }
-            })) return false;
+            })) {
+            process_registry.EndGpuSemaphoreRelease(
+                process_ticket, addr, *release_device);
+            return false;
+        }
         return true;
     };
     std::string_view error;
