@@ -9,6 +9,11 @@ R=Path(__file__).resolve().parents[1]
 dma=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
 dma_header=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
 puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+native_nvhost=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+native_process_registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+native_scheduler=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
+gpu_header=(R/"encore-active/eden-core/overrides/video_core/gpu.h").read_text()
+gpu_vulkan=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
 dispatch=dma.split("void DmaPusher::DispatchCalls() {",1)[1].split(
     "\n[[noreturn]] void DmaPusher::FailNativeSubmission",1)[0]
 step=dma.split("bool DmaPusher::Step() {",1)[1].split(
@@ -42,6 +47,55 @@ assert "rasterizer->ReleaseFences(" not in resume
 ampere_wait=native_acquire.split("if (operation > 5U)",1)[1]
 assert "rasterizer->ReleaseFences(" not in ampere_wait
 assert "ReadCoherentNativeSemaphore(dma_pusher, address)" in ampere_wait
+
+# Generic NS2 frame ownership: CPU-authored GPFIFO words are copied at
+# SubmitGPFIFO, but a CPU/unknown semaphore release invalidates those copies.
+# GPU-retired releases retain them and expose in-flight producer state to VI2.
+for token in (
+    "std::vector<CommandHeader> submitted_words;",
+    "std::vector<std::size_t> submitted_offsets;",
+    "std::vector<u8> submitted_valid;",
+    "u64 snapshot_epoch{};",
+    "NativeSnapshotEpoch() const noexcept",
+    "NoteNativeAcquireResolved(bool gpu_produced)",
+):
+    assert token in dma_header, token
+for token in (
+    "entries.submitted_words.resize(total_words)",
+    "entries.snapshot_epoch =",
+    "dma_pusher.NativeSnapshotEpoch()",
+    "memory_manager->IsMemoryDirty(",
+    "memory_manager->ReadBlockUnsafe(",
+):
+    assert token in native_nvhost, token
+for token in (
+    "bool use_snapshot = false;",
+    "command_list.snapshot_epoch ==",
+    "native_snapshot_epoch.load(std::memory_order_acquire)",
+    "native_snapshot_resume_safe",
+    "native_snapshot_restart",
+    "submitted.subspan(command_resume_offset)",
+):
+    assert token in step, token
+for token in (
+    "RecordGpuSemaphoreValue(",
+    "BeginGpuSemaphoreRelease(",
+    "EndGpuSemaphoreRelease(",
+    "HasPendingGpuSemaphoreRelease(",
+    "IsGpuProducedSemaphoreValue(",
+):
+    assert token in native_process_registry, token
+assert puller.count("BeginGpuSemaphoreRelease(") >= 4
+assert puller.count("EndGpuSemaphoreRelease(") >= 8
+for token in (
+    "PendingNativeAcquireHasGpuProducer(",
+    "HasPendingGpuSemaphoreRelease(",
+    "NoteNativeAcquireResolved(observed.gpu_produced)",
+):
+    assert token in puller, token
+assert "HasCpuBlockedNativeChannels() const" in native_scheduler
+assert "HasCpuBlockedNativeChannels() const;" in gpu_header
+assert "impl->scheduler.HasCpuBlockedNativeChannels()" in gpu_vulkan
 
 shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.h").read_text()
 worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
