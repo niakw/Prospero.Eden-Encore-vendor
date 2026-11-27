@@ -1,3 +1,7 @@
+#include <atomic>
+#include <bit>
+#include "jit-startup-retry.h"
+#include "jit_memory_policy.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -14,10 +18,32 @@
 #include "encore/guest_counter_policy.h"
 #endif
 #include "core/hle/kernel/k_process.h"
+#include "core/hle/kernel/k_thread.h"
 
 namespace Core {
 
 using namespace Common::Literals;
+
+namespace {
+std::atomic<u64> low_guest_write_sequence{0};
+
+inline void ReportLowGuestWrite(u64 address, std::size_t bytes, u64 value,
+                                u64 pc, u64 thread_id, std::size_t core) {
+    if (address >= 0x1000) {
+        return;
+    }
+    const u64 sequence =
+        low_guest_write_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    // Preserve the first causal window, then sample only powers of two if a
+    // broken title loops on the same low address. This is diagnostic-only.
+    if (sequence > 64 && (sequence & (sequence - 1)) != 0) {
+        return;
+    }
+    LOG_ERROR(Core_ARM,
+              "EDEN_GUEST_LOW_WRITE seq={} pc={:#016x} address={:#x} bytes={} value={:#016x} core={} tid={}",
+              sequence, pc, address, bytes, value, core, thread_id);
+}
+} // namespace
 
 DynarmicCallbacks64::DynarmicCallbacks64(ArmDynarmic64& parent, Kernel::KProcess* process)
     : m_parent{parent}, m_memory(process->GetMemory())
@@ -26,23 +52,33 @@ DynarmicCallbacks64::DynarmicCallbacks64(ArmDynarmic64& parent, Kernel::KProcess
 {}
 
 u8 DynarmicCallbacks64::MemoryRead8(u64 vaddr) {
-    CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read8(vaddr);
 }
 u16 DynarmicCallbacks64::MemoryRead16(u64 vaddr) {
-    CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read16(vaddr);
 }
 u32 DynarmicCallbacks64::MemoryRead32(u64 vaddr) {
-    CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read32(vaddr);
 }
 u64 DynarmicCallbacks64::MemoryRead64(u64 vaddr) {
-    CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Read)) {
+        return 0;
+    }
     return m_memory.Read64(vaddr);
 }
 Dynarmic::A64::Vector DynarmicCallbacks64::MemoryRead128(u64 vaddr) {
-    CheckMemoryAccess(vaddr, 16, Kernel::DebugWatchpointType::Read);
+    if (!CheckMemoryAccess(vaddr, 16, Kernel::DebugWatchpointType::Read)) {
+        return {};
+    }
     return {m_memory.Read64(vaddr), m_memory.Read64(vaddr + 8)};
 }
 
@@ -58,26 +94,36 @@ std::optional<u32> DynarmicCallbacks64::MemoryReadCode(u64 vaddr) {
 }
 
 void DynarmicCallbacks64::MemoryWrite8(u64 vaddr, u8 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 1, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write8(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite16(u64 vaddr, u16 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 2, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write16(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite32(u64 vaddr, u32 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 4, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write32(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite64(u64 vaddr, u64 value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 8, value, m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write64(vaddr, value);
     }
 }
 void DynarmicCallbacks64::MemoryWrite128(u64 vaddr, Dynarmic::A64::Vector value) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 16, u64(value[0]), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     if (CheckMemoryAccess(vaddr, 16, Kernel::DebugWatchpointType::Write)) {
         m_memory.Write64(vaddr, value[0]);
         m_memory.Write64(vaddr + 8, value[1]);
@@ -85,22 +131,32 @@ void DynarmicCallbacks64::MemoryWrite128(u64 vaddr, Dynarmic::A64::Vector value)
 }
 
 bool DynarmicCallbacks64::MemoryWriteExclusive8(u64 vaddr, std::uint8_t value, std::uint8_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 1, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 1, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive8(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive16(u64 vaddr, std::uint16_t value, std::uint16_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 2, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 2, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive16(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive32(u64 vaddr, std::uint32_t value, std::uint32_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 4, u64(value), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 4, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive32(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive64(u64 vaddr, std::uint64_t value, std::uint64_t expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 8, value, m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 8, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive64(vaddr, value, expected);
 }
 bool DynarmicCallbacks64::MemoryWriteExclusive128(u64 vaddr, Dynarmic::A64::Vector value, Dynarmic::A64::Vector expected) {
+    if (vaddr < 0x1000) ReportLowGuestWrite(vaddr, 16, u64(value[0]), m_parent.m_jit->GetPC(),
+        Kernel::GetCurrentThread(m_parent.m_system.Kernel()).GetThreadId(), m_parent.m_core_index);
     return CheckMemoryAccess(vaddr, 16, Kernel::DebugWatchpointType::Write) &&
             m_memory.WriteExclusive128(vaddr, value, expected);
 }
@@ -160,7 +216,11 @@ void DynarmicCallbacks64::AddTicks(u64 ticks) {
     // if not all cores are doing a similar amount of work. Instead of doing this, we should
     // device a way so that timing is consistent across all cores without increasing the ticks 4
     // times.
-    u64 amortized_ticks = ticks / Core::Hardware::NUM_CPU_CORES;
+    // Preserve Switch 1 tick cadence even when the shared kernel exposes six cores.
+    // Physical affinity, never TitleID, selects the six-core division.
+    const u64 extended_cores = m_process->GetPhysicalCoreMask() & ((u64{1} << 4) | (u64{1} << 5));
+    u64 amortized_ticks = ticks / (extended_cores ? Core::Hardware::NUM_CPU_CORES
+                                                     : Core::Hardware::NUM_LEGACY_CPU_CORES);
     // Always execute at least one tick.
     amortized_ticks = std::max<u64>(amortized_ticks, 1);
     m_parent.m_system.CoreTiming().AddTicks(amortized_ticks);
@@ -232,14 +292,18 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
         config.fastmem_address_space_bits = std::uint32_t(address_space_bits);
         config.silently_mirror_fastmem = false;
 
+        #if defined(EDEN_INLINE_EXCLUSIVES) && EDEN_INLINE_EXCLUSIVES
+        config.fastmem_exclusive_access = true;
+        #else
         config.fastmem_exclusive_access = config.fastmem_pointer != std::nullopt;
+        #endif
         config.recompile_on_exclusive_fastmem_failure = true;
 
         if (reinterpret_cast<u64>(m_system.DeviceMemory().buffer.BackingBasePointer() +
             Kernel::Board::Nintendo::Nx::KSystemControl::Init::GetIntendedMemorySize()) < (1ULL << 39)) {
             // Systems like FreeBSD allocate memory really low by default, and since we pack our page table entries,
             // we have to manually sign extend when our actual pointer is negative.
-            config.page_table_sign_extension = Common::PageTable::SIGN_BIT;
+            config.page_table_sign_extension = std::countl_zero(Common::PageTable::ATTRIBUTE_MASK);
         }
     }
 
@@ -253,7 +317,8 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
     config.dczid_el0 = 4;
     config.ctr_el0 = 0x8444c004;
 #ifdef EDEN_NS2_GUEST_COUNTER
-    // Set before JIT is instantiated; never hardcode a game-specific name.
+    // Dynamic guest clock is selected from validated program metadata.
+    // Preserve the G11 JIT fast paths shared by both console generations.
     config.cntfrq_el0 = static_cast<u32>(Eden::GuestCounter::Rate());
 #else
     config.cntfrq_el0 = Hardware::CNTFREQ;
@@ -270,7 +335,7 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
 #if defined(ARCHITECTURE_arm64) || defined(__sun__) || defined(__NetBSD__) || defined(__DragonFly__) || defined(__OpenBSD__)
     config.code_cache_size = std::uint32_t(128_MiB);
 #else
-    config.code_cache_size = std::uint32_t(512_MiB);
+    config.code_cache_size = std::uint32_t(::Eden::JitMemory::A64CacheBytes(m_core_index, m_core_index == 0 ? 256_MiB : m_core_index < 3 ? 192_MiB : 16_MiB));
 #endif
 
     // Allow memory fault handling to work
@@ -368,7 +433,9 @@ void ArmDynarmic64::MakeJit(Common::PageTable* page_table, std::size_t address_s
         config.fastmem_pointer = std::nullopt;
         config.fastmem_exclusive_access = false;
     }
-    m_jit.emplace(config);
+    ::Eden::JitStartup::ConstructWithCapacityFallback(
+        config.code_cache_size, ::Eden::JitMemory::A64BaselineBytes(m_core_index), 64, m_core_index,
+        [&]() { m_jit.emplace(config); });
 }
 
 HaltReason ArmDynarmic64::RunThread(Kernel::KThread* thread) {
