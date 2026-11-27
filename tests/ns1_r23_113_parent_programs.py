@@ -4,7 +4,7 @@ from pathlib import Path
 import hashlib, os, subprocess, tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE=ROOT/"encore-active/eden-core"
+BASE=ROOT/"encore-active/eden"
 OWNERS={
 "src/core/file_sys/patch_manager.cpp":"9481f60c318912a5f667758ad334dd957d71fbfd",
 "include/core/file_sys/patch_manager.h":"6819a1a3e794537cff6554978565e772a0c99e89",
