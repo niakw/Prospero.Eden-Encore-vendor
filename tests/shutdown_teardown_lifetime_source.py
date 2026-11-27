@@ -338,7 +338,7 @@ print("SHUTDOWN_LIFETIME_1952_1957_SOURCE_PASS core_variants=3 early_cheat_stop=
 # the real PTE, reverse-map and physical ownership retirement still executes.
 gpu = (ROOT / "encore-active/eden/src/video_core/gpu_gl_native.cpp").read_text()
 gmmu = (ROOT / "encore-active/eden/src/video_core/memory_manager.cpp").read_text()
-smmu = (ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.inc").read_text()
+smmu = (ROOT / "encore-active/eden/src/core/device_memory_manager.inc").read_text()
 destroy = gpu.split("    ~Impl() {", 1)[1].split("\n    }", 1)[0]
 assert destroy.index("gpu_thread.Stop();") < destroy.index("RetireMappingCallbacks();") < destroy.index("renderer.reset();")
 bind = gpu.split("    void BindRenderer(", 1)[1].split("\n    }", 1)[0]
@@ -386,7 +386,7 @@ int main() {
 ''')
     subprocess.run([compiler, "-std=c++20", "-O2", "-Wall", "-Wextra",
                     "-Werror", "-pthread", "-I",
-                    str(ROOT / "encore-active/eden-core/overrides"),
+                    str(ROOT / "encore-active/eden/src"),
                     str(cpp), "-o", str(exe)], check=True, timeout=60)
     subprocess.run([str(exe)], check=True, timeout=20)
 print("NATIVE_RENDERER_MAPPING_RETIREMENT_RACE_PASS cycles=100")
