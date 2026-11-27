@@ -6,10 +6,19 @@
 
 #pragma once
 
+// Host ABI witness: when the ASTC profile is selected, the active
+// TextureCache header must be THIS maintained variant, not Vulkan's
+// similarly named cache base or the historical Eden owner.
+#if defined(EDEN_NS2_ASTC_CACHE_BRIDGE)
+#define EDEN_NS2_ASTC_TEXTURE_CACHE_OWNER_SELECTED 1
+#endif
+
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <type_traits>
 // TODO: find out which don't require stable iters
@@ -131,6 +140,11 @@ class TextureCache : public VideoCommon::ChannelSetupCaches<TextureCacheChannelI
     using AsyncBuffer = typename P::AsyncBuffer;
     using BufferType = typename P::BufferType;
 
+#ifdef EDEN_NS2_ASTC_CACHE_BRIDGE
+    bool Ns2AstcEligible(const ImageBase&) const noexcept;
+    bool Ns2UploadDirtyLayers(Image&);
+#endif
+
     struct PendingUnswizzle {
         ImageId image_id;
         VideoCommon::ImageInfo info;
@@ -153,7 +167,12 @@ public:
     explicit TextureCache(Runtime&, Tegra::MaxwellDeviceMemoryManager&);
 
     /// Notify the cache that a new frame has been queued
+#ifdef PS5_NATIVE
+    // Reuse the PS5 Vulkan memory sample already obtained before cache locks.
+    void TickFrame(std::optional<u64> externally_sampled_usage = std::nullopt);
+#else
     void TickFrame();
+#endif
 
     /// Return a constant reference to the given image view id
     [[nodiscard]] const ImageView& GetImageView(ImageViewId id) const noexcept;
@@ -166,6 +185,51 @@ public:
 
     /// Mark an image as modified from the GPU
     void MarkModification(ImageId id) noexcept;
+
+#ifdef PS5_NATIVE
+    // An already authenticated native TIC/TSC record can use the SAME slot
+    // owner as Maxwell. Caller must hold mutex, bind the correct GPU
+    // channel and validate the entire 49-bit GMMU span first.
+    // These IDs are NOT fence-held Vulkan leases. The native renderer may
+    // only publish the objects after a separate GPU lifetime proof.
+    [[nodiscard]] bool NativeChannelMatches(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory) const noexcept;
+    // Native acquisitions hold config_mutex across texture-cache work.
+    // The existing GPU-region enumerators call getStorageID() internally:
+    // never re-acquire this non-recursive mutex on the owner thread. Other
+    // threads and all NS1 call sites retain the original locking behavior.
+    inline static thread_local const TextureCache<P>* native_channel_lock_owner = nullptr;
+    [[nodiscard]] std::optional<size_t> getStorageID(size_t id) const {
+        if (native_channel_lock_owner == this) {
+            const auto it = this->address_spaces.find(id);
+            return it == this->address_spaces.end()
+                ? std::nullopt : std::optional<size_t>{it->second.storage_id};
+        }
+        return VideoCommon::ChannelSetupCaches<TextureCacheChannelInfo>::getStorageID(id);
+    }
+    [[nodiscard]] ImageViewId AcquireNativeImageView(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory,
+        const TICEntry& descriptor, bool is_written = false);
+    [[nodiscard]] SamplerId AcquireNativeSampler(
+        const Tegra::Engines::KeplerCompute& expected_compute,
+        const Tegra::MemoryManager& expected_memory,
+        const TSCEntry& descriptor);
+
+    // The caller holds texture_cache.mutex and must copy the Vulkan handles
+    // while it remains held. A lease pins both the VkImageView owner and its
+    // backing VkImage across a remap, eviction, and asynchronous fence wait.
+    // Raw ImageViewId alone cannot provide this guarantee.
+    struct NativePinnedImageView {
+        ImageViewId id{};
+        std::shared_ptr<u8> backing_image;
+        std::shared_ptr<u8> image_view;
+    };
+    [[nodiscard]] std::optional<NativePinnedImageView>
+    PinNativeImageView(ImageViewId id);
+    [[nodiscard]] std::shared_ptr<u8> PinNativeSampler(SamplerId id);
+#endif
 
     /// Fill image_view_ids with the graphics/compute images in indices
     void FillImageViews(std::span<ImageViewInOut> views, bool compute, bool blacklist = true);
@@ -202,6 +266,17 @@ public:
 
     /// Mark images in a range as modified from the CPU
     void WriteMemory(DAddr cpu_addr, size_t size);
+
+    /// Invalidate cached images after a DMA copy whose bytes are already in guest memory.
+    void WriteGpuMemory(GPUVAddr gpu_addr, size_t size);
+
+    /// Mark only DMA destination images whose complete copied bytes are already guest-current.
+    /// gpu_written_dest are destination subranges copied from GPU-owned BufferCache bytes.
+    void WriteDmaCopy(GPUVAddr src_addr, GPUVAddr dest_addr, size_t size,
+                      std::span<const std::pair<DAddr, size_t>> gpu_written_dest);
+
+    /// True when a GPU range includes a newer GPU-owned image (or unknown mapping).
+    [[nodiscard]] bool IsGpuMemoryGpuModified(GPUVAddr gpu_addr, size_t size);
 
     /// Download contents of host images to guest memory in a region
     void DownloadMemory(DAddr cpu_addr, size_t size);
@@ -482,6 +557,9 @@ private:
     DAddr virtual_invalid_space{};
 
     bool has_deleted_images = false;
+    /// True only while UpdateRenderTargets(true) binds a clear target; JoinImages
+    /// uses it to skip an initial upload that a proven full clear overwrites.
+    bool clearing_render_targets = false;
     bool is_rescaling = false;
     u64 total_used_memory = 0;
     u64 minimum_memory;
