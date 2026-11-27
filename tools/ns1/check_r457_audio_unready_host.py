@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[2]
-header = (root / "encore-active/eden-core/overrides/core/memory.h").read_text()
+header = (root / "encore-active/eden/src/core/memory.h").read_text()
 memory = (root / "encore-active/eden/src/core/memory_native_a32.cpp").read_text()
 audio = (root / "encore-active/eden/src/audio_core/device/device_session.cpp").read_text()
 
