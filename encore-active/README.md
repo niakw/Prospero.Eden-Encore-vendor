@@ -59,7 +59,9 @@ Les SHA restent légitimes pour le gitlink exact, la provenance, l'intégrité d
 
 ## Migration en cours
 
-Les racines historiques encore présentes (`eden-vulkan`, `ns2-runtime`, `amd-fsr31`) sont de la dette de structure. Elles doivent être repliées vers la dépendance correspondante sous `encore-active/<dépendance>/`, puis supprimées uniquement après la procédure de vérification ci-dessus. Aucun nouvel owner ne doit y être ajouté.
+Les racines historiques encore présentes (`eden-vulkan`, `amd-fsr31`) sont de la dette de structure. Elles doivent être repliées vers la dépendance correspondante sous `encore-active/<dépendance>/`, puis supprimées uniquement après la procédure de vérification ci-dessus. Aucun nouvel owner ne doit y être ajouté.
+
+`ns2-runtime` a été replié vers `encore-active/eden` après comparaison exhaustive : 165 fichiers identiques byte-for-byte et 7 propriétaires canoniques plus récents, puis migration de tous les consommateurs actifs avant suppression. Il est désormais interdit de réintroduire cette racine.
 
 La cible finale est simple : même dépendance, même chemin logique, un seul owner actif, aucun contenu perdu.
 
