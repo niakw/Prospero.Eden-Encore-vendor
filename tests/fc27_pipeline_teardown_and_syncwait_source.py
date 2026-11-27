@@ -2,7 +2,7 @@
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
 pipe=(R/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
-nv=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/devices/nvhost_ctrl.cpp").read_text()
+nv=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_ctrl.cpp").read_text()
 
 p0=pipe.index("PipelineCache::~PipelineCache()")
 p1=pipe.index("\n}",p0)

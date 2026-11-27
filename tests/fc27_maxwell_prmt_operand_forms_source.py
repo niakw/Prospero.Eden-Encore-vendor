@@ -12,7 +12,7 @@ that the default-mode byte/sign-replication semantics are exhaustive.
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "encore-active/eden-core/src/shader_recompiler/frontend/maxwell/translate/impl/not_implemented.cpp"
+SRC = ROOT / "encore-active/eden/src/shader_recompiler/frontend/maxwell/translate/impl/not_implemented.cpp"
 text = SRC.read_text()
 
 def body(name: str) -> str:
