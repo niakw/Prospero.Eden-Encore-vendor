@@ -2,7 +2,7 @@ name: NCA storage ownership and bounded legal reads (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-core/src/core/file_sys/fssystem/**"
+      - "encore-active/eden/src/core/file_sys/fssystem/**"
       - "tests/ps5_nca_storage_contract_host.py"
       - ".github/workflows/nca-storage-contract-host.yml"
   workflow_dispatch:

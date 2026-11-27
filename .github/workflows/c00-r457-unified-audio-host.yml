@@ -3,12 +3,12 @@ on:
   push:
     branches: [integration/c00-r457-unified-audio-20261112]
     paths:
-      - 'encore-active/eden-core/src/audio_core/device/device_session.cpp'
+      - 'encore-active/eden/src/audio_core/device/device_session.cpp'
       - 'tools/ns1/check_c00_r457_unified_audio.py'
       - '.github/workflows/c00-r457-unified-audio-host.yml'
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/audio_core/device/device_session.cpp'
+      - 'encore-active/eden/src/audio_core/device/device_session.cpp'
       - 'tools/ns1/check_c00_r457_unified_audio.py'
       - '.github/workflows/c00-r457-unified-audio-host.yml'
 permissions:

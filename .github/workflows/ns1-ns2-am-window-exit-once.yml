@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/src/core/hle/service/am/window_system.cpp'
+      - 'encore-active/eden/src/core/hle/service/am/window_system.cpp'
       - 'sources/eden/src/core/hle/service/am/window_system.h'
       - 'tests/ns1_r23_97_overlay_z.py'
       - 'tests/ns1_r23_97_applet_zorder.py'

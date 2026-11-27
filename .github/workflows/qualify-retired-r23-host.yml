@@ -6,9 +6,9 @@ on:
     paths:
       - 'tests/ns1_r23_fw235_ns.py'
       - 'tests/ns1_r23_95_hid_reconnect.py'
-      - 'encore-active/eden-backports/src/core/hle/service/ns/application_manager_interface.*'
-      - 'encore-active/eden-core/src/hid_core/frontend/emulated_controller.cpp'
-      - 'encore-active/eden-core/include/hid_core/frontend/emulated_controller.h'
+      - 'encore-active/eden/src/core/hle/service/ns/application_manager_interface.*'
+      - 'encore-active/eden/src/hid_core/frontend/emulated_controller.cpp'
+      - 'encore-active/eden/include/hid_core/frontend/emulated_controller.h'
       - '.github/workflows/qualify-retired-r23-host.yml'
 permissions:
   contents: read
