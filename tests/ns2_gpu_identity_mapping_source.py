@@ -833,6 +833,19 @@ assert "Ampere SEM_EXECUTE requires strict Vulkan retirement" in native_puller
 fence_action=native_puller.split(
     "void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {",1
 )[1].split("void Puller::ProcessSemaphoreTriggerMethod",1)[0]
+native_acquire=fence_action.split(
+    "case Puller::FenceOperation::Acquire:",1
+)[1].split("case Puller::FenceOperation::Increment:",1)[0]
+# A retired Maxwell/NS1 dependency must not synthesize another global Vulkan
+# drain. Native NS2 still fails before this legacy path and keeps its parked
+# acquire contract.
+for token in ("FailNativeSubmission(\"Native GPFIFO FENCE_ACTION acquire unsupported\")",
+              "system.Host1x().GetSyncpointManager()",
+              "syncpoints.IsReadyHost(syncpoint_id, regs.fence_value)",
+              "dma_pusher.rasterizer->ReleaseFences();"):
+    assert token in native_acquire, token
+assert native_acquire.index("FailNativeSubmission(") < native_acquire.index(
+    "IsReadyHost(") < native_acquire.index("ReleaseFences();")
 native_increment=fence_action.split(
     "case Puller::FenceOperation::Increment:",1
 )[1].split("default:",1)[0]
