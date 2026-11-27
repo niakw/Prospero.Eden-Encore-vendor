@@ -3,7 +3,7 @@
 import hashlib, json
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-manifest=json.loads((R/"encore-active/eden-backports/manifest.json").read_text())
+manifest=json.loads((R/"encore-active/eden/backports/manifest.json").read_text())
 expected={
   "src/core/device_memory_manager.h": {
     "active": "87ac22b80a44c637d01f031bb26ab573a000baba5b522269c1f6f2cd4e9ba17a",
@@ -19,7 +19,7 @@ expected={
   }
 }
 for rel,receipts in expected.items():
-    raw=(R/"encore-active/eden-backports"/rel).read_bytes()
+    raw=(R/"encore-active/eden"/rel).read_bytes()
     assert len(raw)==receipts["bytes"],rel
     assert hashlib.sha256(raw).hexdigest()==receipts["active"],rel
     assert manifest["entries"][rel]["active"]==receipts["active"],rel
@@ -31,7 +31,7 @@ print("NS2_BACKPORT_MANIFEST_PRESERVED_PASS changed=3 upstream=immutable")
 # NRR version 1 is used by Switch 2 titles loading NRO at runtime.
 # Source and manifest must agree, and no unbounded guest count may allocate.
 ro_rel="src/core/hle/service/ro/ro.cpp"
-ro_data=(R/"encore-active/eden-backports"/ro_rel).read_bytes()
+ro_data=(R/"encore-active/eden"/ro_rel).read_bytes()
 assert manifest["entries"][ro_rel]["active"]==hashlib.sha256(ro_data).hexdigest()
 assert manifest["entries"][ro_rel]["bytes"]==len(ro_data)
 ro_source=ro_data.decode("utf-8")

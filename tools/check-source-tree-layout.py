@@ -36,7 +36,7 @@ active_roots = git_tree_dirs("encore-active")
 migration_debt_roots = {
     # Temporary migration debt. New files are forbidden here; these roots
     # are removed progressively and checked below for already-retired areas.
-    "eden-core", "eden-vulkan", "eden-backports",
+    "eden-core", "eden-vulkan",
     "ns2-runtime", "ns2-helpers", "ns2-astc", "amd-fsr31",
 }
 unknown_active_roots = active_roots - source_roots - migration_debt_roots
@@ -44,13 +44,13 @@ assert not unknown_active_roots, (
     "unknown encore-active dependency roots", sorted(unknown_active_roots))
 
 for retired in (
-    "eden-gpu", "eden-sync", "eden-threading", "eden-shader", "ns2-a64", "eden-build",
+    "eden-gpu", "eden-sync", "eden-threading", "eden-shader", "ns2-a64", "eden-build", "eden-backports",
 ):
     assert not (ACTIVE / retired).exists(), ("retired active root reintroduced", retired)
 
 # These mechanically canonical Eden subtrees have completed migration.
 for retired_subtree in (
-    "eden-core/src", "eden-core/include", "eden-backports/src",
+    "eden-core/src", "eden-core/include",
 ):
     assert not (ACTIVE / retired_subtree).exists(), (
         "retired active subtree reintroduced", retired_subtree)

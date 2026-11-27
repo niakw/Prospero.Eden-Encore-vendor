@@ -3,7 +3,7 @@ name: Eden backport manifest active hashes
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-backports/**'
+      - 'encore-active/eden/**'
       - 'tests/eden_backports_manifest_hashes_host.py'
       - '.github/workflows/eden-backports-manifest-hashes.yml'
   workflow_dispatch:

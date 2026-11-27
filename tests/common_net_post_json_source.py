@@ -9,7 +9,7 @@ upstream_source=root/"sources/eden/src/common/net/net.cpp"
 active=root/"encore-active/eden/src/common/net"
 header=(active/"net.h").read_text()
 source=(active/"net.cpp").read_text()
-manifest=json.loads((root/"encore-active/eden-backports/manifest.json").read_text())
+manifest=json.loads((root/"encore-active/eden/backports/manifest.json").read_text())
 
 # The pinned Eden source remains immutable. Encore-specific transport belongs
 # to the shipping backport that install-vendored-eden-backports.py selects.
@@ -43,7 +43,7 @@ assert "http://" not in owner
 
 for rel in ("src/common/net/net.cpp","src/common/net/net.h"):
     item=manifest["entries"][rel]
-    data=(root/"encore-active/eden-backports"/rel).read_bytes()
+    data=(root/"encore-active/eden"/rel).read_bytes()
     upstream=(root/"sources/eden"/rel).read_bytes()
     assert hashlib.sha256(data).hexdigest()==item["active"], rel
     assert hashlib.sha256(upstream).hexdigest()==item["upstream"], rel

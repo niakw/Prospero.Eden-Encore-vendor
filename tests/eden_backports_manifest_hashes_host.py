@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTIVE = ROOT / "encore-active/eden-backports"
-MANIFEST = ACTIVE / "manifest.json"
+ACTIVE = ROOT / "encore-active/eden"
+MANIFEST = ACTIVE / "backports/manifest.json"
 
 meta = json.loads(MANIFEST.read_text())
 entries = meta["entries"]
