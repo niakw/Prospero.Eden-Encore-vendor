@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: Copyright 2025 Eden Emulator Project
+// SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
@@ -7,8 +7,6 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
-#include <mutex>
 
 #include "common/assert.h"
 #include "common/atomic_ops.h"
@@ -46,12 +44,9 @@ public:
 
         m_lock.lock();
 
-        // All head mutations are serialized by m_lock. Seq-cst RMW fences
-        // added no publication guarantee here, but cost cycles on the
-        // kernel's frequent object allocation and destruction paths.
-        Node* ret = m_head.load(std::memory_order_relaxed);
+        Node* ret = m_head;
         if (ret != nullptr) [[likely]] {
-            m_head.store(ret->next, std::memory_order_relaxed);
+            m_head = ret->next;
         }
 
         m_lock.unlock();
@@ -64,8 +59,8 @@ public:
         m_lock.lock();
 
         Node* node = static_cast<Node*>(obj);
-        node->next = m_head.load(std::memory_order_relaxed);
-        m_head.store(node, std::memory_order_relaxed);
+        node->next = m_head;
+        m_head = node;
 
         m_lock.unlock();
     }
@@ -208,7 +203,6 @@ public:
     }
 
     void Free(T* obj) {
-        std::destroy_at(obj);
         BaseHeap::Free(obj);
     }
 
