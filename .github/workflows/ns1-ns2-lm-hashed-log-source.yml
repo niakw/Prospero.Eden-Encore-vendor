@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/ns2-runtime/hle/core/hle/service/lm/lm.cpp'
+      - 'encore-active/eden/src/core/hle/service/lm/lm.cpp'
       - 'tests/ns1_ns2_lm_hashed_log_reply_source.py'
       - '.github/workflows/ns1-ns2-lm-hashed-log-source.yml'
   workflow_dispatch:
