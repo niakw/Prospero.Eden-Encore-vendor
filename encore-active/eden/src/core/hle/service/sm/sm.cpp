@@ -327,7 +327,7 @@ void SM::AtmosphereHasService(HLERequestContext& ctx) {
 }
 
 SM::SM(ServiceManager& service_manager_, Core::System& system_)
-    : ServiceFramework{system_, "sm:", 4}
+    : ServiceFramework{system_, "sm:", 64}
     , service_manager{service_manager_}
     , kernel{system_.Kernel()}
 {
