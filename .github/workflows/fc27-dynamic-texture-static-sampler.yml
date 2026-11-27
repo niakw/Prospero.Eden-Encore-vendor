@@ -2,7 +2,7 @@ name: FC27 dynamic texture table with fixed sampler (host)
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp'
+      - 'encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp'
       - 'encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp'
       - 'encore-active/eden-vulkan/vk_compute_pipeline_cost.cpp'
       - 'encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp'

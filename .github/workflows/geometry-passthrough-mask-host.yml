@@ -2,7 +2,7 @@ name: Emulated geometry passthrough attribute mask (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp"
+      - "encore-active/eden/src/shader_recompiler/frontend/maxwell/translate_program.cpp"
       - "tests/ps5_geometry_passthrough_mask_host.py"
       - "tests/ns1_r23_72_subgroup_host.py"
       - ".github/workflows/geometry-passthrough-mask-host.yml"

@@ -2,8 +2,8 @@ name: FC27 block-local SSA definition storage (host)
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-shader/include/shader_recompiler/frontend/ir/basic_block.h'
-      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/ssa_rewrite_pass.cpp'
+      - 'encore-active/eden/src/shader_recompiler/frontend/ir/basic_block.h'
+      - 'encore-active/eden/src/shader_recompiler/ir_opt/ssa_rewrite_pass.cpp'
       - 'tests/fc27_ssa_definition_storage_host.py'
       - '.github/workflows/fc27-ssa-definition-storage-host.yml'
   workflow_dispatch:
