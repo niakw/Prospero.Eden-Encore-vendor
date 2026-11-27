@@ -491,13 +491,18 @@ assert "std::numeric_limits<u64>::max();" in slot_owner
 assert "GraphicsSupervisorProtocol::DecodeSyncpointWait(" in slot_owner
 assert slot_owner.index("Cancel(request);",slot_owner.index("void RequestSlotEvent")) < slot_owner.index("if (syncpoint >= HostSyncpoints)")
 cancel=slot_owner.split("bool Cancel(SlotRequest& request)",1)[1]
-assert "if (request.handle != 0)" in cancel and "DeregisterNativeGuestAction" in cancel
+assert "if (request.handle != 0)" in cancel
+assert "DeregisterNativeGuestAction" in cancel and "DeregisterGuestAction" in cancel
 assert "if (!request.pending.exchange" not in cancel
 
-# Native wait must retain all 64 bits and mode from libounce 201.
-assert "manager.RegisterNativeGuestAction(" in slot_owner
-assert "syncpoint, value, wait->wide," in slot_owner
-assert "GetNativeGuestSyncpointValue(syncpoint)" in slot_owner
+# libounce command 103 advertises mode 0. Keep its producer value and 201
+# event on the command-processor guest counter, matching Lichii/Eglantine.
+# Explicit mode 1 waits retain the renderer-retired native 64-bit path.
+assert "GetGuestSyncpointValue(syncpoint)" in slot_owner
+assert "request.wide = wait->wide;" in slot_owner
+assert "wait->wide" in slot_owner
+assert "manager.RegisterNativeGuestAction(syncpoint, value, true" in slot_owner
+assert "manager.RegisterGuestAction(syncpoint, static_cast<u32>(value)" in slot_owner
 assert "GetNativeGuestSyncpointValue(id)" in mirror
 
 # GSV producer completion follows Host1x retirement, not the command-parser

@@ -259,6 +259,7 @@ private:
     static constexpr u32 MaxSlots = GraphicsSupervisorProtocol::SyncptLegacySlots;
     struct SlotRequest {
         u32 syncpoint{};
+        bool wide{};
         std::atomic<bool> pending{};
         Tegra::Host1x::SyncpointManager::ActionHandle handle{};
     };
@@ -313,10 +314,15 @@ private:
             return;
         }
         const u32 syncpoint = ~packet[2];
-        // libounce gsvSyncCheckNative treats UINT64_MAX as an invalid
-        // producer (already reached). Returning zero can strand a waiter.
+        // libounce reports mode 0 for this producer: the observable value is
+        // the low 32-bit Host1x guest counter with wrapping comparison. This
+        // is advanced by the GPU command processor when it reaches the
+        // syncpoint increment, matching Lichii/Eglantine and hardware's
+        // producer-counter contract. The strict renderer-retired 64-bit
+        // counter remains available for explicitly wide (mode 1) waits.
         const u64 value = syncpoint < HostSyncpoints
-            ? system.Host1x().GetSyncpointManager().GetNativeGuestSyncpointValue(syncpoint)
+            ? static_cast<u64>(system.Host1x().GetSyncpointManager()
+                                   .GetGuestSyncpointValue(syncpoint))
             : std::numeric_limits<u64>::max();
         NativeTipcReplyWords(ctx, {static_cast<u32>(value), static_cast<u32>(value >> 32), 0});
     }
@@ -377,16 +383,23 @@ private:
             return;
         }
         request.syncpoint = syncpoint;
+        request.wide = wait->wide;
         request.pending.store(true, std::memory_order_release);
         auto& manager = system.Host1x().GetSyncpointManager();
-        request.handle = manager.RegisterNativeGuestAction(
-            syncpoint, value, wait->wide,
-            [shared=m_shared, &kernel=system.Kernel(), request=&request, event] {
-                std::scoped_lock lk{shared->mutex};
-                if (!shared->alive) return;
-                request->pending.store(false, std::memory_order_release);
-                event->Signal(kernel);
-            });
+        auto complete = [shared=m_shared, &kernel=system.Kernel(), request=&request, event] {
+            std::scoped_lock lk{shared->mutex};
+            if (!shared->alive) return;
+            request->pending.store(false, std::memory_order_release);
+            event->Signal(kernel);
+        };
+        // Mode 0 is the low 32-bit producer counter exposed by command 103.
+        // Do not delay it behind a renderer fence: that created a circular
+        // startup wait in Pokopia after valid native GPFIFO submissions.
+        // Mode 1 retains the renderer-retired 64-bit path.
+        request.handle = wait->wide
+            ? manager.RegisterNativeGuestAction(syncpoint, value, true, std::move(complete))
+            : manager.RegisterGuestAction(syncpoint, static_cast<u32>(value),
+                                          std::move(complete));
         NativeTipcReplyWords(ctx, {});
     }
     void CancelSlotEvent(HLERequestContext& ctx) {
@@ -407,17 +420,19 @@ private:
         NativeTipcReplyWords(ctx, {});
     }
     bool Cancel(SlotRequest& request) {
-        // The old callback clears pending BEFORE signalling. Even if
-        // pending is false, a nonzero handle can still be executing.
-        // DeregisterNativeGuestAction waits for a running callback to return.
-        // Join before reusing/clearing the slot so an old signal cannot
-        // satisfy a new wait prematurely.
+        // The callback clears pending BEFORE signalling. Even if pending is
+        // false, a nonzero handle can still be executing. Deregister the
+        // exact counter family used by this slot and join before reuse.
         const bool was_pending = request.pending.exchange(false, std::memory_order_acq_rel);
         if (request.handle != 0) {
-            system.Host1x().GetSyncpointManager().DeregisterNativeGuestAction(request.syncpoint,
-                                                                        request.handle);
+            auto& manager = system.Host1x().GetSyncpointManager();
+            if (request.wide)
+                manager.DeregisterNativeGuestAction(request.syncpoint, request.handle);
+            else
+                manager.DeregisterGuestAction(request.syncpoint, request.handle);
             request.handle = 0;
         }
+        request.wide = false;
         return was_pending;
     }
     KernelHelpers::ServiceContext m_context;
