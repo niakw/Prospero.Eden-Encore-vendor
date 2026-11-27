@@ -11,6 +11,10 @@
 #include "shader_recompiler/backend/spirv/emit_spirv_instructions.h"
 #include "shader_recompiler/backend/spirv/spirv_emit_context.h"
 #include "shader_recompiler/frontend/ir/modifiers.h"
+#include "shader_recompiler/frontend/ampere/native_indirect_cbuf.h"
+#include <algorithm>
+#include <limits>
+#include <optional>
 
 namespace Shader::Backend::SPIRV {
 namespace {
@@ -49,8 +53,12 @@ void DecorateNonUniform(EmitContext& ctx, Id object) {
     if (index.IsImmediate()) {
         return false;
     }
+    // A variable guest resource index can differ between invocations.
+    // Never emit an undecorated OpAccessChain when the selected Vulkan
+    // device lacks this descriptor class's non-uniform indexing feature:
+    // the driver could then sample another guest texture silently.
     if (!IsNonUniformSupported(ctx.profile, kind)) {
-        throw LogicError("Dynamic image descriptor requires non-uniform indexing support");
+        throw LogicError("Native dynamic image descriptor requires non-uniform indexing support");
     }
     DecorateNonUniform(ctx, idx);
     switch (kind) {
@@ -257,8 +265,137 @@ private:
     spv::ImageOperandsMask mask{};
 };
 
+// For a statically selected descriptor, rejecting a foreign index is
+// mandatory: OpAccessChain on an out-of-range OpTypeArray element is
+// undefined and can sample or write another guest resource. Dynamic
+// indices retain the normal native descriptor path pending a separate
+// runtime-bounds proof; never silently clamp an invalid guest index.
+// A one-element descriptor is not an index-free descriptor. A constant
+// foreign guest index must be rejected even when an OpTypeArray is optimized
+// away. Dynamic indices still require separate shader-side bounds control.
+void CheckSingletonTextureIndex(const IR::Value& index, u32 count) {
+    // A missing descriptor has no valid singleton to load. The array
+    // branch rejects count==0 already; keep the zero-element case equally
+    // fail-closed for sampled, texel and storage images.
+    if (count != 1)
+        throw LogicError("Invalid singleton texture descriptor count");
+    if (index.IsEmpty()) return;
+    if (index.Type() != IR::Type::U32)
+        throw LogicError("Invalid singleton texture descriptor index type");
+    // A singleton has only element zero. For a runtime-variable index
+    // the current emitter would ignore it and always bind element zero,
+    // fabricating a valid texture for an invalid guest index. Reject this
+    // unsupported form instead; dynamic arrays with count>1 still emit
+    // their real OpAccessChain and are validated independently on Vulkan.
+    if (!index.IsImmediate())
+        throw LogicError("Dynamic singleton texture descriptor index unsupported");
+    if (index.U32() != 0)
+        throw LogicError("Singleton texture descriptor index out of range");
+}
+
+// Native Ampere descriptor arrays must never index outside their reflected
+// Vulkan binding. The ordinary Maxwell/NS1 emitter keeps its exact behavior.
+// No SPIR-V runtime bounds trap exists for a dynamic image OpAccessChain:
+// admit only the actual IR expressions with a provable inclusive U32 maximum.
+// This is conservative: unsupported unknown register/SSBO indexes are
+// rejected before publication, not wrapped to texture zero.
+[[nodiscard]] std::optional<u32> NativeBoundedImageIndexMaximum(
+    const IR::Value& raw, unsigned depth = 0) {
+    if (depth >= 8) return std::nullopt;
+    const auto value = raw.Resolve();
+    if (value.IsEmpty() || value.Type() != IR::Type::U32) return std::nullopt;
+    if (value.IsImmediate()) return value.U32();
+    const auto* const inst = value.TryInstRecursive();
+    if (!inst) return std::nullopt;
+    const auto opcode = inst->GetOpcode();
+    const auto a = inst->Arg(0).Resolve();
+    const auto b = inst->Arg(1).Resolve();
+    if (opcode == IR::Opcode::BitwiseAnd32 ||
+        opcode == IR::Opcode::UMin32) {
+        // (arbitrary U32 & literal_mask) <= mask;
+        // min(arbitrary U32,literal_ceiling) <= ceiling.
+        if (a.IsImmediate() && a.Type() == IR::Type::U32)
+            return a.U32();
+        if (b.IsImmediate() && b.Type() == IR::Type::U32)
+            return b.U32();
+        return std::nullopt;
+    }
+    if (opcode == IR::Opcode::BitFieldUExtract) {
+        const auto bit_offset = inst->Arg(1).Resolve();
+        const auto bit_count = inst->Arg(2).Resolve();
+        if (!bit_offset.IsImmediate() || !bit_count.IsImmediate() ||
+            bit_offset.Type() != IR::Type::U32 ||
+            bit_count.Type() != IR::Type::U32)
+            return std::nullopt;
+        const u32 first = bit_offset.U32();
+        const u32 bits = bit_count.U32();
+        if (first >= 32 || !bits || bits > 32 - first)
+            return std::nullopt;
+        return bits == 32 ? std::numeric_limits<u32>::max()
+                          : (u32{1} << bits) - 1;
+    }
+    if (opcode == IR::Opcode::ShiftRightLogical32) {
+        if (!b.IsImmediate() || b.Type() != IR::Type::U32 || b.U32() >= 32)
+            return std::nullopt;
+        // An unknown U32 shifted right by N is at most 0xffffffff >> N.
+        const auto prior = NativeBoundedImageIndexMaximum(a, depth + 1);
+        const u32 bound = prior.value_or(std::numeric_limits<u32>::max());
+        return bound >> b.U32();
+    }
+    if (opcode == IR::Opcode::SelectU32) {
+        const auto yes = NativeBoundedImageIndexMaximum(inst->Arg(1), depth + 1);
+        const auto no = NativeBoundedImageIndexMaximum(inst->Arg(2), depth + 1);
+        if (!yes || !no) return std::nullopt;
+        return std::max(*yes, *no);
+    }
+    if (opcode == IR::Opcode::IAdd32) {
+        // An add is bounded only if BOTH operands are proven and no 32-bit
+        // overflow can wrap a guest index into a fabricated valid binding.
+        const auto lhs = NativeBoundedImageIndexMaximum(a, depth + 1);
+        const auto rhs = NativeBoundedImageIndexMaximum(b, depth + 1);
+        if (!lhs || !rhs || *rhs > std::numeric_limits<u32>::max() - *lhs)
+            return std::nullopt;
+        return *lhs + *rhs;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] Id CheckedTextureArrayIndex(EmitContext& ctx,
+                                          const IR::Value& index, u32 count) {
+    if (!count || index.IsEmpty() || index.Type() != IR::Type::U32)
+        throw LogicError("Invalid texture descriptor index type");
+    if (index.IsImmediate()) {
+        const u32 selected = index.U32();
+        if (selected >= count)
+            throw LogicError("Texture descriptor array index out of range");
+        return ctx.Const(selected);
+    }
+    if (Shader::Ampere::NativeSpirvCbufBoundsActive()) {
+        // Only a proven range may reach native QMD3 Vulkan. The scope is
+        // thread-local and managed by the real native compiler; no Maxwell
+        // image lookup is modified.
+        const auto maximum = NativeBoundedImageIndexMaximum(index);
+        if (!maximum || *maximum >= count)
+            throw LogicError("Native dynamic image descriptor index unbounded");
+    }
+    return ctx.Def(index);
+}
+
+// SPIR-V descriptor lookups must fail through the shader compiler's
+// controlled LogicError path, not an uncaught std::out_of_range from at().
+// In-range reflected definitions are returned unchanged; a missing binding
+// is never substituted with an unrelated guest texture.
+template <typename Definitions>
+[[nodiscard]] decltype(auto) CheckedImageDescriptor(const Definitions& definitions,
+                                                    u32 index) {
+    if (index >= definitions.size()) {
+        throw LogicError("Missing reflected image/texture descriptor");
+    }
+    return definitions[index];
+}
+
 Id Texture(EmitContext& ctx, IR::TextureInstInfo info, [[maybe_unused]] const IR::Value& index) {
-    const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
+    const TextureDefinition& def{CheckedImageDescriptor(ctx.textures, info.descriptor_index)};
     if (def.count > 1) {
         auto const idx = CheckedTextureArrayIndex(ctx, index, def.count);
         const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::SampledImage)};
@@ -270,18 +407,23 @@ Id Texture(EmitContext& ctx, IR::TextureInstInfo info, [[maybe_unused]] const IR
         }
         return object;
     } else {
+        CheckSingletonTextureIndex(index, def.count);
         return ctx.OpLoad(def.sampled_type, def.id);
     }
 }
 
 Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& index) {
     if (info.type == TextureType::Buffer) {
-        const TextureBufferDefinition& def{ctx.texture_buffers.at(info.descriptor_index)};
+        const TextureBufferDefinition& def{CheckedImageDescriptor(ctx.texture_buffers, info.descriptor_index)};
         if (def.count > 1) {
             const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{
                 MarkNonUniform(ctx, idx, index, NonUniformKind::UniformTexelBuffer)};
-            const Id ptr{ctx.OpAccessChain(ctx.image_buffer_type, def.id, idx)};
+            // OpAccessChain result type is the POINTER to the selected
+            // UniformConstant image, not the OpTypeImage itself.
+            const Id element_ptr_type{
+                ctx.TypePointer(spv::StorageClass::UniformConstant, ctx.image_buffer_type)};
+            const Id ptr{ctx.OpAccessChain(element_ptr_type, def.id, idx)};
             const Id object{ctx.OpLoad(ctx.image_buffer_type, ptr)};
             if (non_uniform) {
                 DecorateNonUniform(ctx, ptr);
@@ -289,9 +431,10 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
             }
             return object;
         }
+        CheckSingletonTextureIndex(index, def.count);
         return ctx.OpLoad(ctx.image_buffer_type, def.id);
     } else {
-        const TextureDefinition& def{ctx.textures.at(info.descriptor_index)};
+        const TextureDefinition& def{CheckedImageDescriptor(ctx.textures, info.descriptor_index)};
         if (def.count > 1) {
             auto const idx = CheckedTextureArrayIndex(ctx, index, def.count);
             const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::SampledImage)};
@@ -305,13 +448,14 @@ Id TextureImage(EmitContext& ctx, IR::TextureInstInfo info, const IR::Value& ind
             }
             return image;
         }
+        CheckSingletonTextureIndex(index, def.count);
         return ctx.OpImage(def.image_type, ctx.OpLoad(def.sampled_type, def.id));
     }
 }
 
 std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureInstInfo info) {
     if (info.type == TextureType::Buffer) {
-        const ImageBufferDefinition def{ctx.image_buffers.at(info.descriptor_index)};
+        const ImageBufferDefinition def{CheckedImageDescriptor(ctx.image_buffers, info.descriptor_index)};
         if (def.count > 1) {
             const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{
@@ -324,9 +468,10 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
             }
             return {image, def.is_integer};
         }
+        CheckSingletonTextureIndex(index, def.count);
         return {ctx.OpLoad(def.image_type, def.id), def.is_integer};
     } else {
-        const ImageDefinition def{ctx.images.at(info.descriptor_index)};
+        const ImageDefinition def{CheckedImageDescriptor(ctx.images, info.descriptor_index)};
         if (def.count > 1) {
             const Id idx{CheckedTextureArrayIndex(ctx, index, def.count)};
             const bool non_uniform{MarkNonUniform(ctx, idx, index, NonUniformKind::StorageImage)};
@@ -338,6 +483,7 @@ std::pair<Id, bool> Image(EmitContext& ctx, const IR::Value& index, IR::TextureI
             }
             return {image, def.is_integer};
         }
+        CheckSingletonTextureIndex(index, def.count);
         return {ctx.OpLoad(def.image_type, def.id), def.is_integer};
     }
 }
@@ -346,14 +492,14 @@ bool IsTextureMsaa(EmitContext& ctx, const IR::TextureInstInfo& info) {
     if (info.type == TextureType::Buffer) {
         return false;
     }
-    return ctx.textures.at(info.descriptor_index).is_multisample;
+    return CheckedImageDescriptor(ctx.textures, info.descriptor_index).is_multisample;
 }
 
 bool IsTextureInteger(EmitContext& ctx, const IR::TextureInstInfo& info) {
     if (info.type == TextureType::Buffer) {
         return false;
     }
-    return ctx.textures.at(info.descriptor_index).is_integer;
+    return CheckedImageDescriptor(ctx.textures, info.descriptor_index).is_integer;
 }
 
 Id Decorate(EmitContext& ctx, IR::Inst* inst, Id sample) {
