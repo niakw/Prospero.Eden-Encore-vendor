@@ -513,7 +513,7 @@ u8* DeviceMemoryManager<Traits>::GetSpan(const DAddr src_addr, const std::size_t
         if (AtomicLoadPhysical(tracked_entries[first_page + i]) != backing + i)
             return nullptr;
     }
-    return GetPointer<u8>(src_addr);
+    // Reuse the validated physical backing instead of loading the page again.\n    return GetPointerFromRaw<u8>((PAddr(backing - 1U) << page_bits) + (src_addr & page_mask));
 }
 
 template <typename Traits>
@@ -537,7 +537,7 @@ const u8* DeviceMemoryManager<Traits>::GetSpan(const DAddr src_addr, const std::
         if (AtomicLoadPhysical(tracked_entries[first_page + i]) != backing + i)
             return nullptr;
     }
-    return GetPointer<u8>(src_addr);
+    // Reuse the validated physical backing instead of loading the page again.\n    return GetPointerFromRaw<u8>((PAddr(backing - 1U) << page_bits) + (src_addr & page_mask));
 }
 
 template <typename Traits>
