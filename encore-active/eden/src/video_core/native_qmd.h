@@ -211,16 +211,24 @@ public:
                 return "QMD chain limit";
             }
             // Validate the release slots before making any visible.
+            // QMD V03_00 one-word reductions support all eight integer
+            // operations and either unsigned-32 or signed-32 MIN/MAX.
+            // Keep the still-unimplemented 64-bit/timestamp/interrupt
+            // formats fail-closed rather than silently publishing a
+            // different semaphore layout.
             for (const Word base : ReleaseSlots) {
                 const Word flags = qmd[base + 1];
                 if (!(flags & (1U << 23))) continue;
-                const bool add = (flags & (1U << 26)) != 0;
-                if ((flags & (0x3bU << 24)) || (flags >> 30) != 1 ||
-                    (add && (flags & (7U << 20)))) {
+                const bool reduction = (flags & (1U << 26)) != 0;
+                const Word format = (flags >> 24) & 3U;
+                constexpr Word Unsupported =
+                    (1U << 25) | (3U << 27) | (1U << 29);
+                if ((flags & Unsupported) || (flags >> 30) != 1 ||
+                    (reduction ? format >= 2 : format != 0)) {
                     if (newly_inserted) states.erase(state_it);
                     return "unsupported QMD release format";
                 }
-                if (add) {
+                if (reduction) {
                     if constexpr (!std::is_invocable_r_v<bool, Release, Address, Word, Word>) {
                         if (newly_inserted) states.erase(state_it);
                         return "unsupported QMD reduction callback";
@@ -549,11 +557,18 @@ template <typename IsMapped>
 // Side-effect free so the GPU fence callback can apply them only after
 // validating that the owning channel and destination mapping still exist.
 [[nodiscard]] constexpr std::uint32_t NativeComputeSemaphoreReduction(
-    std::uint32_t old_value, std::uint32_t payload, std::uint32_t mode) {
+    std::uint32_t old_value, std::uint32_t payload, std::uint32_t mode,
+    bool is_signed = false) {
     switch (mode) {
     case 0: return old_value + payload;
-    case 1: return std::min(old_value, payload);
-    case 2: return std::max(old_value, payload);
+    case 1:
+        return is_signed
+            ? std::uint32_t(std::min(std::int32_t(old_value), std::int32_t(payload)))
+            : std::min(old_value, payload);
+    case 2:
+        return is_signed
+            ? std::uint32_t(std::max(std::int32_t(old_value), std::int32_t(payload)))
+            : std::max(old_value, payload);
     case 3: return old_value >= payload ? 0U : old_value + 1U;
     case 4: return old_value == 0 || old_value > payload
                        ? payload : old_value - 1U;

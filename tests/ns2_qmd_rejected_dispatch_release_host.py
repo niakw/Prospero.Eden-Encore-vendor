@@ -123,6 +123,46 @@ int main() {
         assert(err.empty());
         assert(dispatches==0 && releases==1);
     }
+
+    // 5) QMD V03_00 one-word reductions accept every integer op and both
+    // unsigned/signed 32-bit formats. This is the same reduction algebra as
+    // C7C0 SET_REPORT_SEMAPHORE_D; no synthetic shader completion is involved.
+    assert(Tegra::NativeComputeSemaphoreReduction(0xfffffff0U, 2U, 1U, false)==2U);
+    assert(Tegra::NativeComputeSemaphoreReduction(0xfffffff0U, 2U, 1U, true)==0xfffffff0U);
+    assert(Tegra::NativeComputeSemaphoreReduction(0xfffffff0U, 2U, 2U, false)==0xfffffff0U);
+    assert(Tegra::NativeComputeSemaphoreReduction(0xfffffff0U, 2U, 2U, true)==2U);
+    for (Word op=0; op<8; ++op) {
+        for (Word signed_format=0; signed_format<2; ++signed_format) {
+            Scheduler s;
+            Descriptor live=MakeQmd(5U, false);
+            live[25] |= (Word{1}<<26) | (op<<20) | (signed_format<<24);
+            Word value=0xfffffff0U;
+            unsigned releases=0;
+            auto read=[&](Address, Descriptor& out){ out=live; return true; };
+            auto release=[&](Address, Word payload, Word flags) {
+                ++releases;
+                value=Tegra::NativeComputeSemaphoreReduction(
+                    value, payload, (flags>>20)&7U, ((flags>>24)&3U)==1U);
+                return true;
+            };
+            auto dispatch=[&](const Descriptor&){ assert(false); return false; };
+            assert(s.Signal(qmd_addr,3,read,release,dispatch).empty());
+            assert(releases==1);
+        }
+    }
+
+    // Reserved reduction format 2 remains fail-closed and cannot publish.
+    {
+        Scheduler s;
+        Descriptor live=MakeQmd(5U, false);
+        live[25] |= (Word{1}<<26) | (Word{2}<<24);
+        unsigned releases=0;
+        auto read=[&](Address, Descriptor& out){ out=live; return true; };
+        auto release=[&](Address, Word, Word){ ++releases; return true; };
+        auto dispatch=[&](const Descriptor&){ assert(false); return false; };
+        assert(s.Signal(qmd_addr,3,read,release,dispatch)=="unsupported QMD release format");
+        assert(releases==0);
+    }
 }
 """
 

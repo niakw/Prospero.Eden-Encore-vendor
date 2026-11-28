@@ -1592,13 +1592,16 @@ void Puller::ProcessNativeComputeQmdAt(DmaPusher& pusher, GPUVAddr address,
                         throw std::runtime_error(
                             "Native QMD3 release backing revoked after GPU submission");
                     }
+                    const bool reduction = (flags & (1u << 26)) != 0;
                     const bool combined =
-                        (flags & ((1u << 26) | (1u << 19))) != 0;
+                        reduction || (flags & (1u << 19)) != 0;
                     if (!PublishNativeSemaphoreWord(
                             *memory, process_ticket, addr, mirror, combined,
-                            [payload, flags](u32 old_value) {
-                                if (flags & (1u << 26))
-                                    return old_value + payload;
+                            [payload, flags, reduction](u32 old_value) {
+                                if (reduction)
+                                    return Tegra::NativeComputeSemaphoreReduction(
+                                        old_value, payload, (flags >> 20) & 7U,
+                                        ((flags >> 24) & 3U) == 1U);
                                 if (flags & (1u << 19))
                                     return std::max(old_value, payload);
                                 return payload;
