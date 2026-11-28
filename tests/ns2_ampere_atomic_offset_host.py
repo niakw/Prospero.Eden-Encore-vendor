@@ -54,7 +54,7 @@ static std::uint64_t AtomicWord(const auto& lowered) {
 }
 
 int main() {
-    for (const auto [offset24, expected20] :
+    for (const auto& [offset24, expected20] :
          {std::pair{4U, 4U}, std::pair{0xfffffcU, 0xffffcU}}) {
         const auto lowered=LowerToMaxwell(std::array{Atomic(offset24), Exit()});
         assert(lowered);
