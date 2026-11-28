@@ -146,10 +146,15 @@ private:
     [[nodiscard]] Result ExecuteWithMutableFifo(
         Word macro_method, std::span<const Word> parameters,
         Read read, Emit emit) {
-        if(macro_method<0xe00 || macro_method>=0xf00 ||
+        // NVIDIA exposes 256 CALL_MME_MACRO/CALL_MME_DATA method pairs
+        // at 0xe00..0xfff, while the hardware position RAM has 128 entries.
+        // The high half aliases the same position table, matching Eden's
+        // Maxwell path and the observed NX2 C797/C7C0 implementations.
+        if(macro_method<0xe00 || macro_method>=0x1000 ||
            (macro_method&1u)!=0u) return {false,0,0,"invalid macro method"};
-        const auto index=std::size_t{(macro_method-0xe00u)>>1};
-        if(index>=positions.size() || !bound[index])
+        const auto index=
+            std::size_t{(macro_method-0xe00u)>>1}%positions.size();
+        if(!bound[index])
             return {false,0,0,"unbound macro entry"};
         const auto start=positions[index];
         if(std::size_t{start}*3+2>=uploaded)

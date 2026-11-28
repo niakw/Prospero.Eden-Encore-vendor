@@ -9,6 +9,7 @@ R=Path(__file__).resolve().parents[1]
 dma=(R/"encore-active/eden/src/video_core/dma_pusher.cpp").read_text()
 dma_header=(R/"encore-active/eden/src/video_core/dma_pusher.h").read_text()
 puller=(R/"encore-active/eden/src/video_core/engines/puller.cpp").read_text()
+native_mme_state=(R/"encore-active/eden/src/video_core/native_ampere_macro_state.h").read_text()
 native_nvhost=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 native_process_registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 native_scheduler=(R/"encore-active/eden/src/video_core/control/scheduler.h").read_text()
@@ -24,6 +25,16 @@ resume=puller.split("bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {",
     "\n// One release contract",1)[0]
 native_acquire=puller.split("void Puller::ProcessNativeSemaphoreExecute",1)[1].split(
     "\nvoid Puller::ProcessSemaphoreAcquire",1)[0]
+# C797/C7C0 expose 256 CALL_MME method pairs over 0xe00..0xfff, backed
+# by 128 position entries. The high half must alias the low table instead of
+# quarantining an otherwise valid native channel.
+assert "macro_method>=0x1000" in native_mme_state
+assert "std::size_t{(macro_method-0xe00u)>>1}%positions.size()" in native_mme_state
+assert "macro_method>=0xf00" not in native_mme_state
+assert puller.count("method>=0x1000 || values.empty()") == 1
+assert puller.count("method >= 0x1000 || values.empty()") == 1
+assert "method>=0xf00 || values.empty()" not in puller
+assert "method >= 0xf00 || values.empty()" not in puller
 assert "if (!system.IsPoweredOn() || system.IsShuttingDown())" in dispatch
 assert dispatch.index("if (!system.IsPoweredOn() || system.IsShuttingDown())") < dispatch.index(
     "system.GPU().FlushCommands();")

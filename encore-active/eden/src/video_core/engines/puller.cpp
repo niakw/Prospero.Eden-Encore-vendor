@@ -976,7 +976,7 @@ void Puller::CallNative3D(DmaPusher& pusher, u32 method,
         }
     }
     if (method>=0xe00) {
-        if (method>=0xf00 || values.empty()) {
+        if (method>=0x1000 || values.empty()) {
             fail("unsupported native MME method");
             return;
         }
@@ -1136,7 +1136,7 @@ void Puller::CallNativeCompute(DmaPusher& pusher, u32 method,
         return;
     }
     if (method >= 0xe00) {
-        if (method >= 0xf00 || values.empty()) {
+        if (method >= 0x1000 || values.empty()) {
             fail("invalid compute MME method");
             return;
         }
