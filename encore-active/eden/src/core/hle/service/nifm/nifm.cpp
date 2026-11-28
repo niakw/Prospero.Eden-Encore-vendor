@@ -540,7 +540,7 @@ private:
         IPC::RequestParser rp{ctx};
         network_profile_id = rp.PopRaw<u128>();
         LOG_DEBUG(Service_NIFM, "called, profile_id={:016x}{:016x}",
-                  network_profile_id->second, network_profile_id->first);
+                  (*network_profile_id)[1], (*network_profile_id)[0]);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -1087,7 +1087,7 @@ void IGeneralService::RemoveNetworkProfile(HLERequestContext& ctx) {
     }
 
     LOG_DEBUG(Service_NIFM, "called, profile_id={:016x}{:016x}",
-              profile_id.second, profile_id.first);
+              profile_id[1], profile_id[0]);
     IPC::ResponseBuilder rb{ctx, 2};
     rb.Push(ResultSuccess);
 }
