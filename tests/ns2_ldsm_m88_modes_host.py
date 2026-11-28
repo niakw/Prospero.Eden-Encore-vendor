@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-ldsm-m88-") as td:
     compiler=os.getenv("CXX","c++")
     compile = subprocess.run(
         [compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror","-pedantic",
-         "-I",str(root/"encore-active/ns2-runtime/ampere"),
+         "-I",str(root/"encore-active/eden/src"),
          "-I",str(root/"sources/eden/src"),
          str(p/"t.cpp"),"-o",str(p/"test")],
         text=True,capture_output=True,timeout=90)
