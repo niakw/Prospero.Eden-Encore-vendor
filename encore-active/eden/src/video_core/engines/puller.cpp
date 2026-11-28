@@ -394,7 +394,17 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
     if (op == GpuSemaphoreOperation::WriteLong) {
         const GPUVAddr sequence_address{regs.semaphore_address.SemaphoreAddress()};
         const u32 payload = regs.semaphore_sequence;
-        dma_pusher.rasterizer->Query(sequence_address, VideoCommon::QueryType::Payload, VideoCommon::QueryPropertiesFlags::HasTimeout, payload, 0);
+        // Ampere RELEASE_SIZE (bit 24) is a one-word SEMAPHORED release.
+        // The legacy HasTimeout report writes payload+timestamp (16 bytes)
+        // and clobbers adjacent tightly packed NVN2 semaphore words.
+        const bool native_one_word =
+            dma_pusher.memory_manager.UsesNativeTiling() &&
+            (regs.semaphore_trigger & (1U << 24)) != 0;
+        const auto properties =
+            native_one_word ? VideoCommon::QueryPropertiesFlags::IsAFence
+                            : VideoCommon::QueryPropertiesFlags::HasTimeout;
+        dma_pusher.rasterizer->Query(sequence_address, VideoCommon::QueryType::Payload,
+                                     properties, payload, 0);
     } else {
         do {
             const u32 word = dma_pusher.memory_manager.Read<u32>(regs.semaphore_address.SemaphoreAddress());

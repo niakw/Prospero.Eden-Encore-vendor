@@ -20,6 +20,7 @@ framebuffer_pinned = (root / "sources/eden/src/video_core/framebuffer_config.h")
 framebuffer_active = (root / "encore-active/eden/src/video_core/framebuffer_config.h").read_text()
 nvdisp = (root / "encore-active/eden/src/core/hle/service/nvdrv/devices/nvdisp_disp0.cpp").read_text()
 present = (root / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_present_layer.cpp").read_text()
+puller = (root / "encore-active/eden/src/video_core/engines/puller.cpp").read_text()
 
 dtor = "    ~MemoryManager();\n"
 api = """    ~MemoryManager();
@@ -179,7 +180,20 @@ for marker in (
 assert "framebuffer.native_tiling" in present
 raw_upload = present.split("void Layer::UpdateRawImage(", 1)[1]
 assert raw_upload.index("framebuffer.native_tiling") > raw_upload.index("Tegra::Texture::UnswizzleTexture(")
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=9 texture_util=2 present=1")
+# Ampere SEMAPHORED RELEASE_SIZE (bit 24) writes exactly one u32.
+# Maxwell/NS1 keeps the historical long report with timestamp.
+trigger = puller.split("void Puller::ProcessSemaphoreTriggerMethod(", 1)[1].split(
+    "void Puller::ProcessSemaphoreRelease(", 1
+)[0]
+for marker in (
+    "dma_pusher.memory_manager.UsesNativeTiling()",
+    "(regs.semaphore_trigger & (1U << 24)) != 0",
+    "native_one_word ? VideoCommon::QueryPropertiesFlags::IsAFence",
+    ": VideoCommon::QueryPropertiesFlags::HasTimeout",
+):
+    assert marker in trigger, marker
+assert trigger.index("UsesNativeTiling()") < trigger.index("Query(sequence_address")
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=9 texture_util=2 present=1 semaphore4=1")
 
 # I2M streaming admission: compile the actual maintained ProcessExec and both
 # packet-consumption overloads. A fragmented GPFIFO upload must never read
