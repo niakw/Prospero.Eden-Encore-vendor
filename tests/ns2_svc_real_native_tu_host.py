@@ -15,8 +15,8 @@ deps = root / "sources/eden-cpm"
 src = active / "eden/src/core/hle/kernel/svc.cpp"
 assert src.is_file()
 inc = [
-    # All maintained NS2 SVC/kernel/GPU/HLE headers are folded into the
-    # upstream-relative canonical Eden source root.
+    # Every maintained NS1/NS2 HLE, kernel, GPU and shader header now shares
+    # the canonical Eden include root; no retired feature-root include shadow.
     active / "eden/src",
     root / "sources/eden/src",
     root / "sources/eden/src/dynarmic/src",
