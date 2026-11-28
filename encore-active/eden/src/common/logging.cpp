@@ -239,11 +239,27 @@ struct ColorConsoleBackend final : public Backend {
 };
 
 #ifndef __OPENORBIS__
+#ifdef PS5_NATIVE
+extern "C" bool eden_native_detailed_logging() noexcept;
+extern "C" unsigned eden_native_logging_generation() noexcept;
+#endif
 /// @brief Backend that writes to a file passed into the constructor
 struct FileBackend final : public Backend {
-    explicit FileBackend(const std::filesystem::path filename) noexcept {
+    explicit FileBackend(const std::filesystem::path filename_) noexcept : filename{filename_} {
         auto old_filename = filename;
         old_filename += ".old.txt";
+#ifdef PS5_NATIVE
+        first_filename = filename;
+        first_filename += ".first.txt";
+        last_generation = eden_native_logging_generation();
+        // No FileBackend file at all while detailed logs are disabled.
+        // The crash reporter is independent and always persists fatal reports.
+        if (!eden_native_detailed_logging()) return;
+        // A new session owns one bounded first segment and one rolling recent segment.
+        // Stale first segments are disposable; the previous session's recent tail is
+        // still moved to .old.txt for crash collection before logging starts.
+        void(FS::RemoveFile(first_filename));
+#endif
         // Existence checks are done within the functions themselves.
         // We don't particularly care if these succeed or not.
         void(FS::RemoveFile(old_filename));
@@ -255,6 +271,23 @@ struct FileBackend final : public Backend {
     void Write(const Entry& entry) noexcept override {
         if (!enabled)
             return;
+#ifdef PS5_NATIVE
+        if (!eden_native_detailed_logging()) return;
+        const auto generation = eden_native_logging_generation();
+        if (generation != last_generation) {
+            // Opening after quiet mode must use a NEW inode, not the old
+            // unlinked file descriptor from a previous detailed session.
+            file.reset();
+            last_generation = generation;
+            bytes_written = 0;
+            rotated = false;
+            error_events = 0;
+        }
+        if (!file) {
+            file.emplace(filename, FS::FileAccessMode::Write, FS::FileType::TextFile);
+            if (!file->IsOpen()) return;
+        }
+#endif
 
         auto message = FormatLogMessage(entry);
 #ifndef __ANDROID__
@@ -281,6 +314,27 @@ struct FileBackend final : public Backend {
             file->Flush();
 
         using namespace Common::Literals;
+#ifdef PS5_NATIVE
+        // Console storage is slow and a global Debug filter can otherwise burn through
+        // hundreds of MiB before the event we need to diagnose. Keep the first 8 MiB
+        // plus a rolling 8 MiB recent tail; never stop logging merely because the cap
+        // was reached, or a late soft-freeze would disappear from the evidence.
+        constexpr auto write_limit = 8_MiB;
+        if (bytes_written > write_limit) {
+            RotatePs5();
+        }
+        // Thousands of guest/device unmapped-memory errors can arrive
+        // during a broken scene. Flush-on-EVERY-error serialized tens of
+        // thousands of writes onto the PS5 storage, compounding stalls.
+        // Keep ALL lines and immediate first-error/critical durability,
+        // but amortize later Error-level syncs to every 64th event.
+        if (entry.log_level >= Level::Error) {
+            ++error_events;
+            if (entry.log_level >= Level::Critical ||
+                error_events == 1 || error_events % 64 == 0)
+                file->Flush();
+        }
+#else
         // Prevent logs from exceeding a set maximum size in the event that log entries are spammed.
         const auto write_limit = Settings::values.extended_logging.GetValue() ? 1_GiB : 100_MiB;
         const bool write_limit_exceeded = bytes_written > write_limit;
@@ -296,13 +350,59 @@ struct FileBackend final : public Backend {
                 error_flushed_ms.store(flush_now, std::memory_order_relaxed);
                 file->Flush();
             }
-        }
+        }#endif
     }
 
     void Flush() noexcept override {
+#ifdef PS5_NATIVE
+        if (file && eden_native_detailed_logging()) file->Flush();
+#else
         file->Flush();
+#endif
     }
 private:
+#ifdef PS5_NATIVE
+    void RotatePs5() noexcept {
+        if (!file || !file->IsOpen()) {
+            enabled = false;
+            return;
+        }
+        // IOFile's Flush/Open/SetSize emit LOG_ERROR on failure. Re-entrant
+        // logging during rotation must be ignored instead of recursing into
+        // RotatePs5 and risking a stack overflow on full/failed storage.
+        enabled = false;
+        file->Flush();
+        if (!rotated) {
+            file->Close();
+            void(FS::RemoveFile(first_filename));
+            if (!FS::RenameFile(filename, first_filename)) {
+                file->Open(filename, FS::FileAccessMode::Append, FS::FileType::TextFile);
+                enabled = file->IsOpen();
+                return;
+            }
+            file->Open(filename, FS::FileAccessMode::Write, FS::FileType::TextFile);
+            rotated = true;
+        } else {
+            // Keep the first segment untouched and recycle only the current file,
+            // which makes eden_log.txt always contain the newest diagnostics.
+            if (!file->SetSize(0) || !file->Seek(0, FS::SeekOrigin::SetOrigin)) {
+                enabled = false;
+                return;
+            }
+        }
+        bytes_written = 0;
+        static constexpr std::string_view marker{
+            "[Eden Encore] log tail rotated; storage remains bounded\n"};
+        bytes_written += file->WriteSpan(std::span<const char>{marker.data(), marker.size()});
+        enabled = file->IsOpen();
+    }
+
+    std::filesystem::path filename;
+    std::filesystem::path first_filename;
+    bool rotated = false;
+    std::size_t error_events = 0;
+    unsigned last_generation = 0;
+#endif
     std::optional<FS::IOFile> file;
     std::atomic<long long> error_flushed_ms{-1000};
     std::size_t bytes_written = 0;
@@ -433,6 +533,9 @@ void SetColorConsoleBackendEnabled(bool enabled) {
 }
 
 void FmtLogMessageImpl(Class log_class, Level log_level, const char* filename, unsigned int line_num, const char* function, fmt::string_view format, const fmt::format_args& args) {
+#ifdef PS5_NATIVE
+    if (!eden_native_detailed_logging()) return;
+#endif
 #ifdef __OPENORBIS__
     // Native builds have no file/debugger/logcat backend. When the only
     // console backend is OFF, do not format messages that nobody can read.
