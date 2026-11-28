@@ -272,7 +272,7 @@ private:
     std::map<u64, Allocation> allocation_map;
     std::mutex mutex; //!< Locks all AS operations
     Kernel::KProcess* m_native_process{};
-    std::optional<u64> m_native_generation{};
+    // Some NS2 runtimes may open the AS descriptor before GSV publishes the\n    // process epoch. Capture that epoch lazily on the first native use, then\n    // keep it sticky so later GSV teardown cannot re-promote a stale FD.\n    mutable std::optional<u64> m_native_generation{};
     u32 m_native_vm_id{};
     std::atomic_bool m_native_vm_retired{};
     // BindChannel retains the real NvCore session while any scheduler
