@@ -58,6 +58,10 @@ public:
         void LoadSaveDataThumbnail(HLERequestContext& ctx);
         void GetSaveDataThumbnailExistence(HLERequestContext& ctx);
         void GetPinCodeLength(HLERequestContext& ctx);
+        void RejectUnavailableNintendoAccount(HLERequestContext& ctx);
+        void RejectDebugOnlyCommand(HLERequestContext& ctx);
+        void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx);
+        void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx);
 
     private:
         Result InitializeApplicationInfoBase();
