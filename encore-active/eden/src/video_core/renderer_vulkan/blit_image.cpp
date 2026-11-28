@@ -718,9 +718,14 @@ void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, VkImageView 
     scheduler.Record([this, render_pass, framebuffer_handle, render_area, src_image_view,
                       src_image, src_sampler, dst_region, src_region, src_size, pipeline, layout,
                       clip](vk::CommandBuffer cmdbuf) {
-        // The descriptor already declares GENERAL. Keep the image in the layout
-        // expected by later render passes and only make prior writes visible.
-        TransitionImageLayout(cmdbuf, src_image, VK_IMAGE_LAYOUT_GENERAL);
+        // Eglantine 15757b62 / Bananza: a texture view may temporarily
+        // have no backing VkImage. RADV dereferences the image while building
+        // this barrier, so never record a transition on VK_NULL_HANDLE.
+        if (src_image != VK_NULL_HANDLE) {
+            // The descriptor already declares GENERAL. Keep the image in the
+            // layout expected by later render passes and only expose writes.
+            TransitionImageLayout(cmdbuf, src_image, VK_IMAGE_LAYOUT_GENERAL);
+        }
         BeginRenderPass(cmdbuf, render_pass, framebuffer_handle, render_area);
         const VkDescriptorSet descriptor_set = one_texture_descriptor_allocator.Commit();
         UpdateOneTextureDescriptorSet(device, descriptor_set, src_sampler, src_image_view);

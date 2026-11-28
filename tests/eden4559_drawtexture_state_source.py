@@ -20,7 +20,13 @@ fsr=(active/"fsr31_native_bridge.cpp").read_text()
 
 assert "#include <optional>" in hdr
 assert "const std::optional<VkRect2D>& scissor = std::nullopt" in hdr
-assert "TransitionImageLayout(cmdbuf, src_image, VK_IMAGE_LAYOUT_GENERAL);" in cpp
+assert "if (src_image != VK_NULL_HANDLE) {" in cpp
+transition = "TransitionImageLayout(cmdbuf, src_image, VK_IMAGE_LAYOUT_GENERAL);"
+assert transition in cpp
+blit_raw = cpp.split(
+    "void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, VkImageView",1)[1].split(
+    "void BlitImageHelper::BlitImpl(",1)[0]
+assert blit_raw.index("if (src_image != VK_NULL_HANDLE) {") < blit_raw.index(transition)
 assert "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL" not in cpp.split(
     "void BlitImageHelper::BlitColor(const Framebuffer* dst_framebuffer, VkImageView",1)[1].split(
     "void BlitImageHelper::BlitImpl(",1)[0]
@@ -28,10 +34,15 @@ assert "const VkFramebuffer framebuffer_handle = dst_framebuffer->Handle();" in 
 assert "BeginRenderPass(cmdbuf, render_pass, framebuffer_handle, render_area);" in cpp
 assert "cmdbuf.SetScissor(0, *clip);" in cpp
 assert "scheduler.InvalidateState();" in cpp
+draw_texture = rast.split("void RasterizerVulkan::DrawTexture()",1)[1].split(
+    "void RasterizerVulkan::Clear(",1)[0]
+assert "if (texture.RenderTarget() == VK_NULL_HANDLE) {" in draw_texture
+assert draw_texture.index("if (texture.RenderTarget() == VK_NULL_HANDLE) {") < draw_texture.index(
+    "blit_image.BlitColor(framebuffer, texture.RenderTarget(), texture.ImageHandle(),")
 assert "std::optional<VkRect2D> scissor;" in rast
 assert "src_is_target" in rast
 assert "maxwell3d->regs.blend.enable[0] == 0" in rast
 assert "src_size, scissor);" in rast
 assert "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL" not in fsr.split(
     "const auto temporal_output = TryRecord(frame);",1)[1].split("return true;",1)[0]
-print("EDEN4559_DRAWTEXTURE_STATE_SOURCE_PASS scissor=1 general=1 framebuffer_capture=1 selfcopy=1 fsr_general=1")
+print("EDEN4559_DRAWTEXTURE_STATE_SOURCE_PASS scissor=1 general=1 null_image_guard=1 framebuffer_capture=1 selfcopy=1 fsr_general=1")

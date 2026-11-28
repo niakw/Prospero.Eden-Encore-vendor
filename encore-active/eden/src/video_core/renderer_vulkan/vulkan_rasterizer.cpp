@@ -1040,6 +1040,14 @@ void RasterizerVulkan::DrawTexture() {
     Extent3D src_size = {static_cast<u32>(ScaleSrc(texture.size.width)),
                          static_cast<u32>(ScaleSrc(texture.size.height)), texture.size.depth};
 
+    // Eglantine 15757b62 / Bananza: a buffer texture or an image whose
+    // backing allocation is not resident has no sampleable render target.
+    // Drawing it would later enqueue a Vulkan barrier/descriptor using a
+    // null image on RADV; the guest operation has no source pixels to copy.
+    if (texture.RenderTarget() == VK_NULL_HANDLE) {
+        return;
+    }
+
     std::optional<VkRect2D> scissor;
     if (maxwell3d->regs.scissor_test[0].enable) {
         u32 up_scale = 1;
