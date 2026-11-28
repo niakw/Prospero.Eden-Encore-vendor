@@ -58,7 +58,7 @@ SyncpointManager::ActionHandle SyncpointManager::RegisterWrappingGuestAction(
         if (!IsWrappingGuestActionReady(current, target)) {
             do { ++last_action_id; } while (last_action_id == 0);
             return wrapping_guest_actions[id]
-                .emplace_back(target, last_action_id, std::move(action))->id;
+                .emplace_back(target, last_action_id, std::move(action)).id;
         }
     }
     action();
