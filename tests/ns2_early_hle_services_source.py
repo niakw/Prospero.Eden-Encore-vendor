@@ -79,3 +79,10 @@ assert '{19, D<&IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled>' in aud
 assert '{20, D<&IAudioDevice::IsAudioDeviceOutputVolumeAutoTuneEnabled>' in audio
 assert "*out_enabled = false;" in audio
 print("NS2_EARLY_HLE_SERVICE_SOURCE_PASS graphics_scale=10 jcms=4 audio_autotune=preexisting syncpoint=later-excluded ps5=unverified")
+
+# Native Switch 2 audio updates use REv? while renderer creation uses REV?.
+# The maintained audio_core TU must compare numeric revisions, never raw tags.
+audio_info=(R/"encore-active/eden/src/audio_core/renderer/behavior/info_updater.cpp").read_text()
+assert "GetRevisionNum(in_params->revision)" in audio_info
+assert "GetRevisionNum(behaviour_.GetUserRevision())" in audio_info
+assert "in_params->revision != behaviour_.GetUserRevision()" not in audio_info
