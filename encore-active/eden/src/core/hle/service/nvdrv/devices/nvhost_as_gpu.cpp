@@ -457,9 +457,21 @@ void nvhost_as_gpu::ReleaseNativeVmBinding() {
 }
 
 bool nvhost_as_gpu::NativeEpochCurrent() const {
-    return m_native_process && m_native_generation &&
-           NativeGpuProcessRegistry::Instance().IsCurrent(
-               {m_native_process, *m_native_generation});
+    if (!m_native_process)
+        return false;
+    // Mirror nvhost_gpu's descriptor-scoped late promotion. A pre-GSV AS FD
+    // may not have had a process generation at OnOpen; once the same process
+    // is published, capture exactly that generation. Never replace a captured
+    // generation: unregister/re-register must make the stale descriptor fail.
+    if (!m_native_generation) {
+        const auto ticket =
+            NativeGpuProcessRegistry::Instance().CaptureTicket(m_native_process);
+        if (!ticket)
+            return false;
+        m_native_generation = ticket->generation;
+    }
+    return NativeGpuProcessRegistry::Instance().IsCurrent(
+        {m_native_process, *m_native_generation});
 }
 
 void nvhost_as_gpu::RetireNativeVm(u32 id) {
