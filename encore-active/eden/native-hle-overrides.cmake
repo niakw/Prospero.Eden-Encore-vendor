@@ -99,6 +99,15 @@ if(PS5_NATIVE)
     unset(_encore_h05_source)
     unset(_encore_h05_header_root)
 
+    # Unified native Friend/GameChat owner. The canonical active pair keeps
+    # all inherited NS1 IServiceCreator commands and adds the reviewed NS2
+    # chat:u / daemon-suspend-session ABI. The active include root above makes
+    # friend.h the matching declaration for both translation units.
+    encore_replace_core_source(
+        "hle/service/friend/friend.cpp" "core/hle/service/friend/friend.cpp")
+    encore_replace_core_source(
+        "hle/service/friend/friend_interface.cpp" "core/hle/service/friend/friend_interface.cpp")
+
     # PS5 NS2 startup: bounded HLE IPC wake fairness, independently
     # source-ported from Lichii 9757e3b1 (Mario Tennis Fever 0/5 -> 8/8).
     # A real process-generation check in the C++ owner avoids touching
