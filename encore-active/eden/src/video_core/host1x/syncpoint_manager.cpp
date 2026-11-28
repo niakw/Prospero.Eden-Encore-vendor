@@ -49,6 +49,28 @@ void SyncpointManager::DeregisterAction(std::list<RegisteredAction>& action_stor
     }
 }
 
+SyncpointManager::ActionHandle SyncpointManager::RegisterWrappingGuestAction(
+    u32 id, u32 target, std::function<void()>&& action) {
+    if (id >= NUM_MAX_SYNCPOINTS) return {};
+    {
+        std::scoped_lock lk(guard);
+        const u32 current = syncpoints_guest[id].load(std::memory_order_relaxed);
+        if (!IsWrappingGuestActionReady(current, target)) {
+            do { ++last_action_id; } while (last_action_id == 0);
+            return wrapping_guest_actions[id]
+                .emplace_back(target, last_action_id, std::move(action))->id;
+        }
+    }
+    action();
+    return {};
+}
+
+void SyncpointManager::DeregisterWrappingGuestAction(
+    u32 id, const ActionHandle& handle) {
+    if (id < NUM_MAX_SYNCPOINTS)
+        DeregisterAction(wrapping_guest_actions[id], handle);
+}
+
 SyncpointManager::ActionHandle SyncpointManager::RegisterNativeGuestAction(
     u32 id, u64 target, bool wide, std::function<void()>&& action) {
     if (id >= NUM_MAX_SYNCPOINTS) return {};
@@ -87,7 +109,8 @@ void SyncpointManager::IncrementGuest(u32 id) {
     // published here: the Vulkan work preceding this increment may still be
     // in flight, and OunceVK treats an reached producer counter with a stale
     // GPU marker as a fatal completion mismatch.
-    Increment(syncpoints_guest[id], wait_guest_cv, guest_action_storage[id]);
+    Increment(syncpoints_guest[id], wait_guest_cv, guest_action_storage[id],
+              std::nullopt, &wrapping_guest_actions[id]);
 }
 void SyncpointManager::SetGuestMirror(GuestMirror mirror) {
     std::scoped_lock lk(guard);
@@ -128,7 +151,8 @@ void SyncpointManager::WaitHost(u32 id, u32 expected, std::stop_token stop) {
 
 void SyncpointManager::Increment(std::atomic<u32>& syncpoint, std::condition_variable& wait_cv,
                                  std::list<RegisteredAction>& action_storage,
-                                 std::optional<u32> mirrored_id) {
+                                 std::optional<u32> mirrored_id,
+                                 std::list<RegisteredAction>* wrapping_storage) {
     std::unique_lock lk(guard);
     u64 native_value{};
     if (mirrored_id) {
@@ -142,10 +166,18 @@ void SyncpointManager::Increment(std::atomic<u32>& syncpoint, std::condition_var
     auto end = action_storage.begin();
     while (end != action_storage.end() && end->expected_value <= new_value) ++end;
     if (end == action_storage.begin() &&
+        (!wrapping_storage || wrapping_storage->empty()) &&
         (!mirrored_id || native_guest_actions[*mirrored_id].empty())) return;
 
     DueActions due;
     due.pending.splice(due.pending.end(), action_storage, action_storage.begin(), end);
+    if (wrapping_storage) {
+        for (auto it = wrapping_storage->begin(); it != wrapping_storage->end();) {
+            auto candidate = it++;
+            if (IsWrappingGuestActionReady(new_value, candidate->expected_value))
+                due.pending.splice(due.pending.end(), *wrapping_storage, candidate);
+        }
+    }
     if (mirrored_id) {
         auto& native = native_guest_actions[*mirrored_id];
         for (auto it = native.begin(); it != native.end();) {

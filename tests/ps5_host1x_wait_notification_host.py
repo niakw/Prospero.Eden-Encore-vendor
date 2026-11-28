@@ -106,6 +106,25 @@ int main(){
   }
   {
     SyncpointManager m;
+    // GSV mode-0 producer waits are modular even before an actual wrap:
+    // current 0 is one tick after target 0xffffffff.
+    static_assert(SyncpointManager::IsWrappingGuestActionReady(0,0xffffffffu));
+    static_assert(!SyncpointManager::IsWrappingGuestActionReady(0xfffffffeu,1));
+    std::atomic<unsigned> wrapped{}, pending{}, cancelled_wrap{};
+    assert(m.RegisterWrappingGuestAction(12,0xffffffffu,[&]{++wrapped;})==0);
+    assert(wrapped==1);
+    const auto pending_h=m.RegisterWrappingGuestAction(12,2,[&]{++pending;});
+    assert(pending_h!=0);
+    const auto cancelled_h=m.RegisterWrappingGuestAction(12,3,[&]{++cancelled_wrap;});
+    assert(cancelled_h!=0);
+    m.DeregisterWrappingGuestAction(12,cancelled_h);
+    m.IncrementGuest(12);
+    assert(pending==0);
+    m.IncrementGuest(12);
+    assert(pending==1 && cancelled_wrap==0);
+  }
+  {
+    SyncpointManager m;
     // Modular comparison recognizes a previously reached wrapped threshold.
     static_assert(SyncpointManager::IsNativeGuestActionReady(1,0xffffffffu,false));
     static_assert(!SyncpointManager::IsNativeGuestActionReady(0xfffffffeu,1,false));

@@ -502,7 +502,8 @@ assert "GetGuestSyncpointValue(syncpoint)" in slot_owner
 assert "request.wide = wait->wide;" in slot_owner
 assert "wait->wide" in slot_owner
 assert "manager.RegisterNativeGuestAction(syncpoint, value, true" in slot_owner
-assert "manager.RegisterGuestAction(syncpoint, static_cast<u32>(value)" in slot_owner
+assert "manager.RegisterWrappingGuestAction(syncpoint, static_cast<u32>(value)" in slot_owner
+assert "manager.DeregisterWrappingGuestAction(request.syncpoint, request.handle)" in slot_owner
 assert "GetNativeGuestSyncpointValue(id)" in mirror
 
 # GSV producer completion follows Host1x retirement, not the command-parser

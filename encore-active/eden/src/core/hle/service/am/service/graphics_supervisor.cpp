@@ -400,8 +400,8 @@ private:
         // Mode 1 retains the renderer-retired 64-bit path.
         request.handle = wait->wide
             ? manager.RegisterNativeGuestAction(syncpoint, value, true, std::move(complete))
-            : manager.RegisterGuestAction(syncpoint, static_cast<u32>(value),
-                                          std::move(complete));
+            : manager.RegisterWrappingGuestAction(syncpoint, static_cast<u32>(value),
+                                                  std::move(complete));
         NativeTipcReplyWords(ctx, {});
     }
     void CancelSlotEvent(HLERequestContext& ctx) {
@@ -431,7 +431,7 @@ private:
             if (request.wide)
                 manager.DeregisterNativeGuestAction(request.syncpoint, request.handle);
             else
-                manager.DeregisterGuestAction(request.syncpoint, request.handle);
+                manager.DeregisterWrappingGuestAction(request.syncpoint, request.handle);
             request.handle = 0;
         }
         request.wide = false;

@@ -54,6 +54,15 @@ public:
         return RegisterAction(syncpoints_host[syncpoint_id], host_action_storage[syncpoint_id],
                               expected_value, std::move(action));
     }
+    // NS2 GSV mode-0 waits use the low 32-bit producer counter with signed
+    // modular comparison, matching nvgpu/libounce fence semantics. Keep this
+    // separate from legacy Host1x absolute waits and from retired 64-bit waits.
+    static constexpr bool IsWrappingGuestActionReady(u32 current, u32 target) {
+        return ((current - target) & 0x80000000U) == 0;
+    }
+    ActionHandle RegisterWrappingGuestAction(u32 syncpoint_id, u32 target,
+                                             std::function<void()>&& action);
+    void DeregisterWrappingGuestAction(u32 syncpoint_id, const ActionHandle& handle);
     ActionHandle RegisterNativeGuestAction(u32 syncpoint_id, u64 target, bool wide,
                                            std::function<void()>&& action);
     void DeregisterNativeGuestAction(u32 syncpoint_id, const ActionHandle& handle);
@@ -85,7 +94,8 @@ public:
 private:
     void Increment(std::atomic<u32>& syncpoint, std::condition_variable& wait_cv,
                    std::list<RegisteredAction>& action_storage,
-                   std::optional<u32> mirrored_id = std::nullopt);
+                   std::optional<u32> mirrored_id = std::nullopt,
+                   std::list<RegisteredAction>* wrapping_storage = nullptr);
     ActionHandle RegisterAction(std::atomic<u32>& syncpoint,
                                 std::list<RegisteredAction>& action_storage, u32 expected_value,
                                 std::function<void()>&& action);
@@ -100,6 +110,7 @@ private:
     std::array<std::atomic<u32>, NUM_MAX_SYNCPOINTS> syncpoints_host{};
     std::array<std::atomic<u64>, NUM_MAX_SYNCPOINTS> native_guest_counts{};
     std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> native_guest_actions;
+    std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> wrapping_guest_actions;
     std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> guest_action_storage;
     std::array<std::list<RegisteredAction>, NUM_MAX_SYNCPOINTS> host_action_storage;
     std::mutex guard;
