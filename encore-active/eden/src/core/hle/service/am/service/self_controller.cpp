@@ -9,7 +9,9 @@
 #include <new>
 #include "core/hle/result.h"
 #include "core/hle/service/am/am_results.h"
+#include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/frontend/applets.h"
+#include "core/hle/service/am/window_system.h"
 #include "core/hle/service/am/service/self_controller.h"
 #include "core/hle/service/am/service/graphics_supervisor.h"
 #include "core/hle/kernel/k_client_session.h"
@@ -45,11 +47,11 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {14, D<&ISelfController::SetRestartMessageEnabled>, "SetRestartMessageEnabled"},
         {15, D<&ISelfController::SetScreenShotAppletIdentityInfo>, "SetScreenShotAppletIdentityInfo"},
         {16, D<&ISelfController::SetOutOfFocusSuspendingEnabled>, "SetOutOfFocusSuspendingEnabled"},
-        {17, &ISelfController::StubReplyZeroed, "SetControllerFirmwareUpdateSection"},
-        {18, &ISelfController::StubReplyZeroed, "SetRequiresCaptureButtonShortPressedMessage"},
+        {17, D<&ISelfController::SetControllerFirmwareUpdateSection>, "SetControllerFirmwareUpdateSection"},
+        {18, D<&ISelfController::SetRequiresCaptureButtonShortPressedMessage>, "SetRequiresCaptureButtonShortPressedMessage"},
         {19, D<&ISelfController::SetAlbumImageOrientation>, "SetAlbumImageOrientation"},
-        {20, &ISelfController::StubReplyZeroed, "SetDesirableKeyboardLayout"},
-        {21, &ISelfController::StubReplyZeroed, "GetScreenShotProgramId"},
+        {20, D<&ISelfController::SetDesirableKeyboardLayout>, "SetDesirableKeyboardLayout"},
+        {21, D<&ISelfController::GetScreenShotProgramId>, "GetScreenShotProgramId"},
         {22, &ISelfController::StubReplyZeroed, "Unknown22"},
         {23, &ISelfController::StubReplyZeroed, "Unknown23"},
         {24, &ISelfController::StubReplyZeroed, "Unknown24"},
@@ -58,29 +60,31 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {42, D<&ISelfController::GetSystemSharedLayerHandle>, "GetSystemSharedLayerHandle"},
         {43, D<&ISelfController::GetSystemSharedBufferHandle>, "GetSystemSharedBufferHandle"},
         {44, D<&ISelfController::CreateManagedDisplaySeparableLayer>, "CreateManagedDisplaySeparableLayer"},
-        {45, &ISelfController::StubReplyZeroed, "SetManagedDisplayLayerSeparationMode"},
-        {46, &ISelfController::StubReplyZeroed, "SetRecordingLayerCompositionEnabled"},
+        {45, D<&ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode>,
+         "SetManagedDisplayLayerSeparationMode"},
+        {46, D<&ISelfController::RejectUnavailableRecordingLayerComposition>,
+         "SetRecordingLayerCompositionEnabled"},
         {50, D<&ISelfController::SetHandlesRequestToDisplay>, "SetHandlesRequestToDisplay"},
         {51, D<&ISelfController::ApproveToDisplay>, "ApproveToDisplay"},
         {60, D<&ISelfController::OverrideAutoSleepTimeAndDimmingTime>, "OverrideAutoSleepTimeAndDimmingTime"},
         {61, D<&ISelfController::SetMediaPlaybackState>, "SetMediaPlaybackState"},
         {62, D<&ISelfController::SetIdleTimeDetectionExtension>, "SetIdleTimeDetectionExtension"},
         {63, D<&ISelfController::GetIdleTimeDetectionExtension>, "GetIdleTimeDetectionExtension"},
-        {64, &ISelfController::StubReplyZeroed, "SetInputDetectionSourceSet"},
+        {64, D<&ISelfController::SetInputDetectionSourceSet>, "SetInputDetectionSourceSet"},
         {65, D<&ISelfController::ReportUserIsActive>, "ReportUserIsActive"},
-        {66, &ISelfController::StubReplyZeroed, "GetCurrentIlluminance"},
+        {66, D<&ISelfController::GetCurrentIlluminance>, "GetCurrentIlluminance"},
         {67, D<&ISelfController::IsIlluminanceAvailable>, "IsIlluminanceAvailable"},
         {68, D<&ISelfController::SetAutoSleepDisabled>, "SetAutoSleepDisabled"},
         {69, D<&ISelfController::IsAutoSleepDisabled>, "IsAutoSleepDisabled"},
-        {70, &ISelfController::StubReplyZeroed, "ReportMultimediaError"},
-        {71, &ISelfController::StubReplyZeroed, "GetCurrentIlluminanceEx"},
+        {70, &ISelfController::ReportMultimediaError, "ReportMultimediaError"},
+        {71, D<&ISelfController::GetCurrentIlluminanceEx>, "GetCurrentIlluminanceEx"},
         {72, D<&ISelfController::SetInputDetectionPolicy>, "SetInputDetectionPolicy"},
         {73, &ISelfController::StubReplyZeroed, "Unknown73"},
-        {80, &ISelfController::StubReplyZeroed, "SetWirelessPriorityMode"},
+        {80, D<&ISelfController::SetWirelessPriorityMode>, "SetWirelessPriorityMode"},
         {90, D<&ISelfController::GetAccumulatedSuspendedTickValue>, "GetAccumulatedSuspendedTickValue"},
         {91, D<&ISelfController::GetAccumulatedSuspendedTickChangedEvent>, "GetAccumulatedSuspendedTickChangedEvent"},
         {100, D<&ISelfController::SetAlbumImageTakenNotificationEnabled>, "SetAlbumImageTakenNotificationEnabled"},
-        {110, &ISelfController::StubReplyZeroed, "SetApplicationAlbumUserData"},
+        {110, &ISelfController::SetApplicationAlbumUserData, "SetApplicationAlbumUserData"},
         {120, D<&ISelfController::SaveCurrentScreenshot>, "SaveCurrentScreenshot"},
         {130, D<&ISelfController::SetRecordVolumeMuted>, "SetRecordVolumeMuted"},
         {200, &ISelfController::StubReplyZeroed, "Unknown200"},
@@ -90,7 +94,7 @@ ISelfController::ISelfController(Core::System& system_, std::shared_ptr<Applet> 
         {221, &ISelfController::StubReplyZeroed, "Unknown221"},
         {230, D<&ISelfController::Unknown230>, "Unknown230"},
         {240, D<&ISelfController::Unknown240>, "Unknown240"},
-        {1000, &ISelfController::StubReplyInterface, "GetDebugStorageChannel"},
+        {1000, D<&ISelfController::RejectDebugOnlyCommand>, "GetDebugStorageChannel"},
         {2000, &ISelfController::GetGraphicsSupervisor, "GetGraphicsSupervisor"},
         {2100, &ISelfController::StubReplyZeroed, "Unknown2100"},
         {2200, &ISelfController::StubReplyZeroed, "Unknown2200"},
@@ -112,6 +116,11 @@ ISelfController::~ISelfController() {
     if (m_graphics_supervisor_session) m_graphics_supervisor_session->Close(kernel);
     std::scoped_lock lk{m_applet->lock};
     m_applet->display_layer_manager.Finalize();
+}
+
+Result ISelfController::RejectDebugOnlyCommand() {
+    LOG_WARNING(Service_AM, "Rejected self-controller debug command on release runtime");
+    R_RETURN(ResultUnknown);
 }
 
 // Lichii currently uses StubReplyZeroed for these Switch 2 commands.
@@ -264,8 +273,9 @@ Result ISelfController::LeaveFatalSection() {
 
 Result ISelfController::GetLibraryAppletLaunchableEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
-
+    LOG_DEBUG(Service_AM, "called");
+    // The guest waits for this event BEFORE calling CreateLibraryApplet (libnx).
+    // Encore does not model launch admission contention; preserve the ready state.
     m_applet->library_applet_launchable_event.Signal(system.Kernel());
     *out_event = m_applet->library_applet_launchable_event.GetHandle();
 
@@ -321,11 +331,21 @@ Result ISelfController::SetRestartMessageEnabled(bool enabled) {
 
 Result ISelfController::SetScreenShotAppletIdentityInfo(
     AppletIdentityInfo screen_shot_applet_identity_info) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->screen_shot_identity = screen_shot_applet_identity_info;
 
+    R_SUCCEED();
+}
+
+Result ISelfController::GetScreenShotProgramId(Out<u64> out_program_id) {
+    std::scoped_lock lk{m_applet->lock};
+
+    const u64 identity_program_id = m_applet->screen_shot_identity.application_id;
+    *out_program_id = identity_program_id != 0 ? identity_program_id : m_applet->program_id;
+
+    LOG_DEBUG(Service_AM, "called, program_id={:016X}", *out_program_id);
     R_SUCCEED();
 }
 
@@ -339,9 +359,32 @@ Result ISelfController::SetOutOfFocusSuspendingEnabled(bool enabled) {
     R_SUCCEED();
 }
 
+Result ISelfController::SetControllerFirmwareUpdateSection(bool enabled) {
+    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->controller_firmware_update_section = enabled;
+    R_SUCCEED();
+}
+
+Result ISelfController::SetDesirableKeyboardLayout(u32 layout) {
+    LOG_DEBUG(Service_AM, "called, layout={}", layout);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->desirable_keyboard_layout = layout;
+    R_SUCCEED();
+}
+
+Result ISelfController::SetRequiresCaptureButtonShortPressedMessage(bool required) {
+    LOG_DEBUG(Service_AM, "called, required={}", required);
+
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->handling_capture_button_short_pressed_message_enabled_for_applet = required;
+
+    R_SUCCEED();
+}
+
 Result ISelfController::SetAlbumImageOrientation(
     Capture::AlbumImageOrientation album_image_orientation) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, orientation={}", album_image_orientation);
+    LOG_DEBUG(Service_AM, "called, orientation={}", album_image_orientation);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->album_image_orientation = album_image_orientation;
@@ -382,36 +425,67 @@ Result ISelfController::CreateManagedDisplayLayer(Out<u64> out_layer_id) {
 
 Result ISelfController::CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id,
                                                            Out<u64> out_recording_layer_id) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_WARNING(Service_AM,
+                "CreateManagedDisplaySeparableLayer unavailable: recording layer backend is not materialized");
+    R_RETURN(ResultUnknown);
+}
 
-    std::scoped_lock lk{m_applet->lock};
-    R_RETURN(m_applet->display_layer_manager.CreateManagedDisplaySeparableLayer(
-        out_layer_id, out_recording_layer_id));
+Result ISelfController::RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode) {
+    LOG_WARNING(Service_AM,
+                "SetManagedDisplayLayerSeparationMode unavailable: recording layer backend is not materialized, mode={}",
+                mode);
+    R_UNLESS(mode <= 1, ResultUnknown);
+    R_RETURN(ResultUnknown);
+}
+
+Result ISelfController::RejectUnavailableRecordingLayerComposition(bool enabled) {
+    LOG_WARNING(Service_AM,
+                "SetRecordingLayerCompositionEnabled unavailable: recording layer backend is not materialized, enabled={}",
+                enabled);
+    R_RETURN(ResultUnknown);
 }
 
 Result ISelfController::SetHandlesRequestToDisplay(bool enable) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, enable={}", enable);
+    LOG_DEBUG(Service_AM, "called, enable={}", enable);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->handles_request_to_display = enable;
     R_SUCCEED();
 }
 
 Result ISelfController::ApproveToDisplay() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
+
+    if (auto* window_system = system.GetAppletManager().GetWindowSystem()) {
+        window_system->RequestAppletVisibilityState(*m_applet, true);
+    } else {
+        // The applet manager normally owns a WindowSystem for the whole AM lifetime. Keep the
+        // guest-visible state coherent during teardown/startup without dereferencing a null owner.
+        std::scoped_lock lk{m_applet->lock};
+        m_applet->window_visible = true;
+        LOG_WARNING(Service_AM, "ApproveToDisplay without an active WindowSystem");
+    }
+
     R_SUCCEED();
 }
 
 Result ISelfController::SetMediaPlaybackState(bool state) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, state={}", state);
+    LOG_DEBUG(Service_AM, "called, state={}", state);
+    std::scoped_lock lk{m_applet->lock};
+    m_applet->media_playback_state = state;
     R_SUCCEED();
 }
 
 Result ISelfController::OverrideAutoSleepTimeAndDimmingTime(s32 a, s32 b, s32 c, s32 d) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, a={}, b={}, c={}, d={}", a, b, c, d);
+    LOG_DEBUG(Service_AM, "called, a={}, b={}, c={}, d={}", a, b, c, d);
+
+    // These values control Horizon's idle/dimming policy. Encore intentionally does not forward
+    // guest power-policy timings to the PS5 host, and no guest idle:sys scheduler consumes them.
     R_SUCCEED();
 }
 
 Result ISelfController::SetIdleTimeDetectionExtension(
     IdleTimeDetectionExtension idle_time_detection_extension) {
-    LOG_DEBUG(Service_AM, "(STUBBED) called extension={}", idle_time_detection_extension);
+    LOG_DEBUG(Service_AM, "called, extension={}", idle_time_detection_extension);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->idle_time_detection_extension = idle_time_detection_extension;
@@ -421,7 +495,7 @@ Result ISelfController::SetIdleTimeDetectionExtension(
 
 Result ISelfController::GetIdleTimeDetectionExtension(
     Out<IdleTimeDetectionExtension> out_idle_time_detection_extension) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    LOG_DEBUG(Service_AM, "called");
 
     std::scoped_lock lk{m_applet->lock};
     *out_idle_time_detection_extension = m_applet->idle_time_detection_extension;
@@ -430,7 +504,9 @@ Result ISelfController::GetIdleTimeDetectionExtension(
 }
 
 Result ISelfController::ReportUserIsActive() {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    // Horizon forwards this notification to idle:sys. Encore has no guest idle scheduler and must
+    // not reset or otherwise alter the PS5 host idle policy, so this is intentionally a no-op.
+    LOG_DEBUG(Service_AM, "called (guest idle service not exposed)");
     R_SUCCEED();
 }
 
@@ -462,14 +538,60 @@ Result ISelfController::IsAutoSleepDisabled(Out<bool> out_is_auto_sleep_disabled
     R_SUCCEED();
 }
 
+Result ISelfController::SetInputDetectionSourceSet(u32 input_detection_source_set) {
+    m_input_detection_source_set = input_detection_source_set;
+    LOG_DEBUG(Service_AM, "called, input_detection_source_set={:#x}",
+              m_input_detection_source_set);
+    R_SUCCEED();
+}
+
+Result ISelfController::GetCurrentIlluminance(Out<f32> out_illuminance) {
+    // PS5 integration exposes no ambient-light sensor; pair this neutral value with
+    // IsIlluminanceAvailable=false so guests can handle the unsupported capability normally.
+    *out_illuminance = 0.0f;
+    LOG_DEBUG(Service_AM, "called, illuminance={}", *out_illuminance);
+    R_SUCCEED();
+}
+
 Result ISelfController::IsIlluminanceAvailable(Out<bool> out_is_illuminance_available) {
-    LOG_WARNING(Service_AM, "(stubbed)");
+    LOG_DEBUG(Service_AM, "called");
+
+    // No ambient-light sensor is exposed by the PS5 host integration. Report that capability
+    // accurately so guests do not attempt GetCurrentIlluminance/GetCurrentIlluminanceEx.
     *out_is_illuminance_available = false;
     R_SUCCEED();
 }
 
+void ISelfController::ReportMultimediaError(HLERequestContext& ctx) {
+    IPC::RequestParser rp{ctx};
+    const u32 error = rp.Pop<u32>();
+    LOG_DEBUG(Service_AM, "Multimedia error reported by guest, code={:#x}, context_size={}", error,
+              ctx.GetReadBufferSize());
+
+    // This is a report/notification command. Encore has no Horizon multimedia-error collector;
+    // accepting the notification has no guest-visible state transition.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
+Result ISelfController::GetCurrentIlluminanceEx(Out<CurrentIlluminanceEx> out_illuminance) {
+    *out_illuminance = {};
+    LOG_DEBUG(Service_AM, "called, ambient-light sensor unavailable");
+    R_SUCCEED();
+}
+
 Result ISelfController::SetInputDetectionPolicy(InputDetectionPolicy input_detection_policy) {
-    LOG_WARNING(Service_AM, "(STUBBED) called");
+    m_input_detection_policy = input_detection_policy;
+    LOG_DEBUG(Service_AM, "called, input_detection_policy={}",
+              static_cast<u32>(m_input_detection_policy));
+    R_SUCCEED();
+}
+
+Result ISelfController::SetWirelessPriorityMode(u32 wireless_priority_mode) {
+    // There is no Horizon WLAN scheduler on PS5. Keep the requested value as guest-visible
+    // service state without attempting to alter host networking priorities.
+    m_wireless_priority_mode = wireless_priority_mode;
+    LOG_DEBUG(Service_AM, "called, wireless_priority_mode={}", m_wireless_priority_mode);
     R_SUCCEED();
 }
 
@@ -495,19 +617,35 @@ Result ISelfController::GetAccumulatedSuspendedTickChangedEvent(
 }
 
 Result ISelfController::SetAlbumImageTakenNotificationEnabled(bool enabled) {
-    LOG_WARNING(Service_AM, "(STUBBED) called. enabled={}", enabled);
+    LOG_DEBUG(Service_AM, "called. enabled={}", enabled);
 
-    // This service call sets an internal flag whether a notification is shown when an image is
-    // captured. Currently we do not support capturing images via the capture button, so this can be
-    // stubbed for now.
+    // Preserve the guest-visible notification preference even though capture-button notifications
+    // are not surfaced by the current frontend.
     std::scoped_lock lk{m_applet->lock};
     m_applet->album_image_taken_notification_enabled = enabled;
 
     R_SUCCEED();
 }
 
+void ISelfController::SetApplicationAlbumUserData(HLERequestContext& ctx) {
+    LOG_DEBUG(Service_AM, "called, application_album_user_data_size={}", ctx.GetReadBufferSize());
+
+    // The current screenshot backend writes image/title/timestamp data directly and has no
+    // consumer for Horizon's opaque application album-user-data blob.
+    IPC::ResponseBuilder rb{ctx, 2};
+    rb.Push(ResultSuccess);
+}
+
 Result ISelfController::SaveCurrentScreenshot(Capture::AlbumReportOption album_report_option) {
     LOG_INFO(Service_AM, "called, report_option={}", album_report_option);
+
+    {
+        std::scoped_lock lk{m_applet->lock};
+        if (m_applet->screenshot_permission == ScreenshotPermission::Disable) {
+            LOG_WARNING(Service_AM, "Screenshot rejected by application capture permission");
+            R_RETURN(ResultUnknown);
+        }
+    }
 
     const auto screenshot_service =
         system.ServiceManager().GetService<Service::Capture::IScreenShotApplicationService>(
@@ -521,7 +659,7 @@ Result ISelfController::SaveCurrentScreenshot(Capture::AlbumReportOption album_r
 }
 
 Result ISelfController::SetRecordVolumeMuted(bool muted) {
-    LOG_WARNING(Service_AM, "(STUBBED) called. muted={}", muted);
+    LOG_DEBUG(Service_AM, "called. muted={}", muted);
 
     std::scoped_lock lk{m_applet->lock};
     m_applet->record_volume_muted = muted;
@@ -530,7 +668,8 @@ Result ISelfController::SetRecordVolumeMuted(bool muted) {
 }
 
 Result ISelfController::Unknown230(u32 in_val, Out<u16> out_val) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, in_val={}", in_val);
+    LOG_WARNING(Service_AM,
+                "Undocumented HOS20+ Unknown230 compatibility response, in_val={}", in_val);
 
     *out_val = 0;
 
@@ -538,7 +677,8 @@ Result ISelfController::Unknown230(u32 in_val, Out<u16> out_val) {
 }
 
 Result ISelfController::Unknown240(u32 in_val) {
-    LOG_WARNING(Service_AM, "(STUBBED) called, in_val={}", in_val);
+    LOG_WARNING(Service_AM,
+                "Undocumented HOS23+ Unknown240 compatibility response, in_val={}", in_val);
 
     R_SUCCEED();
 }
