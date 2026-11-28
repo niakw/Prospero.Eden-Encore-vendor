@@ -511,7 +511,8 @@ assert "GetNativeGuestSyncpointValue(id)" in mirror
 sync_owner=(R/"encore-active/eden/src/video_core/host1x/syncpoint_manager.cpp").read_text()
 guest_inc=sync_owner.split("void SyncpointManager::IncrementGuest(u32 id) {",1)[1].split("\n}",1)[0]
 host_inc=sync_owner.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1].split("\n}",1)[0]
-assert "guest_action_storage[id]);" in guest_inc
+assert "guest_action_storage[id]," in guest_inc
+assert "std::nullopt, &wrapping_guest_actions[id]);" in guest_inc
 assert "guest_action_storage[id], id)" not in guest_inc
 assert "host_action_storage[id], id)" in host_inc
 video=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
