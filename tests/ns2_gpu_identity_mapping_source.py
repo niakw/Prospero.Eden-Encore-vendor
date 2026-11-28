@@ -1958,11 +1958,13 @@ int main() {
     const auto id=ledger.Create(11,fp16->size,*fp16,pref,1,1);
     assert(id && *id==1 && ledger.Get(*id)->offset==0);
     // Publication remains fail-closed for an unreviewed format.
-    pref[6]=99;
+    // Reset to the original RGBA8 geometry first; the previous FP16 case
+    // deliberately doubled the raw pitch.
+    pref[4]=7; pref[5]=120; pref[6]=99;
     assert(!CalculateNativeImageRequirements(pref,1));
     const auto unknown_size = CalculateNativeImageSizingRequirements(pref,1);
     assert(unknown_size && unknown_size->size==rgba->size &&
-           unknown_size->alignment==4096);
+           unknown_size->alignment==8192);
 
     // Broken raw block geometry gets a bounded 64-byte pitch / 128-row
     // sizing fallback instead of a zero NativeWindow requirement.
