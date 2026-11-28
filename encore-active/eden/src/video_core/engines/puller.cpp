@@ -549,6 +549,21 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!cpu_before || *cpu_before != pending.cpu_address) {
         dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: parked acquire backing remapped");
     }
+#ifdef PS5_NATIVE
+    auto& process_registry =
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto process_ticket = ProcessTicket(*ticket);
+    if (process_registry.ConsumeSemaphoreWaiterLatch(
+            process_ticket, &dma_pusher.channel_state,
+            ticket->channel_generation, pending.address,
+            pending.cpu_address)) {
+        // A real GPU fence published the exact waited value even if another
+        // release advanced the guest word before this channel was rescheduled.
+        dma_pusher.NoteNativeAcquireResolved(true);
+        pending_native_acquire.reset();
+        return true;
+    }
+#endif
     // Native RELEASE callbacks already retire on the fence manager's GPU
     // fence thread. Do not synchronously drain every outstanding fence while
     // polling a parked acquire: the exact semaphore read below stays coherent,
@@ -565,6 +580,11 @@ bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {
     if (!*ready) {
         return false;
     }
+#ifdef PS5_NATIVE
+    process_registry.RemoveSemaphoreWaiter(
+        process_ticket, &dma_pusher.channel_state,
+        ticket->channel_generation);
+#endif
     // GPU-produced semaphore values preserve the submit-time command image.
     // CPU/unknown releases invalidate it before this parked channel resumes.
     dma_pusher.NoteNativeAcquireResolved(observed.gpu_produced);
@@ -714,32 +734,68 @@ void Puller::ProcessNativeSemaphoreExecute(DmaPusher& dma_pusher, u32 control) {
     // entire fence queue and could leave ShutdownMainProcess blocked in
     // gpu_thread.Stop(). Read only the exact coherent semaphore; if its
     // producer has not retired yet, park this channel and run other queues.
+#ifdef PS5_NATIVE
+    const auto acquire_ticket =
+        Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
+            .CaptureTicket(&dma_pusher.channel_state);
+    const auto acquire_device =
+        dma_pusher.memory_manager.GpuToCpuAddress(address, sizeof(u32));
+    if (!acquire_ticket || !acquire_ticket->process ||
+        !acquire_ticket->generation || !acquire_ticket->channel_generation ||
+        !acquire_device) {
+        dma_pusher.FailNativeSubmission(
+            "Ampere SEM_EXECUTE: acquire waiter owner unavailable");
+    }
+    auto& acquire_registry =
+        Service::Nvidia::Devices::NativeGpuProcessRegistry::Instance();
+    const auto acquire_process_ticket = ProcessTicket(*acquire_ticket);
+    if (!acquire_registry.RegisterSemaphoreWaiter(
+            acquire_process_ticket, &dma_pusher.channel_state,
+            acquire_ticket->channel_generation, address, *acquire_device,
+            value, operation)) {
+        dma_pusher.FailNativeSubmission(
+            "Ampere SEM_EXECUTE: semaphore waiter table unavailable");
+    }
+#endif
     const auto observed = ReadCoherentNativeSemaphore(dma_pusher, address);
+#ifdef PS5_NATIVE
+    if (observed.cpu_address != *acquire_device) {
+        acquire_registry.RemoveSemaphoreWaiter(
+            acquire_process_ticket, &dma_pusher.channel_state,
+            acquire_ticket->channel_generation);
+        dma_pusher.FailNativeSubmission(
+            "Ampere SEM_EXECUTE: acquire backing changed during waiter registration");
+    }
+#endif
     const auto ready = NativeSemaphore::AcquireReady(
         operation, observed.value, value);
     if (!ready) {
+#ifdef PS5_NATIVE
+        acquire_registry.RemoveSemaphoreWaiter(
+            acquire_process_ticket, &dma_pusher.channel_state,
+            acquire_ticket->channel_generation);
+#endif
         dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: unknown acquire operation");
     }
     if (!*ready) {
         // Do not advance past an unfulfilled GPU wait. DMA retains the
         // current command cursor and the scheduler can run other channels.
 #ifdef PS5_NATIVE
-        const auto ticket =
-            Service::Nvidia::Devices::NativeGpuChannelRegistry::Instance()
-                .CaptureTicket(&dma_pusher.channel_state);
-        if (!ticket || !ticket->process || !ticket->generation ||
-            !ticket->channel_generation) {
-            dma_pusher.FailNativeSubmission("Ampere SEM_EXECUTE: pending acquire has no channel epoch");
-        }
         pending_native_acquire = PendingNativeAcquire{
             address, value, operation, observed.cpu_address,
-            ticket->process, ticket->generation, ticket->channel_generation};
+            acquire_ticket->process, acquire_ticket->generation,
+            acquire_ticket->channel_generation};
 #else
         pending_native_acquire = PendingNativeAcquire{
             address, value, operation, observed.cpu_address};
 #endif
         return;
     }
+#ifdef PS5_NATIVE
+    acquire_registry.RemoveSemaphoreWaiter(
+        acquire_process_ticket, &dma_pusher.channel_state,
+        acquire_ticket->channel_generation);
+#endif
     // Even an acquire already satisfied when parsed can separate a command
     // list submitted before the guest CPU filled its later words. If that
     // value is not proven GPU-produced, invalidate/restart a snapshot read.

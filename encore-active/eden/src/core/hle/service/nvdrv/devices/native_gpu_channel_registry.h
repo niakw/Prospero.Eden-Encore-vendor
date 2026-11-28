@@ -283,6 +283,11 @@ public:
         const std::scoped_lock lock{mutex};
         const auto bound = channels.find(channel);
         const auto process = bound == channels.end() ? nullptr : bound->second.process;
+        if (bound != channels.end()) {
+            NativeGpuProcessRegistry::Instance().RemoveSemaphoreWaiter(
+                {bound->second.process, bound->second.generation}, channel,
+                bound->second.channel_generation);
+        }
         channels.erase(channel);
         for (auto it = engines.begin(); it != engines.end();) {
             if (it->second.channel == channel) it = engines.erase(it);

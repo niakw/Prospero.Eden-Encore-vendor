@@ -83,16 +83,42 @@ for token in (
     "EndGpuSemaphoreRelease(",
     "HasPendingGpuSemaphoreRelease(",
     "IsGpuProducedSemaphoreValue(",
+    "MaxSemaphoreWaiters = 64",
+    "RegisterSemaphoreWaiter(",
+    "ConsumeSemaphoreWaiterLatch(",
+    "RemoveSemaphoreWaiter(",
+    "semaphore_waiters",
+    "SemaphoreWaiterMatches(",
 ):
     assert token in native_process_registry, token
+record_gpu=native_process_registry.split("void RecordGpuSemaphoreValue(",1)[1].split(
+    "\n    // Register a backend GPU producer",1)[0]
+assert record_gpu.index("SemaphoreWaiterMatches(*waiter, value)") < record_gpu.index(
+    "for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i)")
+assert "page == start || page == start + 0x1000" in native_process_registry
 assert puller.count("BeginGpuSemaphoreRelease(") >= 4
 assert puller.count("EndGpuSemaphoreRelease(") >= 8
 for token in (
     "PendingNativeAcquireHasGpuProducer(",
     "HasPendingGpuSemaphoreRelease(",
     "NoteNativeAcquireResolved(observed.gpu_produced)",
+    "RegisterSemaphoreWaiter(",
+    "ConsumeSemaphoreWaiterLatch(",
+    "RemoveSemaphoreWaiter(",
 ):
     assert token in puller, token
+ampere_wait=native_acquire.split("if (operation > 5U)",1)[1]
+assert ampere_wait.index("RegisterSemaphoreWaiter(") < ampere_wait.index(
+    "ReadCoherentNativeSemaphore(dma_pusher, address)")
+assert resume.index("ConsumeSemaphoreWaiterLatch(") < resume.index(
+    "ReadCoherentNativeSemaphore(dma_pusher, pending.address)")
+resume_after_read=resume.split("const auto observed = ReadCoherentNativeSemaphore",1)[1]
+assert resume_after_read.index("RemoveSemaphoreWaiter(") < resume_after_read.index(
+    "pending_native_acquire.reset()")
+channel_registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_channel_registry.h").read_text()
+unbind=channel_registry.split("void Unbind(const Tegra::Control::ChannelState* channel) {",1)[1].split(
+    "\n    }\nprivate:",1)[0]
+assert unbind.index("RemoveSemaphoreWaiter(") < unbind.index("channels.erase(channel)")
 assert "HasCpuBlockedNativeChannels() const" in native_scheduler
 assert "HasCpuBlockedNativeChannels() const;" in gpu_header
 assert "impl->scheduler.HasCpuBlockedNativeChannels()" in gpu_vulkan

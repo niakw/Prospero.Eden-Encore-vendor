@@ -102,6 +102,11 @@ public:
     // fence. A miss is treated as CPU/unknown by the command-fetch policy,
     // so bounded eviction can only make Encore fall back to live reads.
     static constexpr std::size_t MaxGpuSemaphoreValues = 2048;
+    // Hardware channels observe each semaphore release continuously. Eden's
+    // scheduler rechecks parked queues between command lists, so an exact
+    // AcquireEqual value can otherwise be reached and passed between polls.
+    // Keep one bounded waiter per native GPU channel in this process epoch.
+    static constexpr std::size_t MaxSemaphoreWaiters = 64;
 
     [[nodiscard]] bool RegisterSemaphoreRegion(
         Kernel::KProcess* process, std::uint64_t start, std::uint64_t size) {
@@ -155,6 +160,15 @@ public:
                 published.gpu_page == start + 0x1000) {
                 published.valid = false;
                 published.pending_releases = 0;
+            }
+        }
+        for (auto& waiter : entry.semaphore_waiters) {
+            if (!waiter) continue;
+            const auto page = waiter->gpu_address & ~std::uint64_t{0xfff};
+            if (page == start || page == start + 0x1000) {
+                waiter.reset();
+                if (entry.semaphore_waiter_count != 0)
+                    --entry.semaphore_waiter_count;
             }
         }
     }
@@ -269,6 +283,101 @@ public:
         return std::nullopt;
     }
 
+    [[nodiscard]] bool RegisterSemaphoreWaiter(
+        const Ticket& ticket, const void* channel, std::uint64_t channel_generation,
+        std::uint64_t gpu_address, std::uint64_t device_address,
+        std::uint32_t value, std::uint32_t operation) {
+        if (!ticket.process || !ticket.generation || !channel ||
+            !channel_generation)
+            return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return false;
+        auto& entry = owner->second;
+        std::optional<SemaphoreWaiter>* free_slot = nullptr;
+        for (auto& slot : entry.semaphore_waiters) {
+            if (slot && slot->channel == channel) {
+                // A native channel can own only one parked semaphore command.
+                slot.reset();
+                if (entry.semaphore_waiter_count != 0)
+                    --entry.semaphore_waiter_count;
+            }
+            if (!slot && !free_slot)
+                free_slot = &slot;
+        }
+        if (!free_slot || entry.semaphore_waiter_count >= MaxSemaphoreWaiters)
+            return false;
+        free_slot->emplace();
+        auto& waiter = **free_slot;
+        waiter.channel = channel;
+        waiter.channel_generation = channel_generation;
+        waiter.gpu_address = gpu_address;
+        waiter.device_address = device_address & ~std::uint64_t{3};
+        waiter.value = value;
+        waiter.operation = operation;
+        waiter.latched = false;
+        ++entry.semaphore_waiter_count;
+        return true;
+    }
+
+    void RemoveSemaphoreWaiter(
+        const Ticket& ticket, const void* channel,
+        std::uint64_t channel_generation) {
+        if (!ticket.process || !ticket.generation || !channel ||
+            !channel_generation)
+            return;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return;
+        auto& entry = owner->second;
+        for (auto& slot : entry.semaphore_waiters) {
+            if (!slot || slot->channel != channel ||
+                slot->channel_generation != channel_generation)
+                continue;
+            slot.reset();
+            if (entry.semaphore_waiter_count != 0)
+                --entry.semaphore_waiter_count;
+            return;
+        }
+    }
+
+    [[nodiscard]] bool ConsumeSemaphoreWaiterLatch(
+        const Ticket& ticket, const void* channel,
+        std::uint64_t channel_generation, std::uint64_t gpu_address,
+        std::uint64_t device_address) {
+        if (!ticket.process || !ticket.generation || !channel ||
+            !channel_generation)
+            return false;
+        const std::scoped_lock lock{mutex};
+        const auto owner = owners.find(
+            const_cast<Kernel::KProcess*>(ticket.process));
+        if (owner == owners.end() ||
+            owner->second.generation != ticket.generation)
+            return false;
+        auto& entry = owner->second;
+        const auto word = device_address & ~std::uint64_t{3};
+        for (auto& slot : entry.semaphore_waiters) {
+            if (!slot || slot->channel != channel ||
+                slot->channel_generation != channel_generation ||
+                slot->gpu_address != gpu_address ||
+                slot->device_address != word)
+                continue;
+            if (!slot->latched)
+                return false;
+            slot.reset();
+            if (entry.semaphore_waiter_count != 0)
+                --entry.semaphore_waiter_count;
+            return true;
+        }
+        return false;
+    }
+
     // Remember the exact logical value that became visible only after a real
     // backend GPU fence retired. This is not guest state: it lets the native
     // command fetcher distinguish GPU->GPU dependencies from semaphores that
@@ -286,6 +395,15 @@ public:
         auto& entry = owner->second;
         const auto word = device_address & ~std::uint64_t{3};
         const auto page = gpu_address & ~std::uint64_t{0xfff};
+        // Latch at the real GPU retirement point. A later release can advance
+        // the guest word before the parked channel gets another scheduler turn.
+        for (auto& waiter : entry.semaphore_waiters) {
+            if (waiter && waiter->gpu_address == gpu_address &&
+                waiter->device_address == word &&
+                SemaphoreWaiterMatches(*waiter, value)) {
+                waiter->latched = true;
+            }
+        }
         for (std::size_t i = 0; i < entry.gpu_semaphore_value_count; ++i) {
             auto& published = entry.gpu_semaphore_values[i];
             if (published.valid && published.device_address == word &&
@@ -521,6 +639,27 @@ private:
         bool valid{};
         std::uint32_t pending_releases{};
     };
+    struct SemaphoreWaiter {
+        const void* channel{};
+        std::uint64_t channel_generation{};
+        std::uint64_t gpu_address{};
+        std::uint64_t device_address{};
+        std::uint32_t value{};
+        std::uint32_t operation{};
+        bool latched{};
+    };
+    [[nodiscard]] static bool SemaphoreWaiterMatches(
+        const SemaphoreWaiter& waiter, std::uint32_t current) {
+        switch (waiter.operation) {
+        case 0: return current == waiter.value;
+        case 2: return current >= waiter.value;
+        case 3:
+            return static_cast<std::int32_t>(current - waiter.value) >= 0;
+        case 4: return (current & waiter.value) != 0;
+        case 5: return (current & waiter.value) == 0;
+        default: return false;
+        }
+    }
     mutable std::mutex mutex;
     struct VmEntry {
         std::uint32_t id{};
@@ -538,6 +677,8 @@ private:
         std::array<GpuSemaphoreValue, MaxGpuSemaphoreValues> gpu_semaphore_values{};
         std::size_t gpu_semaphore_value_count{};
         std::size_t gpu_semaphore_value_next{};
+        std::array<std::optional<SemaphoreWaiter>, MaxSemaphoreWaiters> semaphore_waiters{};
+        std::size_t semaphore_waiter_count{};
     };
     [[nodiscard]] static bool HasSemaphoreRegion(
         const Entry& entry, std::uint64_t start) {
