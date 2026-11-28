@@ -422,6 +422,8 @@ assert submit_impl.index("CaptureNativeSubmissionLease()") < submit_impl.index("
 
 
 for token in ("::Common::unordered_map<DeviceFD, u64> native_generations;",
+              "::Common::unordered_map<DeviceFD, u32> pre_native_gpfifo_entries;",
+              "bool AdoptPreNativeGpfifo(DeviceFD fd);",
               "bool NativeEpochCurrent(DeviceFD fd) const;"):
     assert token in nvhost_hdr, token
 gpu_open=nvhost_cpp.split("void nvhost_gpu::OnOpen(",1)[1].split("\n}",1)[0]
@@ -435,7 +437,14 @@ for token in ("sessions.find(fd)", "native_generations.contains(fd)",
     assert token in uses_native, token
 assert uses_native.index("native_generations.contains(fd)") < uses_native.index("CaptureTicket(session->process)")
 # Late promotion is one-way and still epoch-gated at all native entry points.
-assert "native_generations.erase(fd)" in nvhost_cpp.split("void nvhost_gpu::OnClose(",1)[1].split("\n}",1)[0]
+gpu_close=nvhost_cpp.split("void nvhost_gpu::OnClose(",1)[1].split("\n}",1)[0]
+assert "native_generations.erase(fd)" in gpu_close
+assert "pre_native_gpfifo_entries.erase(fd)" in gpu_close
+assert gpu_close.index("sessions.erase(fd)") < gpu_close.index("if (sessions.empty())")
+for token in ("native_channel_enabled = false;", "native_gpfifo_configured = false;",
+              "native_runlist_id.reset();"):
+    assert token in gpu_close,token
+assert gpu_close.index("if (sessions.empty())") < gpu_close.index("native_channel_enabled = false;")
 assert "NativeGpuProcessRegistry::Instance().Contains" not in uses_native
 epoch=nvhost_cpp.split("bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
 for token in ("native_generations.find(fd)", "IsCurrent("):
@@ -590,6 +599,7 @@ set_direct=nvhost_cpp.split(
 for token in ("const std::scoped_lock lock{channel_mutex}",
               "if (!UsesNativeAbi(fd)) return NvResult::NotImplemented",
               "ValidateChannelOwner(fd, program_id)",
+              "(void)AdoptPreNativeGpfifo(fd)",
               "native_channel_enabled = enabled"):
     assert token in set_direct,token
 set_tsg=nvhost_cpp.split(
@@ -597,6 +607,7 @@ set_tsg=nvhost_cpp.split(
 )[1].split("\n}",1)[0]
 for token in ("channel->process != tsg->process",
               "!UsesNativeAbi(fd) || !NativeEpochCurrent(fd)",
+              "(void)AdoptPreNativeGpfifo(fd)",
               "native_channel_enabled = enabled"):
     assert token in set_tsg,token
 # Native legacy ALLOC_GPFIFO_EX/EX2 cannot claim a configured channel from
@@ -638,7 +649,8 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
         "NvResult nvhost_gpu::"+next_name if next_name=="AllocGPFIFOEx2" else
         "s32_le nvhost_gpu::GetObjectContextClassNumberIndex",1)[0]
     for token in ("system.GPU().InitChannel(*channel_state, program_id);",
-                  "if (UsesNativeAbi(fd))",
+                  "const bool native = UsesNativeAbi(fd);",
+                  "pre_native_gpfifo_entries.insert_or_assign(",
                   "native_channel_enabled = true;"):
         assert token in alloc,(name,token)
     assert "ValidNativeGpfifoLegacyAllocationCount(" in alloc
@@ -651,7 +663,9 @@ for name,next_name in (("AllocGPFIFOEx","AllocGPFIFOEx2"),
     # though physical InitChannel is still gated on a real GMMU.
     deferred=alloc.split("if (!channel_state->memory_manager) {",1)[1].split(
         "system.GPU().InitChannel(*channel_state, program_id);",1)[0]
-    for token in ("if (UsesNativeAbi(fd))",
+    for token in ("if (native)",
+                  "pre_native_gpfifo_entries.erase(fd);",
+                  "pre_native_gpfifo_entries.insert_or_assign(",
                   "native_channel_enabled = true;",
                   "params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);",
                   "return NvResult::Success;"):
@@ -691,6 +705,14 @@ assert setup_bind.index("system.GPU().InitChannel(*channel_state, program_id);")
 
 submit_impl=nvhost_cpp.split("NvResult nvhost_gpu::SubmitGPFIFOImpl(",1)[1].split(
     "\n}",1)[0]
+adopt_pre=nvhost_cpp.split("bool nvhost_gpu::AdoptPreNativeGpfifo(DeviceFD fd) {",1)[1].split("\n}",1)[0]
+for token in ("pre_native_gpfifo_entries.find(fd)",
+              "ValidNativeGpfifoLegacyAllocationCount(allocation->second)",
+              "!NativeEpochCurrent(fd)", "native_gpfifo_configured = true;",
+              "pre_native_gpfifo_entries.erase(allocation)"):
+    assert token in adopt_pre,token
+assert "if (!native_gpfifo_configured && AdoptPreNativeGpfifo(fd))" in submit_impl
+assert submit_impl.index("AdoptPreNativeGpfifo(fd)") < submit_impl.index("if (!native_channel_enabled)")
 assert "if (!native_channel_enabled)" in submit_impl
 assert "reason=channel-disabled" in submit_impl
 assert "bool native_gpfifo_configured{};" in nvhost_hdr

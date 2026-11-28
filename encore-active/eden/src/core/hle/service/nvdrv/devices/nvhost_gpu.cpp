@@ -367,14 +367,18 @@ void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
     const std::scoped_lock lock{channel_mutex};
-    if (UsesNativeAbi(fd)) {
+    native_generations.erase(fd);
+    pre_native_gpfifo_entries.erase(fd);
+    sessions.erase(fd);
+    // One shared ChannelState backs every live /dev/nvhost-gpu descriptor.
+    // Closing a 3D or copy FD must not disable the surviving channel. Reset
+    // device-wide native state only when the final descriptor is gone.
+    if (sessions.empty()) {
         native_channel_enabled = false;
         native_gpfifo_configured = false;
+        native_runlist_id.reset();
+        pre_native_gpfifo_entries.clear();
     }
-    native_generations.erase(fd);
-    sessions.erase(fd);
-    // One shared ChannelState backs this nvhost-gpu device owner. Do not
-    // retire it while another guest FD still references the same device.
     // Once the final FD closes, release Maxwell/NS1 (and native NS2) state
     // before a later title can allocate another channel in this PS5 process.
     if (sessions.empty() && channel_state &&
@@ -415,6 +419,9 @@ NvResult nvhost_gpu::SetNativeTsgChannelEnabled(DeviceFD fd, NvCore::SessionId o
         !UsesNativeAbi(fd) || !NativeEpochCurrent(fd) ||
         !channel_state)
         return NvResult::InvalidState;
+    // If this FD was configured before GSV publication, preserve that real
+    // allocation while honoring this explicit enable/disable request.
+    (void)AdoptPreNativeGpfifo(fd);
     native_channel_enabled = enabled;
     return NvResult::Success;
 }
@@ -427,6 +434,10 @@ NvResult nvhost_gpu::NativeChannelSetEnabled(DeviceFD fd, bool enabled) {
         status != NvResult::Success)
         return status;
     if (!channel_state) return NvResult::InvalidState;
+    // An explicit native scheduling command consumes any pre-GSV allocation
+    // proof before changing enabled state. A later submit may not silently
+    // undo an explicit disable.
+    (void)AdoptPreNativeGpfifo(fd);
     native_channel_enabled = enabled;
     return NvResult::Success;
 }
@@ -500,6 +511,7 @@ NvResult nvhost_gpu::ChannelSetupBind(IoctlChannelSetupBind& params, DeviceFD fd
     // Unlike CHANNEL_OPEN, this successful bind makes GPFIFO work runnable;
     // otherwise the first kernel-mode H:0x1B submit is rejected as disabled.
     // Publish only after InitChannel succeeds, never on a failed setup.
+    pre_native_gpfifo_entries.erase(fd);
     native_channel_enabled = true;
     native_gpfifo_configured = true;
 
@@ -769,10 +781,11 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     if (const auto status = ValidateChannelOwner(fd, program_id);
         status != NvResult::Success)
         return status;
+    const bool native = UsesNativeAbi(fd);
     // Unlike S2 SETUP_BIND the legacy ring size need not be a power of two,
     // but a zero/overflowed native ring is not an allocation. Reject before
     // publishing the logical GPFIFO enable state or initializing the GPU.
-    if (UsesNativeAbi(fd) &&
+    if (native &&
         !ValidNativeGpfifoLegacyAllocationCount(
             static_cast<u32>(params.num_entries)))
         return NvResult::BadParameter;
@@ -791,9 +804,13 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
         // otherwise its later first submit is rejected as disabled before
         // SubmitGPFIFOImpl can perform the deferred InitChannel. The submit
         // still requires a real bound GMMU and initialized scheduler.
-        if (UsesNativeAbi(fd)) {
+        if (native) {
+            pre_native_gpfifo_entries.erase(fd);
             native_channel_enabled = true;
             native_gpfifo_configured = true;
+        } else {
+            pre_native_gpfifo_entries.insert_or_assign(
+                fd, static_cast<u32>(params.num_entries));
         }
         params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
         return NvResult::Success;
@@ -803,11 +820,15 @@ NvResult nvhost_gpu::AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     // NVIDIA Ampere channel_setup_bind ends with ga10b_channel_bind(),
     // which enables the channel. A native allocation cannot succeed until
     // InitChannel really publishes a scheduler channel and valid bind id.
-    if (UsesNativeAbi(fd)) {
+    if (native) {
         if (!channel_state->initialized || channel_state->bind_id < 0)
             return NvResult::InvalidState;
+        pre_native_gpfifo_entries.erase(fd);
         native_channel_enabled = true;
         native_gpfifo_configured = true;
+    } else {
+        pre_native_gpfifo_entries.insert_or_assign(
+            fd, static_cast<u32>(params.num_entries));
     }
 
     params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
@@ -827,10 +848,11 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     if (const auto status = ValidateChannelOwner(fd, program_id);
         status != NvResult::Success)
         return status;
+    const bool native = UsesNativeAbi(fd);
     // Unlike S2 SETUP_BIND the legacy ring size need not be a power of two,
     // but a zero/overflowed native ring is not an allocation. Reject before
     // publishing the logical GPFIFO enable state or initializing the GPU.
-    if (UsesNativeAbi(fd) &&
+    if (native &&
         !ValidNativeGpfifoLegacyAllocationCount(
             static_cast<u32>(params.num_entries)))
         return NvResult::BadParameter;
@@ -849,9 +871,13 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
         // otherwise its later first submit is rejected as disabled before
         // SubmitGPFIFOImpl can perform the deferred InitChannel. The submit
         // still requires a real bound GMMU and initialized scheduler.
-        if (UsesNativeAbi(fd)) {
+        if (native) {
+            pre_native_gpfifo_entries.erase(fd);
             native_channel_enabled = true;
             native_gpfifo_configured = true;
+        } else {
+            pre_native_gpfifo_entries.insert_or_assign(
+                fd, static_cast<u32>(params.num_entries));
         }
         params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
         return NvResult::Success;
@@ -861,11 +887,15 @@ NvResult nvhost_gpu::AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd) {
     // NVIDIA Ampere channel_setup_bind ends with ga10b_channel_bind(),
     // which enables the channel. A native allocation cannot succeed until
     // InitChannel really publishes a scheduler channel and valid bind id.
-    if (UsesNativeAbi(fd)) {
+    if (native) {
         if (!channel_state->initialized || channel_state->bind_id < 0)
             return NvResult::InvalidState;
+        pre_native_gpfifo_entries.erase(fd);
         native_channel_enabled = true;
         native_gpfifo_configured = true;
+    } else {
+        pre_native_gpfifo_entries.insert_or_assign(
+            fd, static_cast<u32>(params.num_entries));
     }
 
     params.fence_out = syncpoint_manager.GetSyncpointFence(channel_syncpoint);
@@ -1043,6 +1073,12 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         native_submission_lease = as_owner->CaptureNativeSubmissionLease();
         if (!native_submission_lease)
             return NvResult::InvalidState;
+        // The Nov-28 console trace opened/configured this FD before GSV
+        // publication. Late ABI capture alone would turn native=0 into a
+        // channel-disabled rejection. Adopt only a successful allocation from
+        // this exact FD, revalidating the native ring count before enabling it.
+        if (!native_gpfifo_configured && AdoptPreNativeGpfifo(fd))
+            native_channel_enabled = true;
         if (!native_channel_enabled) {
 #ifdef PS5_NATIVE
             if (trace_impl)
@@ -1488,6 +1524,19 @@ Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {
     if (event_id == 7)
         return UsesNativeAbi(fd) ? error_notifier_event : nullptr;
     return QueryEvent(event_id);
+}
+
+bool nvhost_gpu::AdoptPreNativeGpfifo(DeviceFD fd) {
+    const auto allocation = pre_native_gpfifo_entries.find(fd);
+    if (allocation == pre_native_gpfifo_entries.end())
+        return false;
+    if (!NativeEpochCurrent(fd) ||
+        !ValidNativeGpfifoLegacyAllocationCount(allocation->second)) {
+        return false;
+    }
+    native_gpfifo_configured = true;
+    pre_native_gpfifo_entries.erase(allocation);
+    return true;
 }
 
 bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {

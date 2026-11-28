@@ -277,6 +277,10 @@ private:
     NvResult AllocateObjectContext(IoctlAllocObjCtx& params, DeviceFD fd);
 
     NvResult SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandList&& entries, DeviceFD fd);
+    // A legacy ALLOC_GPFIFO_EX[2] can succeed before GSV publishes the
+    // process epoch. Consume that exact per-FD proof once the same descriptor
+    // is late-promoted; enabling alone must never fabricate an allocation.
+    [[nodiscard]] bool AdoptPreNativeGpfifo(DeviceFD fd);
     // ABI identity is sticky for the lifetime of a native channel FD. The
     // generation check is separate so a closed GSV epoch fails closed instead
     // of re-routing the same Ampere fd through legacy Maxwell handlers.
@@ -305,6 +309,10 @@ private:
     // Mutable so const ABI probes can perform the one-way late capture of a
     // registry generation for an FD opened before GSV publication.
     mutable ::Common::unordered_map<DeviceFD, u64> native_generations;
+    // Successful legacy allocations made before the same FD acquired a native
+    // GSV epoch. The entry count is retained so late promotion can re-run the
+    // native ring-size admission instead of trusting a legacy-only success.
+    ::Common::unordered_map<DeviceFD, u32> pre_native_gpfifo_entries;
     u32 channel_syncpoint;
     u32 native_submit_logs{};
     // An authenticated NS2 /dev/nvhost-gpu channel retains its selected
