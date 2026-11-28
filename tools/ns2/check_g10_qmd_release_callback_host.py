@@ -32,6 +32,7 @@ assert "RecordGpuFailure(failure)" in owner
 assert ".ReportFault(channel)" in owner
 assert owner.index("RecordGpuFailure(failure)") < owner.index(".ReportFault(channel)")
 assert "Native QMD3 release backing revoked after GPU submission" in owner
+assert "NativeComputeSemaphoreReduction(" in owner
 assert owner.index("if (!current.IsCurrent(channel, ticket)) return;") < owner.index(
     "throw std::runtime_error(")
 assert owner.index("throw std::runtime_error(") < owner.index("PublishNativeSemaphoreWord(")
@@ -48,6 +49,7 @@ cpp=r"""
 #include <utility>
 #include <vector>
 #include <algorithm>
+#include "video_core/native_qmd.h"
 template<class F> struct ScopeExit {
     F f;
     ~ScopeExit(){ f(); }
@@ -273,6 +275,7 @@ with tempfile.TemporaryDirectory(prefix="eden-g10-qmd-retire-") as tmp:
             exe=Path(tmp)/(Path(cc).name.replace("+","p")+opt)
             args=[cc,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
                   "-DPS5_NATIVE","-fsanitize=undefined","-fno-sanitize-recover=all",
+                  "-I"+str(ROOT/"encore-active/eden/src"),
                   str(file),"-o",str(exe)]
             compiled=subprocess.run(args,capture_output=True,text=True,
                                     timeout=60,env=os.environ.copy())
