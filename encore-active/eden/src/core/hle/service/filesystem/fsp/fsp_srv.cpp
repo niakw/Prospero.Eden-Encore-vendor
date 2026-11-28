@@ -1561,8 +1561,8 @@ Result FSP_SRV::RegisterProgramIndexMapInfo(
     R_SUCCEED();
 }
 
-Result FSP_SRV::GetProgramIndexForAccessLog(Out<u32> out_program_index,
-                                            Out<u32> out_program_count) {
+Result FSP_SRV::GetProgramIndexForAccessLog(Out<AccessLogVersion> out_access_log_version,
+                                            Out<u32> out_access_log_program_index) {
     LOG_DEBUG(Service_FS, "called, program_id={:016X}, registered_programs={}", program_id,
               program_index_map.size());
 
@@ -1576,11 +1576,8 @@ Result FSP_SRV::GetProgramIndexForAccessLog(Out<u32> out_program_index,
         index = it->program_index;
     }
 
-    R_UNLESS(program_index_map.size() <=
-                 static_cast<std::size_t>((std::numeric_limits<u32>::max)()),
-             ResultUnknown);
-    *out_program_index = index;
-    *out_program_count = static_cast<u32>(program_index_map.size());
+    *out_access_log_version = AccessLogVersion::Latest;
+    *out_access_log_program_index = index;
     R_SUCCEED();
 }
 
