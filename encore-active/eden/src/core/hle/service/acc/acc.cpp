@@ -9,6 +9,7 @@
 
 #include "common/common_types.h"
 #include "common/fs/file.h"
+#include "common/fs/fs.h"
 #include "common/fs/path_util.h"
 #include "common/logging.h"
 #include <ranges>
@@ -420,6 +421,14 @@ public:
         RegisterHandlers(functions);
     }
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class IProfileCommon : public ServiceFramework<IProfileCommon> {
@@ -934,6 +943,14 @@ private:
     std::shared_ptr<EnsureTokenIdCacheAsyncInterface> ensure_token_id{};
     std::shared_ptr<ProfileManager> profile_manager;
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 // 6.0.0+
@@ -1536,32 +1553,6 @@ void Module::Interface::TrySelectUserWithoutInteraction(HLERequestContext& ctx) 
     rb.PushRaw(profile_manager->GetUser(0)->uuid);
 }
 
-void Module::Interface::RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
-    LOG_DEBUG(Service_ACC, "Rejected Nintendo Account/network operation: backend unavailable");
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultUnknown);
-}
-
-void Module::Interface::RejectDebugOnlyCommand(HLERequestContext& ctx) {
-    LOG_WARNING(Service_ACC, "Rejected unsupported account debug-only command");
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultUnknown);
-}
-
-void Module::Interface::RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
-    // Local profile/user commands remain implemented. The rest require
-    // Nintendo Account, notification, PIN policy, debug, thumbnail, or
-    // firmware services that Encore does not model.
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(IPC::ResultNotSupported);
-}
-
-void Module::Interface::RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
-    // No Nintendo Account network, migration, or firmware-debug backend on PS5.
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultUnknown);
-}
-
 Module::Interface::Interface(std::shared_ptr<Module> module_,
                              std::shared_ptr<ProfileManager> profile_manager_,
                              Core::System& system_, const char* name)
@@ -1576,16 +1567,22 @@ public:
         : Interface(std::move(module_), std::move(profile_manager_), system_, "acc:aa") {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {0, &Module::Interface::RejectUnavailableNintendoAccount, "EnsureCacheAsync"},
-            {1, &Module::Interface::RejectUnavailableNintendoAccount, "LoadCache"},
-            {2, &Module::Interface::RejectUnavailableNintendoAccount, "GetDeviceAccountId"},
-            {50, &Module::Interface::RejectUnavailableNintendoAccount, "RegisterNotificationTokenAsync"},   // 1.0.0 - 6.2.0
-            {51, &Module::Interface::RejectUnavailableNintendoAccount, "UnregisterNotificationTokenAsync"}, // 1.0.0 - 6.2.0
+            {0, &ACC_AA::RejectUnavailableNintendoAccount, "EnsureCacheAsync"},
+            {1, &ACC_AA::RejectUnavailableNintendoAccount, "LoadCache"},
+            {2, &ACC_AA::RejectUnavailableNintendoAccount, "GetDeviceAccountId"},
+            {50, &ACC_AA::RejectUnavailableNintendoAccount, "RegisterNotificationTokenAsync"},   // 1.0.0 - 6.2.0
+            {51, &ACC_AA::RejectUnavailableNintendoAccount, "UnregisterNotificationTokenAsync"}, // 1.0.0 - 6.2.0
         };
         // clang-format on
         RegisterHandlers(functions);
     }
     ~ACC_AA() override = default;
+
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected ACC_AA Nintendo Account/network command: backend unavailable");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
 
 };
 
@@ -1601,31 +1598,31 @@ public:
             {3, &ACC_SU::ListOpenUsers, "ListOpenUsers"},
             {4, &ACC_SU::GetLastOpenedUser, "GetLastOpenedUser"},
             {5, &ACC_SU::GetProfile, "GetProfile"},
-            {6, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"},
+            {6, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"},
             {50, &ACC_SU::IsUserRegistrationRequestPermitted, "IsUserRegistrationRequestPermitted"},
             {51, &ACC_SU::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             {52, &ACC_SU::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"}, // 19.0.0+
             {60, &ACC_SU::ListOpenContextStoredUsers, "ListOpenContextStoredUsers"},
-            {99, &Module::Interface::RejectDebugOnlyCommand, "DebugActivateOpenContextRetention"},
-            {100, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserRegistrationNotifier"},
-            {101, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserStateChangeNotifier"},
+            {99, &ACC_SU::RejectDebugOnlyCommand, "DebugActivateOpenContextRetention"},
+            {100, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetUserRegistrationNotifier"},
+            {101, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetUserStateChangeNotifier"},
             {102, &ACC_SU::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
-            {103, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetBaasUserAvailabilityChangeNotifier"},
-            {104, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileUpdateNotifier"},
-            {105, &Module::Interface::RejectUnavailableNintendoAccount, "CheckNetworkServiceAvailabilityAsync"},
-            {106, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileSyncNotifier"},
+            {103, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetBaasUserAvailabilityChangeNotifier"},
+            {104, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetProfileUpdateNotifier"},
+            {105, &ACC_SU::RejectUnavailableNintendoAccount, "CheckNetworkServiceAvailabilityAsync"},
+            {106, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetProfileSyncNotifier"},
             {110, &ACC_SU::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
             {111, &ACC_SU::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
             {112, &ACC_SU::LoadSaveDataThumbnail, "LoadSaveDataThumbnail"},
             {113, &ACC_SU::GetSaveDataThumbnailExistence, "GetSaveDataThumbnailExistence"},
-            {120, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ListOpenUsersInApplication"},
-            {130, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextRetention"},
+            {120, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "ListOpenUsersInApplication"},
+            {130, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextRetention"},
             {140, &ACC_SU::ListQualifiedUsers, "ListQualifiedUsers"},
-            {150, &Module::Interface::RejectUnavailableNintendoAccount, "AuthenticateApplicationAsync"},
-            {151, &Module::Interface::RejectUnavailableNintendoAccount, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            {152, &Module::Interface::RejectUnavailableNintendoAccount, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
-            {190, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserLastOpenedApplication"},
-            {191, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextHolder"},
+            {150, &ACC_SU::RejectUnavailableNintendoAccount, "AuthenticateApplicationAsync"},
+            {151, &ACC_SU::RejectUnavailableNintendoAccount, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            {152, &ACC_SU::RejectUnavailableNintendoAccount, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            {190, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetUserLastOpenedApplication"},
+            {191, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextHolder"},
             {200, &ACC_SU::BeginUserRegistration, "BeginUserRegistration"},
             {201, &ACC_SU::CompleteUserRegistration, "CompleteUserRegistration"},
             {202, &ACC_SU::CancelUserRegistration, "CancelUserRegistration"},
@@ -1633,39 +1630,59 @@ public:
             {204, &ACC_SU::SetUserPosition, "SetUserPosition"},
             {205, &ACC_SU::GetProfileEditor, "GetProfileEditor"},
             {206, &ACC_SU::CompleteUserRegistrationForcibly, "CompleteUserRegistrationForcibly"},
-            {210, &Module::Interface::RejectUnavailableNintendoAccount, "CreateFloatingRegistrationRequest"},
-            {211, &Module::Interface::RejectUnavailableNintendoAccount, "CreateProcedureToRegisterUserWithNintendoAccount"},
-            {212, &Module::Interface::RejectUnavailableNintendoAccount, "ResumeProcedureToRegisterUserWithNintendoAccount"},
-            {230, &Module::Interface::RejectUnavailableNintendoAccount, "AuthenticateServiceAsync"},
+            {210, &ACC_SU::RejectUnavailableNintendoAccount, "CreateFloatingRegistrationRequest"},
+            {211, &ACC_SU::RejectUnavailableNintendoAccount, "CreateProcedureToRegisterUserWithNintendoAccount"},
+            {212, &ACC_SU::RejectUnavailableNintendoAccount, "ResumeProcedureToRegisterUserWithNintendoAccount"},
+            {230, &ACC_SU::RejectUnavailableNintendoAccount, "AuthenticateServiceAsync"},
             {250, &ACC_SU::GetBaasAccountAdministrator, "GetBaasAccountAdministrator"},
-            {290, &Module::Interface::RejectUnavailableNintendoAccount, "ProxyProcedureForGuestLoginWithNintendoAccount"},
-            {291, &Module::Interface::RejectUnavailableNintendoAccount, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
-            {299, &Module::Interface::RejectUnavailableNintendoAccount, "SuspendBackgroundDaemon"},
-            {400, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "SetPinCode"}, // 18.0.0+
+            {290, &ACC_SU::RejectUnavailableNintendoAccount, "ProxyProcedureForGuestLoginWithNintendoAccount"},
+            {291, &ACC_SU::RejectUnavailableNintendoAccount, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
+            {299, &ACC_SU::RejectUnavailableNintendoAccount, "SuspendBackgroundDaemon"},
+            {400, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "SetPinCode"}, // 18.0.0+
             {401, &ACC_SU::GetPinCodeLength, "GetPinCodeLength"}, // 18.0.0+
-            {402, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCode"}, // 18.0.0+
-            {403, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCodeParity"},
-            {404, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "VerifyPinCode"},
-            {405, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "IsPinCodeVerificationForbidden"},
-            {410, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCodeErrorCount"}, // 18.0.0+
-            {411, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ResetPinCodeErrorCount"}, // 18.0.0+
-            {412, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "IncrementPinCodeErrorCount"}, // 18.0.0+
-            {900, &Module::Interface::RejectDebugOnlyCommand, "SetUserUnqualifiedForDebug"},
-            {901, &Module::Interface::RejectDebugOnlyCommand, "UnsetUserUnqualifiedForDebug"},
-            {902, &Module::Interface::RejectDebugOnlyCommand, "ListUsersUnqualifiedForDebug"},
-            {910, &Module::Interface::RejectDebugOnlyCommand, "RefreshFirmwareSettingsForDebug"},
-            {997, &Module::Interface::RejectDebugOnlyCommand, "DebugInvalidateTokenCacheForUser"},
-            {998, &Module::Interface::RejectDebugOnlyCommand, "DebugSetUserStateClose"},
-            {999, &Module::Interface::RejectDebugOnlyCommand, "DebugSetUserStateOpen"},
+            {402, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetPinCode"}, // 18.0.0+
+            {403, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetPinCodeParity"},
+            {404, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "VerifyPinCode"},
+            {405, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "IsPinCodeVerificationForbidden"},
+            {410, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "GetPinCodeErrorCount"}, // 18.0.0+
+            {411, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "ResetPinCodeErrorCount"}, // 18.0.0+
+            {412, &ACC_SU::RejectUnsupportedRemainingAccountCommand, "IncrementPinCodeErrorCount"}, // 18.0.0+
+            {900, &ACC_SU::RejectDebugOnlyCommand, "SetUserUnqualifiedForDebug"},
+            {901, &ACC_SU::RejectDebugOnlyCommand, "UnsetUserUnqualifiedForDebug"},
+            {902, &ACC_SU::RejectDebugOnlyCommand, "ListUsersUnqualifiedForDebug"},
+            {910, &ACC_SU::RejectDebugOnlyCommand, "RefreshFirmwareSettingsForDebug"},
+            {997, &ACC_SU::RejectDebugOnlyCommand, "DebugInvalidateTokenCacheForUser"},
+            {998, &ACC_SU::RejectDebugOnlyCommand, "DebugSetUserStateClose"},
+            {999, &ACC_SU::RejectDebugOnlyCommand, "DebugSetUserStateOpen"},
         };
         // clang-format on
 
         RegisterHandlers(functions);
     }
 private:
+    void RejectUnavailableNintendoAccount(HLERequestContext& ctx) {
+        LOG_DEBUG(Service_ACC, "Rejected acc:su Nintendo Account/auth backend operation");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
+    void RejectDebugOnlyCommand(HLERequestContext& ctx) {
+        LOG_WARNING(Service_ACC, "Rejected unsupported acc:su debug-only command");
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
+
 public:
     ~ACC_SU() override = default;
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ACC_U0 final : public Module::Interface {
@@ -1680,19 +1697,19 @@ public:
             {3, &ACC_U0::ListOpenUsers, "ListOpenUsers"},
             {4, &ACC_U0::GetLastOpenedUser, "GetLastOpenedUser"},
             {5, &ACC_U0::GetProfile, "GetProfile"},
-            {6, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"}, // 3.0.0+
+            {6, &ACC_U0::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"}, // 3.0.0+
             {50, &ACC_U0::IsUserRegistrationRequestPermitted, "IsUserRegistrationRequestPermitted"},
             {51, &ACC_U0::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             {52, &ACC_U0::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"},
             {60, &ACC_U0::ListOpenContextStoredUsers, "ListOpenContextStoredUsers"}, // 5.0.0 - 5.1.0
-            {99, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "DebugActivateOpenContextRetention"}, // 6.0.0+
+            {99, &ACC_U0::RejectUnsupportedRemainingAccountCommand, "DebugActivateOpenContextRetention"}, // 6.0.0+
             {100, &ACC_U0::InitializeApplicationInfo, "InitializeApplicationInfo"},
             {101, &ACC_U0::GetBaasAccountManagerForApplication, "GetBaasAccountManagerForApplication"},
-            {102, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "AuthenticateApplicationAsync"},
-            {103, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "CheckNetworkServiceAvailabilityAsync"}, // 4.0.0+
+            {102, &ACC_U0::RejectUnsupportedRemainingAccountCommand, "AuthenticateApplicationAsync"},
+            {103, &ACC_U0::RejectUnsupportedRemainingAccountCommand, "CheckNetworkServiceAvailabilityAsync"}, // 4.0.0+
             {110, &ACC_U0::StoreSaveDataThumbnailApplication, "StoreSaveDataThumbnail"},
-            {111, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ClearSaveDataThumbnail"},
-            {120, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "CreateGuestLoginRequest"},
+            {111, &ACC_U0::RejectUnsupportedRemainingAccountCommand, "ClearSaveDataThumbnail"},
+            {120, &ACC_U0::RejectUnsupportedRemainingAccountCommand, "CreateGuestLoginRequest"},
             {130, &ACC_U0::LoadOpenContext, "LoadOpenContext"}, // 5.0.0+
             {131, &ACC_U0::ListOpenContextStoredUsers, "ListOpenContextStoredUsers"}, // 6.0.0+
             {140, &ACC_U0::InitializeApplicationInfoRestricted, "InitializeApplicationInfoRestricted"}, // 6.0.0+
@@ -1706,6 +1723,14 @@ public:
     }
     ~ACC_U0() override = default;
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ACC_U1 final : public Module::Interface {
@@ -1720,36 +1745,36 @@ public:
             {3, &ACC_U1::ListOpenUsers, "ListOpenUsers"},
             {4, &ACC_U1::GetLastOpenedUser, "GetLastOpenedUser"},
             {5, &ACC_U1::GetProfile, "GetProfile"},
-            {6, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"},
+            {6, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"},
             {50, &ACC_U1::IsUserRegistrationRequestPermitted, "IsUserRegistrationRequestPermitted"},
             {51, &ACC_U1::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             {52, &ACC_U1::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"},
             {60, &ACC_U1::ListOpenContextStoredUsers, "ListOpenContextStoredUsers"},
-            {99, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "DebugActivateOpenContextRetention"},
-            {100, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserRegistrationNotifier"},
-            {101, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserStateChangeNotifier"},
+            {99, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "DebugActivateOpenContextRetention"},
+            {100, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetUserRegistrationNotifier"},
+            {101, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetUserStateChangeNotifier"},
             {102, &ACC_U1::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
-            {103, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetBaasUserAvailabilityChangeNotifier"},
-            {104, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileUpdateNotifier"},
-            {105, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "CheckNetworkServiceAvailabilityAsync"},
-            {106, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileSyncNotifier"},
+            {103, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetBaasUserAvailabilityChangeNotifier"},
+            {104, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetProfileUpdateNotifier"},
+            {105, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "CheckNetworkServiceAvailabilityAsync"},
+            {106, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetProfileSyncNotifier"},
             {110, &ACC_U1::StoreSaveDataThumbnailApplication, "StoreSaveDataThumbnail"},
-            {111, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ClearSaveDataThumbnail"},
-            {112, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "LoadSaveDataThumbnail"},
-            {113, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetSaveDataThumbnailExistence"},
-            {120, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ListOpenUsersInApplication"},
-            {130, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextRetention"},
+            {111, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "ClearSaveDataThumbnail"},
+            {112, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "LoadSaveDataThumbnail"},
+            {113, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetSaveDataThumbnailExistence"},
+            {120, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "ListOpenUsersInApplication"},
+            {130, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextRetention"},
             {140, &ACC_U1::ListQualifiedUsers, "ListQualifiedUsers"},
-            {150, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "AuthenticateApplicationAsync"},
-            {151, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            {152, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
-            {190, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserLastOpenedApplication"},
-            {191, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextHolder"},
+            {150, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "AuthenticateApplicationAsync"},
+            {151, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            {152, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            {190, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetUserLastOpenedApplication"},
+            {191, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextHolder"},
             {401, &ACC_U1::GetPinCodeLength, "GetPinCodeLength"}, // 18.0.0+
-            {402, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCode"}, // 18.0.0+
-            {997, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "DebugInvalidateTokenCacheForUser"},
-            {998, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "DebugSetUserStateClose"},
-            {999, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "DebugSetUserStateOpen"},
+            {402, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "GetPinCode"}, // 18.0.0+
+            {997, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "DebugInvalidateTokenCacheForUser"},
+            {998, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "DebugSetUserStateClose"},
+            {999, &ACC_U1::RejectUnsupportedRemainingAccountCommand, "DebugSetUserStateOpen"},
         };
         // clang-format on
 
@@ -1757,6 +1782,14 @@ public:
     }
     ~ACC_U1() override = default;
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class DAUTH_0 final : public ServiceFramework<DAUTH_0> {
@@ -1809,29 +1842,29 @@ public:
             { 3, &ACC_E::ListOpenUsers, "ListOpenUsers"},
             { 4, &ACC_E::GetLastOpenedUser, "GetLastOpenedUser"},
             { 5, &ACC_E::GetProfile, "GetProfile"},
-            { 6, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"},
+            { 6, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetProfileDigest"},
             { 50, &ACC_E::IsUserRegistrationRequestPermitted, "IsUserRegistrationRequestPermitted"},
             { 51, &ACC_E::TrySelectUserWithoutInteractionDeprecated, "TrySelectUserWithoutInteractionDeprecated"},
             { 52, &ACC_E::TrySelectUserWithoutInteraction, "TrySelectUserWithoutInteraction"},
-            { 99, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "DebugActivateOpenContextRetention"},
-            { 100, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserRegistrationNotifier"},
-            { 101, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetUserStateChangeNotifier"},
+            { 99, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugActivateOpenContextRetention"},
+            { 100, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetUserRegistrationNotifier"},
+            { 101, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetUserStateChangeNotifier"},
             { 102, &ACC_E::GetBaasAccountManagerForSystemService, "GetBaasAccountManagerForSystemService"},
-            { 103, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "GetBaasUserAvailabilityChangeNotifier"},
-            { 104, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetProfileUpdateNotifier"},
-            { 105, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsync"},
-            { 106, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "GetProfileSyncNotifier"},
+            { 103, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "GetBaasUserAvailabilityChangeNotifier"},
+            { 104, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetProfileUpdateNotifier"},
+            { 105, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsync"},
+            { 106, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "GetProfileSyncNotifier"},
             { 110, &ACC_E::StoreSaveDataThumbnailSystem, "StoreSaveDataThumbnail"},
             { 111, &ACC_E::ClearSaveDataThumbnail, "ClearSaveDataThumbnail"},
             { 112, &ACC_E::LoadSaveDataThumbnail, "LoadSaveDataThumbnail"},
             { 113, &ACC_E::GetSaveDataThumbnailExistence, "GetSaveDataThumbnailExistence"},
-            { 120, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ListOpenUsersInApplication"},
-            { 130, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextRetention"},
+            { 120, &ACC_E::RejectUnsupportedRemainingAccountCommand, "ListOpenUsersInApplication"},
+            { 130, &ACC_E::RejectUnsupportedRemainingAccountCommand, "ActivateOpenContextRetention"},
             { 140, &ACC_E::ListQualifiedUsers, "ListQualifiedUsers"},
-            { 151, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
-            { 152, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
-            { 170, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "GetNasOp2MembershipStateChangeNotifier"},
-            { 191, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "UpdateNotificationReceiverInfo"},
+            { 151, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "EnsureSignedDeviceIdentifierCacheForNintendoAccountAsync"},
+            { 152, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "LoadSignedDeviceIdentifierCacheForNintendoAccount"},
+            { 170, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "GetNasOp2MembershipStateChangeNotifier"},
+            { 191, &ACC_E::RejectUnsupportedRemainingAccountCommand, "UpdateNotificationReceiverInfo"},
             { 200, &ACC_E::BeginUserRegistration, "BeginUserRegistration"},
             { 201, &ACC_E::CompleteUserRegistration, "CompleteUserRegistration"},
             { 202, &ACC_E::CancelUserRegistration, "CancelUserRegistration"},
@@ -1839,53 +1872,66 @@ public:
             { 204, &ACC_E::SetUserPosition, "SetUserPosition"},
             { 205, &ACC_E::GetProfileEditor, "GetProfileEditor"},
             { 206, &ACC_E::CompleteUserRegistrationForcibly, "CompleteUserRegistrationForcibly"},
-            { 210, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CreateFloatingRegistrationRequest"},
-            { 211, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CreateProcedureToRegisterUserWithNintendoAccount"},
-            { 212, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToRegisterUserWithNintendoAccount"},
-            { 213, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CreateProcedureToCreateUserWithNintendoAccount"},
-            { 214, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToCreateUserWithNintendoAccount"},
-            { 215, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToCreateUserWithNintendoAccountAfterApplyResponse"},
-            { 230, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "AuthenticateServiceAsync"},
-            { 250, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetBaasAccountAdministrator"},
-            { 251, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "SynchronizeNetworkServiceAccountsSnapshotAsync"},
-            { 290, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForGuestLoginWithNintendoAccount"},
-            { 291, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
-            { 292, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForDeviceMigrationAuthenticatingOperatingUser"},
-            { 293, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForDeviceMigrationDownload"},
-            { 299, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "SuspendBackgroundDaemon"},
-            { 350, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CreateDeviceMigrationUserExportRequest"},
-            { 351, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "UploadNasCredential"},
-            { 352, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CreateDeviceMigrationUserImportRequest"},
-            { 353, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "DeleteUserMigrationSaveData"},
-            { 400, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "SetPinCode"},
-            { 401, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCodeLength"},
-            { 402, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCode"},
-            { 403, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCodeParity"},
-            { 404, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "VerifyPinCode"},
-            { 405, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "IsPinCodeVerificationForbidden"},
-            { 410, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetPinCodeErrorCount"},
-            { 411, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "ResetPinCodeErrorCount"},
-            { 412, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "IncrementPinCodeErrorCount"},
-            { 413, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "SetPinCodeErrorCount"},
-            { 420, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "SetStartPenaltyTime"},
-            { 421, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "GetStartPenaltyTime"},
-            { 900, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "SetUserUnqualifiedForDebug"},
-            { 901, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "UnsetUserUnqualifiedForDebug"},
-            { 902, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "ListUsersUnqualifiedForDebug"},
-            { 910, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "RefreshFirmwareSettingsForDebug"},
-            { 997, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "DebugInvalidateTokenCacheForUser"},
-            { 998, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateClose"},
-            { 999, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateOpen"},
-            { 1000, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "CreateIAccountEntityServiceForApplication"},
-            { 1100, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "CreateIUserStateManager"},
-            { 10050, &Module::Interface::RejectUnsupportedRemainingAccountCommand, "IsUserRegistrationRequestPermittedForAccountPolicy"},
-            { 10105, &Module::Interface::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsyncForAccountPolicy"},
+            { 210, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateFloatingRegistrationRequest"},
+            { 211, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateProcedureToRegisterUserWithNintendoAccount"},
+            { 212, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToRegisterUserWithNintendoAccount"},
+            { 213, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateProcedureToCreateUserWithNintendoAccount"},
+            { 214, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToCreateUserWithNintendoAccount"},
+            { 215, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ResumeProcedureToCreateUserWithNintendoAccountAfterApplyResponse"},
+            { 230, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "AuthenticateServiceAsync"},
+            { 250, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetBaasAccountAdministrator"},
+            { 251, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "SynchronizeNetworkServiceAccountsSnapshotAsync"},
+            { 290, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForGuestLoginWithNintendoAccount"},
+            { 291, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForFloatingRegistrationWithNintendoAccount"},
+            { 292, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForDeviceMigrationAuthenticatingOperatingUser"},
+            { 293, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ProxyProcedureForDeviceMigrationDownload"},
+            { 299, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "SuspendBackgroundDaemon"},
+            { 350, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateDeviceMigrationUserExportRequest"},
+            { 351, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "UploadNasCredential"},
+            { 352, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CreateDeviceMigrationUserImportRequest"},
+            { 353, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DeleteUserMigrationSaveData"},
+            { 400, &ACC_E::RejectUnsupportedRemainingAccountCommand, "SetPinCode"},
+            { 401, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetPinCodeLength"},
+            { 402, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetPinCode"},
+            { 403, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetPinCodeParity"},
+            { 404, &ACC_E::RejectUnsupportedRemainingAccountCommand, "VerifyPinCode"},
+            { 405, &ACC_E::RejectUnsupportedRemainingAccountCommand, "IsPinCodeVerificationForbidden"},
+            { 410, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetPinCodeErrorCount"},
+            { 411, &ACC_E::RejectUnsupportedRemainingAccountCommand, "ResetPinCodeErrorCount"},
+            { 412, &ACC_E::RejectUnsupportedRemainingAccountCommand, "IncrementPinCodeErrorCount"},
+            { 413, &ACC_E::RejectUnsupportedRemainingAccountCommand, "SetPinCodeErrorCount"},
+            { 420, &ACC_E::RejectUnsupportedRemainingAccountCommand, "SetStartPenaltyTime"},
+            { 421, &ACC_E::RejectUnsupportedRemainingAccountCommand, "GetStartPenaltyTime"},
+            { 900, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "SetUserUnqualifiedForDebug"},
+            { 901, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "UnsetUserUnqualifiedForDebug"},
+            { 902, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "ListUsersUnqualifiedForDebug"},
+            { 910, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "RefreshFirmwareSettingsForDebug"},
+            { 997, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugInvalidateTokenCacheForUser"},
+            { 998, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateClose"},
+            { 999, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "DebugSetUserStateOpen"},
+            { 1000, &ACC_E::RejectUnsupportedRemainingAccountCommand, "CreateIAccountEntityServiceForApplication"},
+            { 1100, &ACC_E::RejectUnsupportedRemainingAccountCommand, "CreateIUserStateManager"},
+            { 10050, &ACC_E::RejectUnsupportedRemainingAccountCommand, "IsUserRegistrationRequestPermittedForAccountPolicy"},
+            { 10105, &ACC_E::RejectUnsupportedOnlineOrDebugCommand, "CheckNetworkServiceAvailabilityAsyncForAccountPolicy"},
         };
         // clang-format on
         RegisterHandlers(functions);
     }
 private:
+    void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
+        // No Nintendo Account network, migration, or firmware debug backend on PS5.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ACC_E_U1 final : public Module::Interface {
@@ -1930,7 +1976,20 @@ public:
         RegisterHandlers(functions);
     }
 private:
+    void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
+        // No Nintendo Account network, migration, or firmware debug backend on PS5.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 class ACC_E_U2 final : public Module::Interface {
@@ -1982,7 +2041,20 @@ public:
         RegisterHandlers(functions);
     }
 private:
+    void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx) {
+        // No Nintendo Account network, migration, or firmware debug backend on PS5.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(ResultUnknown);
+    }
 private:
+    void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx) {
+        // Local profile/user commands already implemented above remain untouched.
+        // Remaining entries require Nintendo Account, notification, PIN policy,
+        // debug, thumbnail or firmware services not modeled by Encore.
+        IPC::ResponseBuilder rb{ctx, 2};
+        rb.Push(IPC::ResultNotSupported);
+    }
+
 };
 
 void LoopProcess(Core::System& system) {

@@ -59,13 +59,6 @@ public:
         void GetSaveDataThumbnailExistence(HLERequestContext& ctx);
         void GetPinCodeLength(HLERequestContext& ctx);
 
-        // Shared fail-closed handlers used by acc:aa/acc:su/acc:u0/acc:u1/acc:e.
-        // These must live on Interface because ServiceFramework is typed on Interface.
-        void RejectUnavailableNintendoAccount(HLERequestContext& ctx);
-        void RejectDebugOnlyCommand(HLERequestContext& ctx);
-        void RejectUnsupportedRemainingAccountCommand(HLERequestContext& ctx);
-        void RejectUnsupportedOnlineOrDebugCommand(HLERequestContext& ctx);
-
     private:
         Result InitializeApplicationInfoBase();
         void StoreSaveDataThumbnail(HLERequestContext& ctx, const Common::UUID& uuid,
