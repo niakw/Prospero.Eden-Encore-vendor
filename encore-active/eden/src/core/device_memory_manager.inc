@@ -8,7 +8,6 @@
 #include <limits>
 #include <memory>
 #include <type_traits>
-#include <thread>
 #include <algorithm>
 #include <vector>
 
@@ -401,9 +400,6 @@ void DeviceMemoryManager<Traits>::Unmap(DAddr address, size_t size) {
         if (lease)
 #endif
         device_inter->InvalidateRegion(address, size);
-    }
-    while (deferred_cached_updates.load(std::memory_order_acquire) != 0) {
-        std::this_thread::yield();
     }
     std::scoped_lock lk(mapping_guard);
 

@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "common/alignment.h"
-#include "common/assert.h"
 #include "common/common_funcs.h"
 #include "common/common_types.h"
 #include "common/div_ceil.h"
@@ -34,50 +33,6 @@ enum class Type {
     Preflushable,
     Max
 };
-
-// Page untracking can trigger host memory-protection system calls. Guest CPU
-// writes collect only -1 updates here while BufferCache state is locked, then
-// apply them in exact order after that mutex is released. +1 tracking is never
-// deferred: protecting a page late could let a guest write pass unnoticed.
-class DeferredPageCaching {
-public:
-    using Ranges = std::vector<std::pair<VAddr, size_t>>;
-    using Apply = void (*)(void*, std::span<const std::pair<VAddr, size_t>>, s32);
-
-    void Add(void* tracker, Apply apply, const Ranges& ranges, s32 delta) {
-        batches.push_back(Batch{tracker, apply, delta, collected.size(), ranges.size()});
-        collected.insert(collected.end(), ranges.begin(), ranges.end());
-    }
-
-    void ApplyAll() {
-        for (const Batch& batch : batches) {
-            batch.apply(
-                batch.tracker,
-                std::span<const std::pair<VAddr, size_t>>(collected).subspan(
-                    batch.begin, batch.count),
-                batch.delta);
-        }
-        batches.clear();
-        collected.clear();
-    }
-
-    [[nodiscard]] bool Empty() const noexcept {
-        return batches.empty();
-    }
-
-private:
-    struct Batch {
-        void* tracker;
-        Apply apply;
-        s32 delta;
-        size_t begin;
-        size_t count;
-    };
-    std::vector<Batch> batches;
-    Ranges collected;
-};
-
-inline thread_local DeferredPageCaching* t_deferred_page_caching{};
 
 template <class DeviceTracker, size_t stack_words, size_t size_bytes>
 struct WordManager {
@@ -345,26 +300,6 @@ struct WordManager {
             }
         }
         coalesced.emplace_back(cur_addr, cur_size);
-        // Only guest-side page UNTRACK operations may move outside the
-        // BufferCache mutex. Tracking must remain immediate so the protection
-        // state can never lag behind the word state.
-        if (t_deferred_page_caching != nullptr) {
-            ASSERT_MSG(delta < 0,
-                       "deferred page caching was asked to track pages");
-            if (delta < 0) {
-                t_deferred_page_caching->Add(
-                    tracker,
-                    [](void* deferred_tracker,
-                       std::span<const std::pair<VAddr, size_t>> runs,
-                       s32 run_delta) {
-                        static_cast<DeviceTracker*>(deferred_tracker)
-                            ->UpdatePagesCachedBatch(runs, run_delta);
-                    },
-                    coalesced, delta);
-                ranges.clear();
-                return;
-            }
-        }
         // Use batch API to reduce lock acquisitions and contention.
         tracker->UpdatePagesCachedBatch(coalesced, delta);
         ranges.clear();

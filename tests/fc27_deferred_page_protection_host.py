@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""FC27 BufferCache page-protection ownership gate (host only).
+"""FC27 #194 safety rollback: compile the exact synchronous rasterizer CPU-write owner.
 
-This validates the PS5 adaptation of Lichii #1518: guest CPU writes update
-BufferCache word state under the cache mutex, but page UNTRACK protection
-changes are applied after that mutex is released. GPU-worker writes remain
-synchronous, +1 tracking is never deferred, and DeviceMemoryManager::Unmap
-waits for every deferred update before recycling backing.
-
-This is source/host validation only. It is not PS5 FC27 gameplay evidence.
+This historical test path deliberately remains for the existing CI callers.
+Do not re-enable deferred cached-page untracking without a PS5-safe scheduler
+ownership gate matching upstream Lichii #1518 and console visual evidence.
 """
 from pathlib import Path
 import os
@@ -15,225 +11,141 @@ import shutil
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
-RASTER = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp"
-DEVICE_H = ROOT / "encore-active/eden/src/core/device_memory_manager.h"
-DEVICE_INC = ROOT / "encore-active/eden/src/core/device_memory_manager.inc"
-WORD = ROOT / "encore-active/eden/src/video_core/buffer_cache/word_manager.h"
-GPU_THREAD_H = ROOT / "encore-active/eden/src/video_core/gpu_thread.h"
-GPU_THREAD_QUIET = ROOT / "encore-active/eden/src/video_core/gpu_thread.cpp"
+ROOT=Path(__file__).resolve().parents[1]
+R=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp"
+D=ROOT/"encore-active/eden/src/core/device_memory_manager.inc"
+T=ROOT/"encore-active/eden/src/video_core/texture_cache/texture_cache.h"
+H=ROOT/"encore-active/eden/src/core/device_memory_manager.h"
+W=ROOT/"encore-active/eden/src/video_core/buffer_cache/word_manager.h"
+raster=R.read_text()
+device=D.read_text()
+header=H.read_text()
+word=W.read_text()
+texture=T.read_text()
+assert "DeferredPageCaching" not in word
+assert "t_deferred_page_caching" not in word
+assert "deferred_cached_updates" not in header+device
+assert "BeginDeferredCachedUpdates" not in header+raster
+assert "EndDeferredCachedUpdates" not in header+raster
+assert "std::this_thread::yield()" not in device
+assert "ImagePages::Mark(image.cpu_addr, image.guest_size_bytes);" in texture
+assert "ImagePages::Mark(cpu_addr, size);" in texture
+start=raster.index("bool RasterizerVulkan::OnCPUWrite(")
+end=raster.index("\nvoid RasterizerVulkan::OnCacheInvalidations(",start)
+method=raster[start:end]
+assert "static thread_local" not in method
+assert method.index("GuestCacheLock(buffer_cache.mutex, false)") < method.index("buffer_cache.OnCPUWrite(addr, size)")
+assert method.index("buffer_cache.OnCPUWrite(addr, size)") < method.index("texture_cache.WriteMemory(addr, size)")
+assert "if (buffer_cache.OnCPUWrite(addr, size)) {\n            return true;\n        }" in method
+assert "ImagePages::NeverHeld" in method
+assert "device_inter->InvalidateRegion(address, size);" in device
+assert "WaitForPublished" not in device
+assert "void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch" in device
+assert "TryAdd(" not in device
 
-for p in (RASTER, DEVICE_H, DEVICE_INC, WORD, GPU_THREAD_H,
-          GPU_THREAD_QUIET):
-    assert p.exists(), p
-
-raster = RASTER.read_text()
-device_h = DEVICE_H.read_text()
-device_inc = DEVICE_INC.read_text()
-word = WORD.read_text()
-gpu_thread_h = GPU_THREAD_H.read_text()
-gpu_thread_quiet = GPU_THREAD_QUIET.read_text()
-
-# The maintained PS5 header owns the epoch; no dormant side header/flag.
-for marker in (
-    "void BeginDeferredCachedUpdates() noexcept",
-    "deferred_cached_updates.fetch_add(1, std::memory_order_relaxed)",
-    "void EndDeferredCachedUpdates() noexcept",
-    "deferred_cached_updates.fetch_sub(1, std::memory_order_release)",
-    "std::atomic<u32> deferred_cached_updates{};",
-):
-    assert marker in device_h, marker
-assert not (ROOT / "encore-active/eden/src/core/deferred_cached_updates.h").exists()
-
-# Unmap invalidates cache ownership first, then waits for page-count publication,
-# then takes mapping_guard and recycles the backing.
-unmap = device_inc.split(
-    "void DeviceMemoryManager<Traits>::Unmap(DAddr address, size_t size) {", 1
-)[1].split("\ntemplate <typename Traits>", 1)[0]
-for marker in (
-    "device_inter->InvalidateRegion(address, size);",
-    "deferred_cached_updates.load(std::memory_order_acquire)",
-    "std::this_thread::yield();",
-    "std::scoped_lock lk(mapping_guard);",
-):
-    assert marker in unmap, marker
-assert unmap.index("device_inter->InvalidateRegion(address, size);") < unmap.index(
-    "deferred_cached_updates.load(std::memory_order_acquire)"
-) < unmap.index("std::scoped_lock lk(mapping_guard);")
-
-# Word state changes stay under BufferCache ownership; only -1 page untracks can
-# be collected. A +1 request is an assertion and still falls through to the
-# immediate UpdatePagesCachedBatch path.
-for marker in (
-    "class DeferredPageCaching",
-    "inline thread_local DeferredPageCaching* t_deferred_page_caching{};",
-    'ASSERT_MSG(delta < 0,',
-    "t_deferred_page_caching->Add(",
-    "tracker->UpdatePagesCachedBatch(coalesced, delta);",
-):
-    assert marker in word, marker
-apply = word.split(
-    "void ApplyCollectedRanges(std::vector<std::pair<VAddr, u64>>& ranges, int delta) const {",
-    1,
-)[1].split("\n    /// @brief Notify tracker", 1)[0]
-assert apply.index("ASSERT_MSG(delta < 0") < apply.index(
-    "t_deferred_page_caching->Add("
-) < apply.rindex("tracker->UpdatePagesCachedBatch(coalesced, delta);")
-
-# Encore has one GPU scheduler worker. It marks itself explicitly so only guest
-# CPU threads may defer the protection syscall.
-for marker in (
-    "inline thread_local bool t_is_worker_thread{};",
-    "bool IsWorkerThread() noexcept",
-):
-    assert marker in gpu_thread_h, marker
-for owner in (gpu_thread_quiet,):
-    run = owner.split("void ThreadManager::RunWorker(", 1)[1].split(
-        "void ThreadManager::SubmitList(", 1
-    )[0]
-    assert "t_is_worker_thread = true;" in run
-    assert "SCOPE_EXIT { t_is_worker_thread = false; };" in run
-
-start = raster.index("bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {")
-end = raster.index("\nvoid RasterizerVulkan::OnCacheInvalidations(", start)
-method = raster[start:end]
-for marker in (
-    "static thread_local VideoCommon::DeferredPageCaching deferred;",
-    "!VideoCommon::GPUThread::IsWorkerThread()",
-    "VideoCommon::t_deferred_page_caching = &deferred;",
-    "gpu_modified = buffer_cache.OnCPUWrite(addr, size);",
-    "device_memory.BeginDeferredCachedUpdates();",
-    "deferred.ApplyAll();",
-    "device_memory.EndDeferredCachedUpdates();",
-    "texture_cache.WriteMemory(addr, size);",
-    "pipeline_cache.InvalidateRegion(addr, size);",
-):
-    assert marker in method, marker
-assert "::Eden::GpuDeferredWrite" not in method
-assert "EDEN_" not in method  # no runtime flag / title-specific activation
-assert method.index("GuestCacheLock(buffer_cache.mutex, false)") < method.index(
-    "VideoCommon::t_deferred_page_caching = &deferred;"
-) < method.index("buffer_cache.OnCPUWrite(addr, size)")
-assert method.index("device_memory.BeginDeferredCachedUpdates();") < method.index(
-    "deferred.ApplyAll();"
-) < method.index("device_memory.EndDeferredCachedUpdates();")
-assert method.index("device_memory.EndDeferredCachedUpdates();") < method.index(
-    "texture_cache.WriteMemory(addr, size);"
-) < method.index("pipeline_cache.InvalidateRegion(addr, size);")
-
-# Host model: the page-untrack callback must observe the BufferCache mutex
-# released, +1 is never queued, and an unmap cannot pass the epoch while a
-# deferred update is outstanding.
-fixture = r"""
-#include <algorithm>
-#include <atomic>
+fixture=r"""
 #include <cassert>
-#include <chrono>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
-#include <span>
-#include <thread>
-#include <utility>
-#include <vector>
-
-using VAddr = std::uint64_t;
-using s32 = std::int32_t;
-
-struct FakeTracker {
-    bool* cache_locked{};
-    int applied{};
-    void UpdatePagesCachedBatch(
-        std::span<const std::pair<VAddr, std::size_t>> ranges, s32 delta) {
-        assert(cache_locked && !*cache_locked);
-        assert(delta == -1);
-        assert(!ranges.empty());
-        ++applied;
-    }
+using DAddr=std::uint64_t; using u64=std::uint64_t;
+#define DEBUG_ASSERT(x) assert(x)
+struct FakeMutex {
+    bool held=false;
+    void lock(){assert(!held);held=true;}
+    void unlock(){assert(held);held=false;}
 };
-
-class DeferredPageCaching {
-public:
-    using Ranges = std::vector<std::pair<VAddr, std::size_t>>;
-    using Apply = void (*)(void*, std::span<const std::pair<VAddr, std::size_t>>, s32);
-    void Add(void* tracker, Apply apply, const Ranges& ranges, s32 delta) {
-        assert(delta < 0);
-        batches.push_back({tracker, apply, delta, collected.size(), ranges.size()});
-        collected.insert(collected.end(), ranges.begin(), ranges.end());
-    }
-    void ApplyAll() {
-        for (const auto& batch : batches) {
-            batch.apply(batch.tracker,
-                std::span<const std::pair<VAddr, std::size_t>>(collected)
-                    .subspan(batch.begin, batch.count),
-                batch.delta);
-        }
-        batches.clear();
-        collected.clear();
-    }
-    bool Empty() const { return batches.empty(); }
-private:
-    struct Batch {
-        void* tracker;
-        Apply apply;
-        s32 delta;
-        std::size_t begin;
-        std::size_t count;
-    };
-    std::vector<Batch> batches;
-    Ranges collected;
+namespace Eden {
+namespace Performance {
+enum class CachePhase {GuestWriteBufferWait,GuestWriteBufferWork,
+    GuestWriteTextureWait,GuestWriteTextureWork,GuestWriteShaderInvalidate};
+struct BatchedGuestWriteTimer { ~BatchedGuestWriteTimer() {} };
+bool ShouldSampleGuestWrite(){return false;}
+struct CachePhaseTimer {
+    CachePhaseTimer(CachePhase,bool){}
+    void Stop(){}
 };
-
-int main() {
-    bool cache_locked = true;
-    FakeTracker tracker{&cache_locked};
-    DeferredPageCaching deferred;
-    DeferredPageCaching::Ranges ranges{{0x1000, 0x2000}};
-    deferred.Add(
-        &tracker,
-        [](void* p, std::span<const std::pair<VAddr, std::size_t>> r, s32 d) {
-            static_cast<FakeTracker*>(p)->UpdatePagesCachedBatch(r, d);
-        },
-        ranges, -1);
-    assert(!deferred.Empty());
-
-    std::atomic<unsigned> epoch{1};
-    std::atomic<bool> unmapped{};
-    std::thread unmapper([&] {
-        while (epoch.load(std::memory_order_acquire) != 0)
-            std::this_thread::yield();
-        unmapped.store(true, std::memory_order_release);
-    });
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    assert(!unmapped.load(std::memory_order_acquire));
-    cache_locked = false;
-    deferred.ApplyAll();
-    assert(tracker.applied == 1);
-    epoch.fetch_sub(1, std::memory_order_release);
-    unmapper.join();
-    assert(unmapped.load(std::memory_order_acquire));
-    assert(deferred.Empty());
+void GuestCacheLock(FakeMutex& m,bool){m.lock();}
+struct CpuAhead { bool load(std::memory_order) const{return false;} };
+CpuAhead cpu_write_ahead;
+}
+namespace BufferPages {
+bool skip=false;
+bool NeverRegistered(DAddr,u64){return skip;}
+}
+namespace ImagePages {
+bool skip=false;
+bool NeverHeld(DAddr,u64){return skip;}
+}
+namespace BufferWriteAhead {
+std::atomic<int> calls{};
+template<class A,class B>
+bool MarkFollowingPages(std::uint64_t,std::uint64_t,bool,A,B) {
+    ++calls; return false;
+}
+}
+}
+struct BufferCache {
+    FakeMutex mutex;
+    int writes{};
+    bool gpu_modified{};
+    bool OnCPUWrite(DAddr,u64){assert(mutex.held);++writes;return gpu_modified;}
+    bool IsRegionRegistered(DAddr,u64){assert(mutex.held);return true;}
+};
+struct TextureCache {
+    FakeMutex mutex;
+    int writes{};
+    void WriteMemory(DAddr,u64){assert(mutex.held);++writes;}
+};
+struct PipelineCache {
+    int invalidations{};
+    void InvalidateRegion(DAddr,u64){++invalidations;}
+};
+struct RasterizerVulkan {
+    BufferCache buffer_cache;
+    TextureCache texture_cache;
+    PipelineCache pipeline_cache;
+    bool OnCPUWrite(DAddr,u64);
+};
+""" + method + r"""
+int main(){
+    RasterizerVulkan r;
+    assert(!r.OnCPUWrite(0x4000,64));
+    assert(r.buffer_cache.writes==1 && r.texture_cache.writes==1);
+    assert(r.pipeline_cache.invalidations==1);
+    assert(!r.buffer_cache.mutex.held && !r.texture_cache.mutex.held);
+    r.buffer_cache.gpu_modified=true;
+    assert(r.OnCPUWrite(0x4000,64));
+    assert(r.buffer_cache.writes==2 && r.texture_cache.writes==1);
+    assert(r.pipeline_cache.invalidations==1);
+    r.buffer_cache.gpu_modified=false;
+    Eden::BufferPages::skip=true;
+    assert(!r.OnCPUWrite(0x5000,64));
+    assert(r.buffer_cache.writes==2 && r.texture_cache.writes==2);
+    assert(r.pipeline_cache.invalidations==2);
+    Eden::ImagePages::skip=true;
+    assert(!r.OnCPUWrite(0x6000,64));
+    assert(r.texture_cache.writes==2 && r.pipeline_cache.invalidations==3);
+    Eden::BufferPages::skip=false;
+    assert(!r.OnCPUWrite(0x7000,64));
+    assert(r.buffer_cache.writes==3 && r.texture_cache.writes==2);
+    assert(r.pipeline_cache.invalidations==4);
+    // First ordinary unmodified write and last registered write only.
+    // GPU-modified early return and BufferPages::NeverRegistered shortcuts
+    // correctly do not enter the write-ahead helper.
+    assert(Eden::BufferWriteAhead::calls==2);
 }
 """
-
-compilers = list(dict.fromkeys(filter(
-    None, (os.environ.get("CXX"), shutil.which("clang++"), shutil.which("g++"))
-)))
+compilers=list(dict.fromkeys(filter(None, (os.environ.get("CXX"),shutil.which("clang++"),shutil.which("g++")))))
 assert compilers, "host C++ compiler required"
-with tempfile.TemporaryDirectory(prefix="fc27-page-untrack-") as temp:
-    code = Path(temp) / "test.cpp"
+with tempfile.TemporaryDirectory(prefix="fc27-sync-page-") as temp:
+    code=Path(temp)/"test.cpp"
     code.write_text(fixture)
     for compiler in compilers:
-        for opt in ("-O0", "-O2"):
-            binary = Path(temp) / (Path(compiler).name + opt)
-            subprocess.run([
-                compiler, "-std=c++20", opt, "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=undefined", "-fno-sanitize-recover=all",
-                str(code), "-pthread", "-o", str(binary)
-            ], check=True, timeout=45)
-            subprocess.run([str(binary)], check=True, timeout=10)
-
-print(
-    "FC27_DEFERRED_PAGE_PROTECTION_HOST_PASS "
-    "owner_gate=1 untrack_only=1 unmap_epoch=1 ps5=unverified"
-)
+        for opt in ("-O0","-O2"):
+            binary=Path(temp)/(Path(compiler).name+opt)
+            subprocess.run([compiler,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
+                            "-fsanitize=undefined","-fno-sanitize-recover=all",
+                            str(code),"-o",str(binary)],check=True,timeout=45)
+            subprocess.run([str(binary)],check=True,timeout=10)
+print("FC27_SYNCHRONOUS_PAGE_PROTECTION_HOST_PASS source=1 gpu_modified=1 texture_invalidate=1 ps5=unverified")

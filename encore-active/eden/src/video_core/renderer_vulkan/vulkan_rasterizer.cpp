@@ -27,7 +27,6 @@
 #include "common/settings.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/gpu_logging/gpu_logging.h"
-#include "video_core/gpu_thread.h"
 #include "video_core/control/channel_state.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/engines/kepler_compute.h"
@@ -2545,62 +2544,25 @@ bool RasterizerVulkan::OnCPUWrite(DAddr addr, u64 size) {
     // Buffer and texture page evidence independently guards their mutexes.
     // Shader invalidation always runs, even if neither cache ever owned a page.
     if (!::Eden::BufferPages::NeverRegistered(addr, size)) {
-        // Lichii #1518, adapted to Encore's single GPU worker: changing host
-        // page protection can take microseconds and must not happen while the
-        // guest CPU owns buffer_cache.mutex. Only non-GPU-owner threads defer
-        // UNTRACK (-1) updates; tracking (+1) remains immediate. The device
-        // memory epoch keeps Unmap from recycling a backing before those
-        // deferred changes have landed.
-        static thread_local VideoCommon::DeferredPageCaching deferred;
-        const bool defer =
-            VideoCommon::t_deferred_page_caching == nullptr &&
-            !VideoCommon::GPUThread::IsWorkerThread();
-        bool gpu_modified = false;
-        bool apply_deferred = false;
-        {
-            ::Eden::Performance::CachePhaseTimer buffer_wait{
-                ::Eden::Performance::CachePhase::GuestWriteBufferWait,
-                sample_guest_write};
-            ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
-            buffer_wait.Stop();
-            std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
-            ::Eden::Performance::CachePhaseTimer buffer_work{
-                ::Eden::Performance::CachePhase::GuestWriteBufferWork,
-                sample_guest_write};
-            if (defer) {
-                VideoCommon::t_deferred_page_caching = &deferred;
-            }
-            gpu_modified = buffer_cache.OnCPUWrite(addr, size);
-            if (!gpu_modified) {
-                (void)::Eden::BufferWriteAhead::MarkFollowingPages(
-                    static_cast<std::uint64_t>(addr),
-                    static_cast<std::uint64_t>(size),
-                    ::Eden::Performance::cpu_write_ahead.load(
-                        std::memory_order_relaxed),
-                    [&](std::uint64_t page, std::uint64_t span) {
-                        return buffer_cache.IsRegionRegistered(
-                            static_cast<DAddr>(page), span);
-                    },
-                    [&](std::uint64_t page, std::uint64_t span) {
-                        return buffer_cache.OnCPUWrite(
-                            static_cast<DAddr>(page), span);
-                    });
-            }
-            if (defer) {
-                VideoCommon::t_deferred_page_caching = nullptr;
-                if (!deferred.Empty()) {
-                    device_memory.BeginDeferredCachedUpdates();
-                    apply_deferred = true;
-                }
-            }
-        }
-        if (apply_deferred) {
-            deferred.ApplyAll();
-            device_memory.EndDeferredCachedUpdates();
-        }
-        if (gpu_modified) {
+        ::Eden::Performance::CachePhaseTimer buffer_wait{
+            ::Eden::Performance::CachePhase::GuestWriteBufferWait, sample_guest_write};
+        ::Eden::Performance::GuestCacheLock(buffer_cache.mutex, false);
+        buffer_wait.Stop();
+        std::lock_guard lock{buffer_cache.mutex, std::adopt_lock};
+        ::Eden::Performance::CachePhaseTimer buffer_work{
+            ::Eden::Performance::CachePhase::GuestWriteBufferWork, sample_guest_write};
+        if (buffer_cache.OnCPUWrite(addr, size)) {
             return true;
         }
+        (void)::Eden::BufferWriteAhead::MarkFollowingPages(
+            static_cast<std::uint64_t>(addr), static_cast<std::uint64_t>(size),
+            ::Eden::Performance::cpu_write_ahead.load(std::memory_order_relaxed),
+            [&](std::uint64_t page, std::uint64_t span) {
+                return buffer_cache.IsRegionRegistered(static_cast<DAddr>(page), span);
+            },
+            [&](std::uint64_t page, std::uint64_t span) {
+                return buffer_cache.OnCPUWrite(static_cast<DAddr>(page), span);
+            });
     }
     // ImagePages is monotonically published before texture slot insertion.
     // Only never-held small ranges may skip the texture-cache mutex; unknown
