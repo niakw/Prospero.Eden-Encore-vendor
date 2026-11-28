@@ -401,6 +401,12 @@ for token in ("std::optional<u64> m_native_generation{};",
 as_open=as_cpp.split("void nvhost_as_gpu::OnOpen(",1)[1].split("\n}",1)[0]
 for token in ("CaptureTicket(m_native_process)", "m_native_generation = ticket->generation"):
     assert token in as_open, token
+assert "mutable std::optional<u64> m_native_generation{};" in as_h
+as_epoch=as_cpp.split("bool nvhost_as_gpu::NativeEpochCurrent() const {",1)[1].split("\n}",1)[0]
+for token in ("if (!m_native_generation)", "CaptureTicket(m_native_process)",
+              "m_native_generation = ticket->generation", "IsCurrent("):
+    assert token in as_epoch, token
+assert as_epoch.index("if (!m_native_generation)") < as_epoch.index("CaptureTicket(m_native_process)") < as_epoch.index("IsCurrent(")
 for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
     body=as_cpp.split("NvResult nvhost_as_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
     assert "m_native_vm_retired" in body
