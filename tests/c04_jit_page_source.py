@@ -10,7 +10,7 @@ import hashlib
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVE = ROOT / "encore-active"
 ORIGINAL_BLOBS = {
-    "eden-header-hygiene/include/common/page_table.h": "0c12891565d487578c1720c74f6de994b55e82eb",
+    "eden/src/common/page_table.h": "0c12891565d487578c1720c74f6de994b55e82eb",
     "eden/src/dynarmic/backend/x64/emit_x64_data_processing.cpp": "3dd13ebc5c519de63672f0699a796009024e4a13",
     "eden/src/dynarmic/backend/x64/emit_x64_vector.cpp": "4afc50c77b167d6e36d180e04c5cf58259db62b7",
 }
@@ -31,7 +31,7 @@ def recover_one(rel: str, old: str, new: str) -> None:
     print("C04_EXACT_SOURCE_DELTA_PASS", rel)
 
 
-header = "eden-header-hygiene/include/common/page_table.h"
+header = "eden/src/common/page_table.h"
 oldbit = "static constexpr u64 SIGN_BIT = 45 + 12; // 44 bits of data + page offset"
 newbit = "static constexpr u64 SIGN_BIT = 44 + 12 - 1; // top bit of 44-bit ATTRIBUTE_MASK"
 recover_one(header, oldbit, newbit)
