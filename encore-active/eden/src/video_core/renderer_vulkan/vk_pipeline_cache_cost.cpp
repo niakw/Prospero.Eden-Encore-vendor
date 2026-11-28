@@ -38,6 +38,7 @@
 
 #include <vector>
 #include <bit>
+#include <bitset>
 #include <numeric>
 #include "common/cityhash.h"
 #include "common/fs/fs.h"
@@ -2311,6 +2312,51 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         Shader::IR::Program& program{programs[index]};
         const size_t stage_index{index - 1};
         infos[stage_index] = &program.info;
+
+        // Lichii 310cf974 / Bananza 040074A01BF12000:
+        // an emulated passthrough geometry shader must not forward generic
+        // outputs the preceding stage never writes. With the guest skip mask
+        // left clear, 32 vec4 generics plus Position exceed AMD/RADV's
+        // 128-component geometry output limit and can abort pipeline creation.
+        // previous_stage has already passed ConvertLegacyToGeneric in the
+        // preceding loop iteration, so compare against its final store map.
+        if (program.is_geometry_passthrough && previous_stage != nullptr &&
+            !host_info.support_geometry_shader_passthrough) {
+            std::bitset<32> dropped;
+            for (u32 generic = 0; generic < 32; ++generic) {
+                if (program.info.passthrough.Generic(generic) &&
+                    !previous_stage->info.stores.Generic(generic)) {
+                    dropped.set(generic);
+                }
+            }
+            if (dropped.any()) {
+                for (Shader::IR::Block* const block : program.blocks) {
+                    for (Shader::IR::Inst& inst : block->Instructions()) {
+                        if (inst.GetOpcode() != Shader::IR::Opcode::SetAttribute) {
+                            continue;
+                        }
+                        const auto attr = inst.Arg(0).Attribute();
+                        if (!Shader::IR::IsGeneric(attr) ||
+                            !dropped.test(Shader::IR::GenericAttributeIndex(attr))) {
+                            continue;
+                        }
+                        inst.Invalidate();
+                    }
+                }
+                for (u32 generic = 0; generic < 32; ++generic) {
+                    if (!dropped.test(generic)) {
+                        continue;
+                    }
+                    const size_t base =
+                        static_cast<size_t>(Shader::IR::Attribute::Generic0X) +
+                        static_cast<size_t>(generic) * 4;
+                    for (size_t component = 0; component < 4; ++component) {
+                        program.info.passthrough.mask[base + component] = false;
+                        program.info.stores.mask[base + component] = false;
+                    }
+                }
+            }
+        }
 
         const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage, device)};
         ConvertLegacyToGeneric(program, runtime_info);

@@ -9,6 +9,36 @@ import tempfile
 
 root = Path(__file__).resolve().parents[1]
 source = (root / "encore-active/eden/src/shader_recompiler/frontend/maxwell/translate_program.cpp").read_text()
+pipeline = (root / "encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp").read_text()
+# Lichii 310cf974 / Bananza: after the previous stage has had its legacy
+# outputs converted, the emulated GS must drop generics that stage never
+# writes before RuntimeInfo/SPIR-V generation.
+trim_begin = "        // Lichii 310cf974 / Bananza 040074A01BF12000:"
+trim_end = "        const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage, device)};"
+assert pipeline.count(trim_begin) == 1
+trim = pipeline[pipeline.index(trim_begin):pipeline.index(trim_end)]
+for marker in (
+    "program.is_geometry_passthrough && previous_stage != nullptr",
+    "!host_info.support_geometry_shader_passthrough",
+    "program.info.passthrough.Generic(generic)",
+    "!previous_stage->info.stores.Generic(generic)",
+    "inst.GetOpcode() != Shader::IR::Opcode::SetAttribute",
+    "inst.Invalidate();",
+    "program.info.passthrough.mask[base + component] = false;",
+    "program.info.stores.mask[base + component] = false;",
+):
+    assert marker in trim, marker
+# The trim must occur before RuntimeInfo is built for the geometry stage.
+assert pipeline.index(trim_begin) < pipeline.index(trim_end, pipeline.index(trim_begin))
+
+# Model the exact 32-generic admission rule: Position is preserved elsewhere;
+# generics absent from previous_stage stores are removed component-wise.
+def trim_model(passthrough, previous):
+    return [p and s for p, s in zip(passthrough, previous)]
+assert trim_model([True]*32, [True]*18 + [False]*14) == [True]*18 + [False]*14
+assert sum(trim_model([True]*32, [True]*18 + [False]*14))*4 + 4 == 76
+assert trim_model([True, False, True], [False, True, True]) == [False, False, True]
+
 anchor = "            if (!normalized_host_info.support_geometry_shader_passthrough) {\n"
 delta = "                // Lichii #1466: lowering forwards Position and the generic vec4s.\n                // Do not declare unrelated built-in inputs in an emulated geometry stage.\n                for (size_t i = 0; i < program.info.passthrough.mask.size(); ++i) {\n                    if (i < static_cast<size_t>(IR::Attribute::PositionX) ||\n                        i > static_cast<size_t>(IR::Attribute::Generic31W)) {\n                        program.info.passthrough.mask[i] = false;\n                    }\n                }\n"
 assert source.count(anchor + delta) == 1
