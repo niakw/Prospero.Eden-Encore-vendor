@@ -1787,17 +1787,24 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 (u64{data} << 20) | (u64{1} << 48));
             break;
         }
-        case 0x9a8: { // ATOMG.E.ADD.STRONG.GPU U32 through a uniform pointer.
+        case 0x9a8: { // ATOMG.E.ADD.STRONG.GPU U32 through a uniform pointer plus an offset.
             const u32 uniform_pointer = insn.Bits(64, 6);
             const u32 address = uniform_register(uniform_pointer);
+            // Lichii 6b319471: title 4 uses [UR + 4]. Ampere carries a
+            // signed 24-bit byte offset; Maxwell ATOM has the matching signed
+            // 20-bit field at bits 28..47. Keep values outside that exact
+            // representable range fail-closed.
+            const s32 offset = static_cast<s32>(insn.Bits(40, 24) << 8) >> 8;
             // Uniform U63 maps to zero-register RZ, NOT the upper word of
             // U62. A 64-bit pointer at U62 would incorrectly read the
             // adjacent physical GPR U47 instead of a valid uniform pair.
-            if (uniform_pointer >= 62 || insn.Bits(24, 8) != 255 || insn.Bits(40, 24) ||
+            if (uniform_pointer >= 62 || insn.Bits(24, 8) != 255 ||
+                offset < -0x80000 || offset > 0x7ffff ||
                 (insn.words[2] & ~0x3fU) != 0x081ee140 || address == ~0U || (address & 1))
                 return fail(index, "native global atomic mode");
             emit(0xed00000000000000ULL | predicate | dest | (u64{address} << 8) |
-                (u64{insn.Bits(32, 8)} << 20) | (u64{1} << 48));
+                (u64{insn.Bits(32, 8)} << 20) |
+                (u64{static_cast<u32>(offset) & 0xfffffU} << 28) | (u64{1} << 48));
             break;
         }
         // Generic Lichii nx2 instruction, constrained by Encore resource/GPR admission.
