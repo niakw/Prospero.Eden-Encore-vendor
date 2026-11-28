@@ -74,8 +74,14 @@ nvhost_as_gpu::~nvhost_as_gpu() {
 
 NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
                                std::span<u8> output) {
+    if (m_native_process &&
+        m_native_generation.load(std::memory_order_acquire) == 0 &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
+        !EnsureNativeEpochCurrent())
+        return NvResult::InvalidState;
     if (m_native_vm_retired ||
-        (m_native_generation && !NativeEpochCurrent()))
+        (m_native_generation.load(std::memory_order_acquire) != 0 &&
+         !NativeEpochCurrent()))
         return NvResult::InvalidState;
     switch (command.group) {
     case 'A':
@@ -321,8 +327,14 @@ NvResult nvhost_as_gpu::Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> i
 
 NvResult nvhost_as_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
                                std::span<const u8> inline_input, std::span<u8> output) {
+    if (m_native_process &&
+        m_native_generation.load(std::memory_order_acquire) == 0 &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
+        !EnsureNativeEpochCurrent())
+        return NvResult::InvalidState;
     if (m_native_vm_retired ||
-        (m_native_generation && !NativeEpochCurrent()))
+        (m_native_generation.load(std::memory_order_acquire) != 0 &&
+         !NativeEpochCurrent()))
         return NvResult::InvalidState;
     UNIMPLEMENTED_MSG("Unimplemented ioctl={:08X}", command.raw);
     return NvResult::NotImplemented;
@@ -330,8 +342,14 @@ NvResult nvhost_as_gpu::Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> i
 
 NvResult nvhost_as_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input,
                                std::span<u8> output, std::span<u8> inline_output) {
+    if (m_native_process &&
+        m_native_generation.load(std::memory_order_acquire) == 0 &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
+        !EnsureNativeEpochCurrent())
+        return NvResult::InvalidState;
     if (m_native_vm_retired ||
-        (m_native_generation && !NativeEpochCurrent()))
+        (m_native_generation.load(std::memory_order_acquire) != 0 &&
+         !NativeEpochCurrent()))
         return NvResult::InvalidState;
     switch (command.group) {
     case 'A':
@@ -360,7 +378,7 @@ void nvhost_as_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
             // Preserve that process generation for the descriptor lifetime.
             if (const auto ticket =
                     NativeGpuProcessRegistry::Instance().CaptureTicket(m_native_process))
-                m_native_generation = ticket->generation;
+                m_native_generation.store(ticket->generation, std::memory_order_release);
         }
     }
 }
@@ -369,7 +387,7 @@ void nvhost_as_gpu::OnClose(DeviceFD fd) {
 }
 
 NvResult nvhost_as_gpu::ImportNativeVm(const NativeVmImport& params) {
-    if (!m_native_process || m_native_vm_retired || !NativeEpochCurrent() ||
+    if (!m_native_process || m_native_vm_retired || !EnsureNativeEpochCurrent() ||
         !NativeGpuProcessRegistry::Instance().Contains(m_native_process) ||
         u32{params.version} != 5 || u32{params.vm_id} == 0 ||
         u64{params.user_first} != NativeNs2GpuVaStart ||
@@ -456,22 +474,38 @@ void nvhost_as_gpu::ReleaseNativeVmBinding() {
         owner->UnbindImportedAddressSpace(id, this);
 }
 
-bool nvhost_as_gpu::NativeEpochCurrent() const {
+bool nvhost_as_gpu::EnsureNativeEpochCurrent() {
     if (!m_native_process)
         return false;
-    // Mirror nvhost_gpu's descriptor-scoped late promotion. A pre-GSV AS FD
-    // may not have had a process generation at OnOpen; once the same process
-    // is published, capture exactly that generation. Never replace a captured
-    // generation: unregister/re-register must make the stale descriptor fail.
-    if (!m_native_generation) {
+    auto generation = m_native_generation.load(std::memory_order_acquire);
+    if (generation == 0) {
         const auto ticket =
             NativeGpuProcessRegistry::Instance().CaptureTicket(m_native_process);
         if (!ticket)
             return false;
-        m_native_generation = ticket->generation;
+        u64 expected = 0;
+        if (m_native_generation.compare_exchange_strong(
+                expected, ticket->generation, std::memory_order_acq_rel,
+                std::memory_order_acquire)) {
+            generation = ticket->generation;
+        } else {
+            // Another service thread promoted the same descriptor first.
+            // Keep its sticky generation and validate that exact epoch.
+            generation = expected;
+        }
     }
     return NativeGpuProcessRegistry::Instance().IsCurrent(
-        {m_native_process, *m_native_generation});
+        {m_native_process, generation});
+}
+
+bool nvhost_as_gpu::NativeEpochCurrent() const {
+    if (!m_native_process)
+        return false;
+    const u64 generation =
+        m_native_generation.load(std::memory_order_acquire);
+    return generation != 0 &&
+           NativeGpuProcessRegistry::Instance().IsCurrent(
+               {m_native_process, generation});
 }
 
 void nvhost_as_gpu::RetireNativeVm(u32 id) {
@@ -1331,6 +1365,8 @@ NvResult nvhost_as_gpu::ModifyNativeKind(u64 address, u64 size, u8 kind) {
 }
 
 NvResult nvhost_as_gpu::Nx2GetSyncpointShimInfo(IoctlNx2SyncpointShimInfo& params) {
+    if (!EnsureNativeEpochCurrent())
+        return NvResult::NotSupported;
     std::scoped_lock lock{mutex};
     if (!m_native_process ||
         !NativeGpuProcessRegistry::Instance().Contains(m_native_process) ||
@@ -2447,6 +2483,11 @@ NvResult nvhost_as_gpu::UnmapBuffer(IoctlUnmapBuffer& params) {
 NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     LOG_DEBUG(Service_NVDRV, "called, fd={:X}", params.fd);
 
+    if (m_native_process &&
+        NativeGpuProcessRegistry::Instance().Contains(m_native_process) &&
+        !EnsureNativeEpochCurrent())
+        return NvResult::InvalidState;
+
     // Never bind a channel to an absent or uninitialized GPU address space.
     // The old path accepted a null GMMU and could crash on an unknown FD.
     if (params.fd <= 0 || module.VerifyFD(params.fd) != NvResult::Success)
@@ -2464,7 +2505,9 @@ NvResult nvhost_as_gpu::BindChannel(IoctlBindChannel& params) {
     if (!gpu_channel_device || !gpu_channel_device->channel_state)
         return NvResult::BadParameter;
     const std::scoped_lock lock{mutex, gpu_channel_device->channel_mutex};
-    if (m_native_vm_retired || (m_native_generation && !NativeEpochCurrent()))
+    if (m_native_vm_retired ||
+        (m_native_generation.load(std::memory_order_acquire) != 0 &&
+         !NativeEpochCurrent()))
         return NvResult::InvalidState;
     if (!vm.initialised || !gmmu || !m_native_process)
         return NvResult::InvalidState;

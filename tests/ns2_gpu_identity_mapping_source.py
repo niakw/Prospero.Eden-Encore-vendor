@@ -393,24 +393,33 @@ assert shared_destroy.index("NativeGpuProcessRegistry::Instance().RemoveVm(") < 
 # stale Ampere FDs must fail closed instead of falling through to Maxwell.
 nvhost_hdr=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
 nvhost_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
-for token in ("std::optional<u64> m_native_generation{};",
+for token in ("std::atomic<u64> m_native_generation{};",
               "std::atomic_bool m_native_vm_retired{};",
               "void RetireNativeVm(u32 id);",
+              "EnsureNativeEpochCurrent()",
               "NativeEpochCurrent() const"):
     assert token in as_h, token
+assert "mutable std::optional<u64> m_native_generation{};" not in as_h
+assert "publishes the\\n" not in as_h
 as_open=as_cpp.split("void nvhost_as_gpu::OnOpen(",1)[1].split("\n}",1)[0]
-for token in ("CaptureTicket(m_native_process)", "m_native_generation = ticket->generation"):
+for token in ("CaptureTicket(m_native_process)",
+              "m_native_generation.store(ticket->generation, std::memory_order_release)"):
     assert token in as_open, token
-assert "mutable std::optional<u64> m_native_generation{};" in as_h
+as_ensure=as_cpp.split("bool nvhost_as_gpu::EnsureNativeEpochCurrent() {",1)[1].split("\n}",1)[0]
+for token in ("m_native_generation.load(std::memory_order_acquire)",
+              "CaptureTicket(m_native_process)", "compare_exchange_strong(",
+              "std::memory_order_acq_rel", "IsCurrent("):
+    assert token in as_ensure, token
 as_epoch=as_cpp.split("bool nvhost_as_gpu::NativeEpochCurrent() const {",1)[1].split("\n}",1)[0]
-for token in ("if (!m_native_generation)", "CaptureTicket(m_native_process)",
-              "m_native_generation = ticket->generation", "IsCurrent("):
+for token in ("m_native_generation.load(std::memory_order_acquire)", "IsCurrent("):
     assert token in as_epoch, token
-assert as_epoch.index("if (!m_native_generation)") < as_epoch.index("CaptureTicket(m_native_process)") < as_epoch.index("IsCurrent(")
+for forbidden in ("CaptureTicket(", "compare_exchange", "m_native_generation.store("):
+    assert forbidden not in as_epoch, forbidden
 for ioctl in ("Ioctl1", "Ioctl2", "Ioctl3"):
     body=as_cpp.split("NvResult nvhost_as_gpu::"+ioctl+"(",1)[1].split("\n}",1)[0]
     assert "m_native_vm_retired" in body
-    assert "m_native_generation && !NativeEpochCurrent()" in body
+    assert "EnsureNativeEpochCurrent()" in body
+    assert "m_native_generation.load(std::memory_order_acquire)" in body
 retire=as_cpp.split("void nvhost_as_gpu::RetireNativeVm(u32 id) {",1)[1].split("\n}",1)[0]
 for token in ("m_native_vm_id != id", "m_native_vm_id = 0",
               "m_native_vm_retired.store(true, std::memory_order_release)"):
