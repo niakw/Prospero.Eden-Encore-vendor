@@ -4,6 +4,9 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <limits>
+#include <mutex>
+
 #include "common/assert.h"
 #include "common/common_types.h"
 #include "common/logging.h"
@@ -16,6 +19,33 @@
 namespace FileSys {
 
 namespace {
+
+constexpr std::string_view SaveDataIndexCounterFileName = ".eden_save_index_last_published_id";
+constexpr std::string_view SaveDataIdFilePrefix = ".eden_save_id_";
+std::mutex save_data_index_mutex;
+
+std::string GetSaveDataIdFileName(const VirtualDir& save_directory) {
+    return fmt::format("{}{}", SaveDataIdFilePrefix, save_directory->GetName());
+}
+
+std::optional<u64> ReadSaveDataIdUnlocked(const VirtualDir& save_directory) {
+    if (save_directory == nullptr) {
+        return std::nullopt;
+    }
+    const auto parent = save_directory->GetParentDirectory();
+    if (parent == nullptr) {
+        return std::nullopt;
+    }
+    const auto file = parent->GetFile(GetSaveDataIdFileName(save_directory));
+    if (file == nullptr || file->GetSize() != sizeof(u64)) {
+        return std::nullopt;
+    }
+    u64 value{};
+    if (file->ReadObject(&value) != sizeof(value) || value == 0) {
+        return std::nullopt;
+    }
+    return value;
+}
 
 bool ShouldSaveDataBeAutomaticallyCreated(SaveDataSpaceId space, const SaveDataAttribute& attr) {
     return attr.type == SaveDataType::Cache || attr.type == SaveDataType::Temporary ||
@@ -74,15 +104,90 @@ std::string SaveDataFactory::GetSaveDataPath(SaveDataSpaceId space, SaveDataType
     return GetFullPath(program_id, dir, space, type, title_id, user_id, save_id);
 }
 
-VirtualDir SaveDataFactory::Create(SaveDataSpaceId space, const SaveDataAttribute& meta) const {
-    const auto save_directory = GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, meta.system_save_data_id);
+std::optional<u64> SaveDataFactory::ReadSaveDataId(const VirtualDir& save_directory) {
+    std::scoped_lock lock{save_data_index_mutex};
+    return ReadSaveDataIdUnlocked(save_directory);
+}
 
-    return dir->CreateDirectoryRelative(save_directory);
+std::optional<u64> SaveDataFactory::EnsureSaveDataId(const VirtualDir& root_directory,
+                                                     const VirtualDir& save_directory) {
+    if (root_directory == nullptr || save_directory == nullptr) {
+        return std::nullopt;
+    }
+
+    std::scoped_lock lock{save_data_index_mutex};
+    if (const auto existing = ReadSaveDataIdUnlocked(save_directory); existing.has_value()) {
+        return existing;
+    }
+
+    auto counter_file = root_directory->GetFile(SaveDataIndexCounterFileName);
+    u64 last_published_id{};
+    if (counter_file != nullptr) {
+        if (counter_file->GetSize() != sizeof(last_published_id) ||
+            counter_file->ReadObject(&last_published_id) != sizeof(last_published_id)) {
+            LOG_ERROR(Service_FS, "Invalid persisted save-data index counter");
+            return std::nullopt;
+        }
+    } else {
+        counter_file = root_directory->CreateFile(SaveDataIndexCounterFileName);
+        if (counter_file == nullptr) {
+            return std::nullopt;
+        }
+    }
+
+    if (last_published_id == (std::numeric_limits<u64>::max)()) {
+        return std::nullopt;
+    }
+    const u64 save_data_id = last_published_id + 1;
+
+    // Persist the monotonic counter first. A failed sidecar write may leave a gap,
+    // but a published ID must never be reused.
+    if (!counter_file->Resize(sizeof(save_data_id)) ||
+        counter_file->WriteObject(save_data_id) != sizeof(save_data_id)) {
+        return std::nullopt;
+    }
+
+    const auto parent = save_directory->GetParentDirectory();
+    if (parent == nullptr) {
+        return std::nullopt;
+    }
+    auto id_file = parent->GetFile(GetSaveDataIdFileName(save_directory));
+    if (id_file == nullptr) {
+        id_file = parent->CreateFile(GetSaveDataIdFileName(save_directory));
+    }
+    if (id_file == nullptr || !id_file->Resize(sizeof(save_data_id)) ||
+        id_file->WriteObject(save_data_id) != sizeof(save_data_id)) {
+        return std::nullopt;
+    }
+
+    return save_data_id;
+}
+
+VirtualDir SaveDataFactory::Create(SaveDataSpaceId space, const SaveDataAttribute& meta) const {
+    const auto storage_id = meta.type == SaveDataType::Cache ? static_cast<u64>(meta.index)
+                                                             : meta.system_save_data_id;
+    const auto save_path =
+        GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, storage_id);
+    const auto save_directory = dir->CreateDirectoryRelative(save_path);
+
+    const bool uses_published_id =
+        meta.system_save_data_id == 0 &&
+        (meta.type == SaveDataType::Account || meta.type == SaveDataType::Device ||
+         meta.type == SaveDataType::Cache);
+    if (save_directory != nullptr && uses_published_id &&
+        !EnsureSaveDataId(dir, save_directory).has_value()) {
+        LOG_ERROR(Service_FS, "Failed to publish save-data ID for {}", save_path);
+    }
+
+    return save_directory;
 }
 
 VirtualDir SaveDataFactory::Open(SaveDataSpaceId space, const SaveDataAttribute& meta) const {
 
-    const auto save_directory = GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, meta.system_save_data_id);
+    const auto storage_id = meta.type == SaveDataType::Cache ? static_cast<u64>(meta.index)
+                                                         : meta.system_save_data_id;
+    const auto save_directory =
+        GetSaveDataPath(space, meta.type, meta.program_id, meta.user_id, storage_id);
 
     auto out = dir->GetDirectoryRelative(save_directory);
 
@@ -148,7 +253,10 @@ std::string SaveDataFactory::GetFullPath(ProgramId program_id, VirtualDir dir,
         return fmt::format("{}{:016X}/{:016X}{:016X}/{:016X}", out, 0, user_id[1], user_id[0],
                            title_id);
     case SaveDataType::Cache:
-        return fmt::format("{}save/cache/{:016X}", out, title_id);
+        if (save_id == 0) {
+            return fmt::format("{}save/cache/{:016X}", out, title_id);
+        }
+        return fmt::format("{}save/cache/{:016X}_{:04X}", out, title_id, save_id);
     default:
         ASSERT_MSG(false, "Unrecognized SaveDataType: {:02X}", static_cast<u8>(type));
         return fmt::format("{}save/unknown_{:X}/{:016X}", out, static_cast<u8>(type), title_id);
