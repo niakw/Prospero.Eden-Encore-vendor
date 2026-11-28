@@ -433,12 +433,34 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         u64 predicate = u64{guarded_uniform ? ((native_predicate & 8) | 6) : native_predicate} << 16;
         const u64 dest = insn.Bits(16, 8);
         const auto base = [&](u64 opcode_bits) { return opcode_bits | predicate | dest; };
+        // Native banks 24..31 are 256-byte NVN2 root tables. Maxwell has
+        // 18 constant banks, so concatenate those tables in bank 17. This
+        // applies only to CBUF/LDC operands; descriptor banks keep their
+        // native binding numbers and their existing admission.
+        const auto root_bank = [&] { return insn.Bits(54, 5) >= 24; };
+        const auto bank = [&]() -> u32 {
+            return root_bank() ? 17U : insn.Bits(54, 5);
+        };
+        const auto table_base = [&]() -> u32 {
+            return root_bank() ? (insn.Bits(54, 5) - 24U) * 256U : 0U;
+        };
+        const auto cbuf_offset = [&]() -> u32 {
+            return (insn.Bits(38, 16) + table_base()) & 0xffffU;
+        };
+        const auto direct_cbuf_in_table = [&] {
+            return !root_bank() || insn.Bits(38, 16) < 256U;
+        };
+        const auto indexed_cbuf_in_range = [&] {
+            return static_cast<s16>(insn.Bits(38, 16)) +
+                       static_cast<s32>(table_base()) <=
+                   0x7fff;
+        };
         const auto cbuf = [&]() -> u64 {
-            return (u64{insn.Bits(38, 16) / 4} << 20) | (u64{insn.Bits(54, 5)} << 34);
+            return (u64{cbuf_offset() / 4} << 20) | (u64{bank()} << 34);
         };
         const auto valid_cbuf = [&] {
-            return !insn.Bits(91, 1) &&
-                   (insn.Bits(38, 16) % 4) == 0;
+            return !insn.Bits(91, 1) && bank() < 18 &&
+                   direct_cbuf_in_table() && (insn.Bits(38, 16) % 4) == 0;
         };
         std::string_view operand_error;
         const auto emit = [&](u64 word) { result.instructions.push_back(word); };
@@ -583,7 +605,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                 insn.Bits(24, 8) ||
                 (opcode == 0x304 && (insn.words[1] & ~0xc00000ffU)) ||
                 (uniform && insn.words[1] > 63U) ||
-                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18)))
+                (constant && (!valid_cbuf())))
                 return fail(index, "native scalar float conversion source mode");
             // Keep full IEEE-754 immediate bits, including bit31, as data.
             // The F16 F2F conversion is the same Maxwell instruction as the
@@ -1068,7 +1090,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const bool signed_product = insn.Bits(73, 1);
             if ((signed_product && carry_output != 7) || (insn.words[2] & ~0x000e02ffU) != 0x07800000 || (!constant_addend && !immediate && (insn.words[1] & ~0xffU)) ||
                 (constant_addend && (!valid_cbuf() || insn.Bits(38, 16) % 8 ||
-                    insn.Bits(38, 16) > 0xfff8 || insn.Bits(54, 5) >= 18)) ||
+                    insn.Bits(38, 16) > 0xfff8)) ||
                 (a >= 250 && a != 255) || (!immediate && b >= 250 && b != 255) || (c >= 250 && c != 255) ||
                 (c != 255 && ((c & 1) || c >= 249)) ||
                 (wide && ((dest & 1) || dest >= 250)) ||
@@ -1122,7 +1144,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         }
         case 0xa27: { // Unsigned high product with a constant-buffer multiplier.
-            if (insn.words[2] != 0x078e00ff || !valid_cbuf() || insn.Bits(59, 5) || insn.Bits(54, 5) >= 18)
+            if (insn.words[2] != 0x078e00ff || !valid_cbuf() || insn.Bits(59, 5))
                 return fail(index, "native constant high multiply mode");
             emit(0x4c98000000000000ULL | predicate | 253 | (u64{15} << 39) | cbuf());
             multiply_high(insn.Bits(24, 8), 253, false, static_cast<u32>(dest));
@@ -1456,17 +1478,22 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             const u32 alignment = width <= 1 ? 1U : width <= 3 ? 2U : 4U;
             if (uniform_dest >= 63 || width > 5 ||
                 (width == 5 && ((uniform_dest & 1) || uniform_dest >= 62)) ||
+                bank() >= 18 || insn.Bits(62, 2) ||
                 (opcode == 0xab9 && (offset % alignment ||
-                                     (subword && offset >= 0x8000U))) || insn.Bits(62, 2) ||
+                                     (subword && offset >= 0x8000U) ||
+                                     !direct_cbuf_in_table())) ||
+                (opcode == 0xabb && !indexed_cbuf_in_range()) ||
                 (insn.words[2] & ~0xe00U) != (opcode == 0xab9 ? 0U : 0x08000000U) ||
                 (opcode == 0xabb && index_reg >= 63))
                 return fail(index, "native uniform constant load mode");
             if (opcode == 0xab9 && width == 4) {
-                emit(0x4c98000000000000ULL | predicate | (uniform_register(uniform_dest)) | (u64{15} << 39) | cbuf());
+                emit(0x4c98000000000000ULL | predicate | (uniform_register(uniform_dest)) |
+                     (u64{15} << 39) | cbuf());
             } else {
                 emit(0xef90000000000000ULL | predicate | (uniform_register(uniform_dest)) |
-                     (u64{opcode == 0xab9 ? 255U : uniform_register(index_reg)} << 8) | (u64{insn.Bits(38, 16)} << 20) |
-                     (u64{insn.Bits(54, 5)} << 36) | (u64{width} << 48));
+                     (u64{opcode == 0xab9 ? 255U : uniform_register(index_reg)} << 8) |
+                     (u64{cbuf_offset()} << 20) | (u64{bank()} << 36) |
+                     (u64{width} << 48));
             }
             break;
         }
@@ -1497,10 +1524,12 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
         case 0xb82: { // LDC U8/S8/U16/S16/U32/U64, indexed byte offset
             const u32 width = insn.Bits(73, 3);
             if (width > 5 || insn.Bits(78, 2) || insn.Bits(91, 1) ||
-                insn.Bits(54, 5) >= 18 ||
-                (width == 5 && ((dest & 1) || dest >= 254))) return fail(index, "native indexed constant load mode");
+                bank() >= 18 || !indexed_cbuf_in_range() ||
+                (width == 5 && ((dest & 1) || dest >= 254)))
+                return fail(index, "native indexed constant load mode");
             emit(base(0xef90000000000000ULL) | (u64{insn.Bits(24, 8)} << 8) |
-                 (u64{insn.Bits(38, 16)} << 20) | (u64{insn.Bits(54, 5)} << 36) | (u64{width} << 48));
+                 (u64{cbuf_offset()} << 20) | (u64{bank()} << 36) |
+                 (u64{width} << 48));
             break;
         }
         case 0xf89: { // SHFL.IDX/BFLY with immediate lane and segmentation mask.
@@ -1947,7 +1976,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (insn.words[2] != (uniform ? 0x08000000U : 0U) ||
                 (opcode == 0x301 && insn.words[1] > 255) ||
                 (uniform && insn.words[1] > 63) ||
-                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18 ||
+                (constant && (!valid_cbuf() ||
                               insn.Bits(62, 2))))
                 return fail(index, "native bit reverse source mode");
             const u32 source = operand(1, false);
@@ -1977,7 +2006,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
                     (0x000e0000U | (uniform ? 0x08000000U : 0U)) ||
                 (opcode == 0x300 && (insn.words[1] & ~0xc00000ffU)) ||
                 (uniform && (insn.words[1] & ~0xc000003fU)) ||
-                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18 ||
+                (constant && (!valid_cbuf() ||
                               insn.Bits(62, 1))))
                 return fail(index, "native leading bit source mode");
             const u32 source = operand(1, false);
@@ -1994,7 +2023,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (insn.words[2] != (uniform ? 0x08000000U : 0U) ||
                 (opcode == 0x309 && (insn.words[1] & ~0xc00000ffU)) ||
                 (uniform && (insn.words[1] & ~0xc000003fU)) ||
-                (constant && (!valid_cbuf() || insn.Bits(54, 5) >= 18 ||
+                (constant && (!valid_cbuf() ||
                               insn.Bits(62, 1))))
                 return fail(index, "native population count source mode");
             const u32 source = operand(1, false);
@@ -3430,7 +3459,7 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             if (insn.Bits(75, 2) != 2 || insn.Bits(84, 2) != 2 ||
                 insn.Bits(81, 3) || insn.Bits(86, 5) ||
                 (insn.Bits(91, 1) != (uniform_source ? 1U : 0U)) ||
-                (constant_source && (!valid_cbuf() || insn.Bits(54, 5) >= 18)) ||
+                (constant_source && (!valid_cbuf())) ||
                 (uniform_source && insn.words[1] > 63U) ||
                 (opcode == 0x307 && (insn.words[1] & ~0xc00000ffU)))
                 return fail(index, "native floating round source or format");

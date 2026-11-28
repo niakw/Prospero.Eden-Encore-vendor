@@ -1,4 +1,3 @@
-#include "performance.h"
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -139,6 +138,8 @@ bool Maxwell3D::IsMethodExecutable(u32 method) {
         return true;
     }
     switch (method) {
+    case RootTables::SelectMethod:
+    case RootTables::LoadMethod:
     case MAXWELL3D_REG_INDEX(draw.end):
     case MAXWELL3D_REG_INDEX(draw.begin):
     case MAXWELL3D_REG_INDEX(vertex_buffer.first):
@@ -307,6 +308,17 @@ void Maxwell3D::ProcessDirtyRegisters(u32 method, u32 argument) {
 
 void Maxwell3D::ProcessMethodCall(u32 method, u32 argument, u32 nonshadow_argument, bool is_last_call) {
     switch (method) {
+    case RootTables::SelectMethod:
+        root_tables.selected = argument & 7U;
+        root_tables.offset = (argument >> 8) & 0xffU;
+        return;
+    case RootTables::LoadMethod:
+        if (root_tables.offset < 256 && (root_tables.offset & 3U) == 0) {
+            root_tables.tables[root_tables.selected][root_tables.offset / sizeof(u32)] = argument;
+            root_tables.loaded = true;
+        }
+        root_tables.offset += sizeof(u32);
+        return;
     case MAXWELL3D_REG_INDEX(wait_for_idle):
         return rasterizer->WaitForIdle();
     case MAXWELL3D_REG_INDEX(shadow_ram_control):
@@ -516,7 +528,6 @@ void Maxwell3D::ProcessQueryGet() {
 void Maxwell3D::ProcessQueryCondition() {
     if (rasterizer->AccelerateConditionalRendering()) {
         execute_on = true;
-        ::Eden::Performance::CountCondition(0);
         return;
     }
     const GPUVAddr condition_address{regs.render_enable.Address()};
@@ -566,10 +577,6 @@ void Maxwell3D::ProcessQueryCondition() {
         break;
     }
     }
-    ::Eden::Performance::CountCondition(
-        regs.render_enable_override == Regs::RenderEnable::Override::AlwaysRender ? 1u :
-        regs.render_enable_override == Regs::RenderEnable::Override::NeverRender ? 2u :
-        3u + static_cast<unsigned>(regs.render_enable.mode) * 2u + (execute_on ? 1u : 0u));
 }
 
 void Maxwell3D::ProcessCounterReset() {
@@ -601,9 +608,6 @@ void Maxwell3D::ProcessCBBind(size_t stage_index) {
     // Bind the buffer currently in CB_ADDRESS to the specified index in the desired shader
     // stage.
     const auto& bind_data = regs.bind_groups[stage_index];
-    // Lichii e6e03043 / current Eglantine: CB_BIND encodes a 5-bit slot,
-    // while Maxwell3D keeps only 18 constant-buffer entries per stage.
-    // Reject guest slots 18..31 before indexing the fixed-size state array.
     if (bind_data.shader_slot >= Regs::MaxConstBuffers) {
         return;
     }

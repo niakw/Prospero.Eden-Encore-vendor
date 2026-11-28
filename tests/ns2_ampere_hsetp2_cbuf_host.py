@@ -64,6 +64,35 @@ int main() {
     assert(((load >> 20) & 0x3fffU) == 0xfcU / 4U);
     assert(((load >> 34) & 0x1fU) == 7U);
 
+    // NVN2 root table bank 24 is table 0 and lowers to Maxwell bank 17.
+    auto root_cbuf = cbuf;
+    root_cbuf.words[1] =
+        (root_cbuf.words[1] & ~(0x1fU << 22)) | (24U << 22);
+    const auto root_lowered = LowerToMaxwell(program(root_cbuf));
+    assert(root_lowered);
+    const std::uint64_t root_load = find_top16(root_lowered, 0x4c98);
+    assert(root_load != 0);
+    assert(((root_load >> 20) & 0x3fffU) == 0xfcU / 4U);
+    assert(((root_load >> 34) & 0x1fU) == 17U);
+
+    // Table 1 (native bank 25) starts 256 bytes after table 0.
+    auto root1_cbuf = cbuf;
+    root1_cbuf.words[1] =
+        (root1_cbuf.words[1] & ~(0x1fU << 22)) | (25U << 22);
+    root1_cbuf.words[1] &= ~(0xffffU << 6);
+    root1_cbuf.words[1] |= (0x20U << 6);
+    const auto root1_lowered = LowerToMaxwell(program(root1_cbuf));
+    assert(root1_lowered);
+    const std::uint64_t root1_load = find_top16(root1_lowered, 0x4c98);
+    assert(((root1_load >> 20) & 0x3fffU) == (0x100U + 0x20U) / 4U);
+    assert(((root1_load >> 34) & 0x1fU) == 17U);
+
+    // Direct constant reads may not escape their 256-byte native table.
+    auto root_oob = root_cbuf;
+    root_oob.words[1] =
+        (root_oob.words[1] & ~(0xffffU << 6)) | (0x100U << 6);
+    assert(!LowerToMaxwell(program(root_oob)));
+
     // The original register form remains accepted without a CBUF load.
     Instruction reg = cbuf;
     reg.words[0] = (reg.words[0] & ~0xfffU) | 0x234U;
@@ -102,4 +131,4 @@ with tempfile.TemporaryDirectory(prefix="ns2-hsetp2-cbuf-") as td:
     if run.returncode:
         raise RuntimeError("HSETP2 CBUF harness failed:\n" + run.stdout + run.stderr)
 
-print("NS2_AMPERE_HSETP2_CBUF_HOST_PASS upstream=19be851d cbuf=1 existing_immediate=1 register=1 invalid=1 ps5=unverified")
+print("NS2_AMPERE_HSETP2_CBUF_HOST_PASS upstream=19be851d cbuf=1 root24_31=1 table_bounds=1 existing_immediate=1 register=1 invalid=1 ps5=unverified")
