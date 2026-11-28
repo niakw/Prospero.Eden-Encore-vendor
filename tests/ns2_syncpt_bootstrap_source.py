@@ -492,7 +492,7 @@ assert "GraphicsSupervisorProtocol::DecodeSyncpointWait(" in slot_owner
 assert slot_owner.index("Cancel(request);",slot_owner.index("void RequestSlotEvent")) < slot_owner.index("if (syncpoint >= HostSyncpoints)")
 cancel=slot_owner.split("bool Cancel(SlotRequest& request)",1)[1]
 assert "if (request.handle != 0)" in cancel
-assert "DeregisterNativeGuestAction" in cancel and "DeregisterGuestAction" in cancel
+assert "DeregisterNativeGuestAction" in cancel and "DeregisterWrappingGuestAction" in cancel
 assert "if (!request.pending.exchange" not in cancel
 
 # libounce command 103 advertises mode 0. Keep its producer value and 201
