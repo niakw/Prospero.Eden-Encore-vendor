@@ -16,6 +16,10 @@ i2m = (root / "encore-active/eden/src/video_core/engines/engine_upload.cpp").rea
 blitter = (root / "encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp").read_text()
 texture_util = (root / "encore-active/eden/src/video_core/texture_cache/util.cpp").read_text()
 dma = (root / "encore-active/eden/src/video_core/engines/maxwell_dma.cpp").read_text()
+framebuffer_pinned = (root / "sources/eden/src/video_core/framebuffer_config.h").read_text()
+framebuffer_active = (root / "encore-active/eden/src/video_core/framebuffer_config.h").read_text()
+nvdisp = (root / "encore-active/eden/src/core/hle/service/nvdrv/devices/nvdisp_disp0.cpp").read_text()
+present = (root / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_present_layer.cpp").read_text()
 
 dtor = "    ~MemoryManager();\n"
 api = """    ~MemoryManager();
@@ -151,7 +155,31 @@ unswizzle = texture_util.split("UnswizzleImage(Tegra::MemoryManager& gpu_memory,
 assert swizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert unswizzle.count("gpu_memory.UsesNativeTiling()") == 1
 assert texture_util.count("gpu_memory.UsesNativeTiling()") == 2
-print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=9 texture_util=2")
+# VI2 presentation must preserve the same native GOB identity through the
+# BufferQueue/NvDisp path. The frozen framebuffer ABI defaults to Maxwell;
+# only an NvMap session owned by a live NativeGpuProcessRegistry epoch may
+# set the added presentation bit.
+assert "bool native_tiling{};" not in framebuffer_pinned
+fb_old = "    BlendMode blending{};\n    u32 layer_stack_mask{Service::Nvnflinger::DefaultLayerStackMask};"
+fb_new = """    BlendMode blending{};
+    // The same FramebufferConfig type serves NS1 and NS2. Only a buffer
+    // owned by a live native GPU process opts into Switch 2's GOB ordering.
+    bool native_tiling{};
+    u32 layer_stack_mask{Service::Nvnflinger::DefaultLayerStackMask};"""
+assert framebuffer_pinned.count(fb_old) == 1
+assert framebuffer_active == framebuffer_pinned.replace(fb_old, fb_new, 1)
+for marker in (
+    '#include "core/hle/service/nvdrv/devices/native_gpu_process_registry.h"',
+    "nvmap.GetHandle(layer.buffer_handle)",
+    "container.GetSession(handle->session_id)",
+    "NativeGpuProcessRegistry::Instance().Contains(session->process)",
+    ".native_tiling = native_tiling",
+):
+    assert marker in nvdisp, marker
+assert "framebuffer.native_tiling" in present
+raw_upload = present.split("void Layer::UpdateRawImage(", 1)[1]
+assert raw_upload.index("framebuffer.native_tiling") > raw_upload.index("Tegra::Texture::UnswizzleTexture(")
+print("NS2_NATIVE_TILING_ACTIVATION_PASS default_ns1=0 authenticated_ns2=1 i2m=1 blitter=2 dma=9 volume_z=9 texture_util=2 present=1")
 
 # I2M streaming admission: compile the actual maintained ProcessExec and both
 # packet-consumption overloads. A fragmented GPFIFO upload must never read
