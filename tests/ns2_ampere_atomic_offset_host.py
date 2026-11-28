@@ -37,18 +37,10 @@ static Instruction Exit() {
     return insn;
 }
 
-static Instruction UniformMarker() {
-    // Exact upstream context from ampere_logged_numeric.cpp: this makes the
-    // high-register data operand R240 a uniform-bank mirror that must first
-    // be shadowed before the atomic itself is lowered.
-    return Instruction{{0x0000fc02, 0, 0, 0}};
-}
-
-static Instruction Atomic(std::uint32_t offset24) {
-    // ATOMG.E.ADD.STRONG.GPU R4, [UR4 + offset], R240.
-    // words[1] bits 8..31 are the signed 24-bit byte offset.
+static Instruction Atomic(std::uint32_t offset24, std::uint32_t data = 12) {
+    // Logged upstream encoding, with an independently selectable data GPR.
     Instruction insn{{0xff0479a8, 0x000000f0, 0x081ee144, 0x000fe200}};
-    insn.words[1] = (offset24 << 8) | 0xf0U;
+    insn.words[1] = (offset24 << 8) | data;
     return insn;
 }
 
@@ -61,20 +53,36 @@ static std::uint64_t AtomicWord(const auto& lowered) {
 }
 
 int main() {
-    for (const auto& [offset24, expected20] :
-         {std::pair{4U, 4U}, std::pair{0xfffffcU, 0xffffcU}}) {
-        const auto lowered=LowerToMaxwell(std::array{UniformMarker(), Atomic(offset24), Exit()});
+    const auto check = [](const auto& lowered) {
+        if (!lowered) {
+            std::cerr << lowered.error << " at " << lowered.error_offset << '\n';
+        }
         assert(lowered);
+    };
+    for (const auto& [offset24, expected20] :
+         {std::pair{0U, 0U}, std::pair{4U, 4U}, std::pair{0xfffffcU, 0xffffcU},
+          std::pair{0x7ffffU, 0x7ffffU}, std::pair{0xf80000U, 0x80000U}}) {
+        const auto lowered=LowerToMaxwell(std::array{Atomic(offset24), Exit()});
+        check(lowered);
         const auto atom=AtomicWord(lowered);
         assert(((atom >> 28) & 0xfffffU) == expected20);
+        assert(((atom >> 20) & 0xffU) == 12U);
+    }
+    // R240 overlaps the reserved bank: strict admission must reject it,
+    // while the explicitly enabled spill path must preserve the offset.
+    const auto high=std::array{Atomic(4U, 240U), Exit()};
+    assert(!LowerToMaxwell(high));
+    const auto spilled=LowerToMaxwell(high, {}, true);
+    check(spilled);
+    const auto atom=AtomicWord(spilled);
+    assert(((atom >> 28) & 0xfffffU) == 4U);
+    assert(((atom >> 20) & 0xffU) < 220U);
+    for (const auto offset : {0x80000U, 0xf7ffffU, 0x800000U}) {
+        const auto rejected=LowerToMaxwell(std::array{Atomic(offset), Exit()});
+        assert(!rejected);
+        assert(rejected.error=="native global atomic mode");
     }
 
-    // -0x800000 is valid Ampere s24 but not representable by Maxwell's s20.
-    const auto rejected=LowerToMaxwell(std::array{UniformMarker(), Atomic(0x800000U), Exit()});
-    assert(!rejected);
-    assert(rejected.error=="native global atomic mode");
-
-    std::cout << "atomm_offset=+4,-4 overflow=rejected\n";
 }
 """
 
@@ -95,4 +103,4 @@ with tempfile.TemporaryDirectory(prefix="ns2-ampere-atomic-offset-") as td:
     if run.returncode:
         raise RuntimeError("Ampere ATOMG offset harness failed:\n"+run.stdout+run.stderr)
 
-print("NS2_AMPERE_ATOMG_OFFSET_HOST_PASS upstream=6b319471 fixture=logged_numeric plus4=1 minus4=1 overflow=reject ps5=unverified")
+print("NS2_AMPERE_ATOMG_OFFSET_HOST_PASS upstream=6b319471 strict=1 spill=1 signed_bounds=1 overflow=reject ps5=unverified")
