@@ -40,8 +40,10 @@ jobs:
           from pathlib import Path
           upstream = Path("sources/ps5-mihawkgen/train/requirements.txt").read_text()
           override = Path("encore-active/ps5-mihawkgen/train/requirements.txt").read_text()
+          assert "torch==2.14.1" in upstream and "torch==2.15.0" not in upstream
           assert "pillow==12.3.0" in upstream and "pillow==13.0.0" not in upstream
-          assert override == upstream.replace("pillow==12.3.0", "pillow==13.0.0")
+          expected = upstream.replace("torch==2.14.1", "torch==2.15.0").replace("pillow==12.3.0", "pillow==13.0.0")
+          assert override == expected
           opus = Path("sources/eden-cpm/opus/a3f0ec02b3/dnn/torch/osce/requirements.txt").read_text()
           assert "gitpython==3.2.1" in opus and "torch==2.15.0" in opus
           assert "torchaudio==2.11.0" in opus
