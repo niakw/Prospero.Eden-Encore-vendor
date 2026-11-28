@@ -101,8 +101,32 @@ for path in sorted(consumer_paths):
                     legacy_consumer_refs.append(
                         (f"{path.relative_to(ROOT)}:{line_no}", forbidden)
                     )
+# Canonical Dynarmic is nested under src/dynarmic/src/dynarmic. A path can
+# therefore use the correct Eden root while still selecting a retired flattened
+# layout. Reject both full and composed forms globally.
+for path in sorted(consumer_paths):
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    for forbidden in (
+        "encore-active/eden/src/dynarmic/backend/",
+        "encore-active/eden/src/dynarmic/frontend/",
+    ):
+        if forbidden in text:
+            legacy_consumer_refs.append((str(path.relative_to(ROOT)), forbidden))
+    for line_no, line in enumerate(lines, 1):
+        if negative_witness(line):
+            continue
+        for forbidden in (
+            '"eden/src/dynarmic/backend/', "'eden/src/dynarmic/backend/",
+            '"eden/src/dynarmic/frontend/', "'eden/src/dynarmic/frontend/",
+        ):
+            if forbidden in line:
+                legacy_consumer_refs.append(
+                    (f"{path.relative_to(ROOT)}:{line_no}", forbidden)
+                )
+
 assert not legacy_consumer_refs, (
-    "active vendor consumer references retired Encore root",
+    "active vendor consumer references retired/malformed Encore owner path",
     legacy_consumer_refs,
 )
 

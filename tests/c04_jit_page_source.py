@@ -10,11 +10,11 @@ import hashlib
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVE = ROOT / "encore-active"
 ORIGINAL_BLOBS = {
-    "eden-header-hygiene/include/common/page_table.h": "0c12891565d487578c1720c74f6de994b55e82eb",
-    "eden/src/dynarmic/backend/x64/emit_x64_data_processing.cpp": "3dd13ebc5c519de63672f0699a796009024e4a13",
-    "eden/src/dynarmic/backend/x64/emit_x64_vector.cpp": "4afc50c77b167d6e36d180e04c5cf58259db62b7",
+    "eden/src/common/page_table.h": "0c12891565d487578c1720c74f6de994b55e82eb",
+    "eden/src/dynarmic/src/dynarmic/backend/x64/emit_x64_data_processing.cpp": "3dd13ebc5c519de63672f0699a796009024e4a13",
+    "eden/src/dynarmic/src/dynarmic/backend/x64/emit_x64_vector.cpp": "4afc50c77b167d6e36d180e04c5cf58259db62b7",
 }
-MEMORY_PATH = ACTIVE / "eden/src/dynarmic/backend/x64/emit_x64_memory.h"
+MEMORY_PATH = ACTIVE / "eden/src/dynarmic/src/dynarmic/backend/x64/emit_x64_memory.h"
 
 
 def blob(data: str) -> str:
@@ -31,14 +31,14 @@ def recover_one(rel: str, old: str, new: str) -> None:
     print("C04_EXACT_SOURCE_DELTA_PASS", rel)
 
 
-header = "eden-header-hygiene/include/common/page_table.h"
+header = "eden/src/common/page_table.h"
 oldbit = "static constexpr u64 SIGN_BIT = 45 + 12; // 44 bits of data + page offset"
 newbit = "static constexpr u64 SIGN_BIT = 44 + 12 - 1; // top bit of 44-bit ATTRIBUTE_MASK"
 recover_one(header, oldbit, newbit)
 assert 44 + 12 - 1 == 55
 assert (((1 << 44) - 1) << 12).bit_length() - 1 == 55
 
-division = "eden/src/dynarmic/backend/x64/emit_x64_data_processing.cpp"
+division = "eden/src/dynarmic/src/dynarmic/backend/x64/emit_x64_data_processing.cpp"
 s = (ACTIVE / division).read_text()
 old = "    code.test(divisor, divisor);\n    code.jz(end, code.T_NEAR);"
 new = "    code.test(divisor, divisor);\n    code.cmovz(eax, divisor); // SDIV32 by zero returns zero\n    code.jz(end, code.T_NEAR);"
@@ -48,7 +48,7 @@ assert s[start:end].count(new) == 1
 assert blob(s.replace(new, old, 1)) == ORIGINAL_BLOBS[division]
 print("C04_SIGNED_DIV32_ZERO_GUARD_SOURCE_PASS")
 
-vector = "eden/src/dynarmic/backend/x64/emit_x64_vector.cpp"
+vector = "eden/src/dynarmic/src/dynarmic/backend/x64/emit_x64_vector.cpp"
 s = (ACTIVE / vector).read_text()
 shift_old = "auto const shifted = U(element) << U(T(shift_amount));"
 shift_new = "U const shifted = U(U(element) << U(T(shift_amount)));"

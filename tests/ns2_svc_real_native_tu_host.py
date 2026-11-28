@@ -15,19 +15,8 @@ deps = root / "sources/eden-cpm"
 src = active / "eden/src/core/hle/kernel/svc.cpp"
 assert src.is_file()
 inc = [
-    active / "ns2-runtime/gpu_access_svc",
-    active / "ns2-runtime/kernel_wait64",
-    active / "ns2-runtime/cpu6",
-    active / "ns2-runtime/process",
-    active / "ns2-runtime/metadata",
-    active / "ns2-runtime/vulkan_abi",
-    active / "ns2-runtime/nvdrv_gpu",
-    active / "ns2-runtime/nvdrv_as",
-    active / "ns2-runtime/gpu_session",
-    active / "ns2-runtime/gpu_dispatch",
-    active / "ns2-runtime/ampere",
-    active / "ns2-runtime/hle",
-    # Consolidated maintained owner for threading, core, shader and helpers.
+    # Every maintained NS1/NS2 HLE, kernel, GPU and shader header now shares
+    # the canonical Eden include root; no retired feature-root include shadow.
     active / "eden/src",
     root / "sources/eden/src",
     root / "sources/eden/src/dynarmic/src",
