@@ -77,6 +77,10 @@ for token in (
     "dma_pusher.NativeSnapshotEpoch()",
     "memory_manager->IsMemoryDirty(",
     "memory_manager->ReadBlockUnsafe(",
+    "const bool defer_empty = channel_state->program_id == 0x040074a01bf12000ULL;",
+    "const bool empty = defer_empty && std::all_of(",
+    "return word.argument == 0;",
+    "entries.submitted_valid[i] = !empty;",
 ):
     assert token in native_nvhost, token
 for token in (

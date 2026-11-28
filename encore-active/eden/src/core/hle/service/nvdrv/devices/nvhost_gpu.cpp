@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <limits>
@@ -1247,6 +1248,11 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
         }
         entries.snapshot_epoch =
             channel_state->payload->dma_pusher.NativeSnapshotEpoch();
+        // Eglantine fc8d2a94: Bananza can submit an all-zero startup
+        // entry before its producer fills it. Preserve populated snapshots,
+        // but route these empty entries through the existing coherent read
+        // at execution, after the submission's wait dependency.
+        const bool defer_empty = channel_state->program_id == 0x040074a01bf12000ULL;
         std::size_t word_offset = 0;
         for (std::size_t i = 0; i < entries.command_lists.size(); ++i) {
             const auto& command = entries.command_lists[i];
@@ -1260,7 +1266,12 @@ NvResult nvhost_gpu::SubmitGPFIFOImpl(IoctlSubmitGpfifo& params, Tegra::CommandL
                     channel_state->memory_manager->ReadBlockUnsafe(
                         command.addr,
                         entries.submitted_words.data() + word_offset, bytes);
-                    entries.submitted_valid[i] = 1;
+                    const auto* first = entries.submitted_words.data() + word_offset;
+                    const bool empty = defer_empty && std::all_of(
+                        first, first + words, [](const Tegra::CommandHeader& word) {
+                            return word.argument == 0;
+                        });
+                    entries.submitted_valid[i] = !empty;
                 }
             }
             word_offset += words;
