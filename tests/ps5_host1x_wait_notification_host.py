@@ -11,7 +11,8 @@ assert "std::list<RegisteredAction>::iterator" not in HDR
 assert "guest_mirror(*mirrored_id" in SRC
 guest_inc=SRC.split("void SyncpointManager::IncrementGuest(u32 id) {",1)[1].split("\n}",1)[0]
 host_inc=SRC.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1].split("\n}",1)[0]
-assert "guest_action_storage[id]);" in guest_inc
+assert "guest_action_storage[id]," in guest_inc
+assert "std::nullopt, &wrapping_guest_actions[id]);" in guest_inc
 assert "guest_action_storage[id], id)" not in guest_inc
 assert "host_action_storage[id], id)" in host_inc
 assert "wait_cv.notify_all();" in SRC
