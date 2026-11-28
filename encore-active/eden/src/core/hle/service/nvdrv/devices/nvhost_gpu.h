@@ -302,7 +302,9 @@ private:
     NvCore::NvMap& nvmap;
     std::shared_ptr<Tegra::Control::ChannelState> channel_state;
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
-    ::Common::unordered_map<DeviceFD, u64> native_generations;
+    // Mutable so const ABI probes can perform the one-way late capture of a
+    // registry generation for an FD opened before GSV publication.
+    mutable ::Common::unordered_map<DeviceFD, u64> native_generations;
     u32 channel_syncpoint;
     u32 native_submit_logs{};
     // An authenticated NS2 /dev/nvhost-gpu channel retains its selected

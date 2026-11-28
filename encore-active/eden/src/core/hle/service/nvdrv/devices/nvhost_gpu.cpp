@@ -1491,9 +1491,28 @@ Kernel::KEvent* nvhost_gpu::QueryEvent(DeviceFD fd, u32 event_id) {
 }
 
 bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {
-    // Keep ABI identity descriptor-scoped and sticky. Epoch liveness is
-    // checked separately so stale native FDs cannot fall through to Maxwell.
-    return sessions.contains(fd) && native_generations.contains(fd);
+    // ABI identity is descriptor-scoped and sticky once captured. Some NS2
+    // runtimes open /dev/nvhost-gpu before GSV publishes the process epoch;
+    // the Nov-28 Z-A trace proved that such an FD otherwise stays on the
+    // Maxwell path forever (native=0) even after the same KProcess becomes
+    // the registered native owner. Permit a one-way late promotion only when
+    // the exact session KProcess now has a live NativeGpuProcessRegistry
+    // ticket. NS1 processes never enter that registry, and a captured
+    // generation is still checked separately by NativeEpochCurrent().
+    const auto session_it = sessions.find(fd);
+    if (session_it == sessions.end())
+        return false;
+    if (native_generations.contains(fd))
+        return true;
+    const auto* session = core.GetSession(session_it->second);
+    if (!session || !session->process)
+        return false;
+    if (const auto ticket =
+            NativeGpuProcessRegistry::Instance().CaptureTicket(session->process)) {
+        native_generations.emplace(fd, ticket->generation);
+        return true;
+    }
+    return false;
 }
 
 bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {

@@ -429,7 +429,13 @@ for token in ("CaptureTicket(session->process)",
               "native_generations.emplace(fd, ticket->generation)"):
     assert token in gpu_open, token
 uses_native=nvhost_cpp.split("bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
-assert "native_generations.contains(fd)" in uses_native
+for token in ("sessions.find(fd)", "native_generations.contains(fd)",
+              "NativeGpuProcessRegistry::Instance().CaptureTicket(session->process)",
+              "native_generations.emplace(fd, ticket->generation)"):
+    assert token in uses_native, token
+assert uses_native.index("native_generations.contains(fd)") < uses_native.index("CaptureTicket(session->process)")
+# Late promotion is one-way and still epoch-gated at all native entry points.
+assert "native_generations.erase(fd)" in nvhost_cpp.split("void nvhost_gpu::OnClose(",1)[1].split("\n}",1)[0]
 assert "NativeGpuProcessRegistry::Instance().Contains" not in uses_native
 epoch=nvhost_cpp.split("bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
 for token in ("native_generations.find(fd)", "IsCurrent("):
