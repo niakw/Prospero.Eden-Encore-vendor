@@ -350,7 +350,8 @@ struct FileBackend final : public Backend {
                 error_flushed_ms.store(flush_now, std::memory_order_relaxed);
                 file->Flush();
             }
-        }#endif
+        }
+#endif
     }
 
     void Flush() noexcept override {
