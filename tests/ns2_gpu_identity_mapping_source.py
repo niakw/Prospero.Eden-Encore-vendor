@@ -471,11 +471,16 @@ gpu_open=nvhost_cpp.split("void nvhost_gpu::OnOpen(",1)[1].split("\n}",1)[0]
 for token in ("CaptureTicket(session->process)",
               "native_generations.emplace(fd, ticket->generation)"):
     assert token in gpu_open, token
-uses_native=nvhost_cpp.split("bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
-for token in ("sessions.find(fd)", "native_generations.contains(fd)",
+uses_native=nvhost_cpp.split("bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) {",1)[1].split("\n}",1)[0]
+for token in ("std::scoped_lock identity_lock{native_identity_mutex}",
+              "sessions.find(fd)", "native_generations.contains(fd)",
               "NativeGpuProcessRegistry::Instance().CaptureTicket(session->process)",
               "native_generations.emplace(fd, ticket->generation)"):
     assert token in uses_native, token
+assert "mutable ::Common::unordered_map<DeviceFD, u64> native_generations;" not in nvhost_hdr
+assert "mutable std::mutex native_identity_mutex;" in nvhost_hdr
+native_epoch=nvhost_cpp.split("bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {",1)[1].split("\n}",1)[0]
+assert "std::scoped_lock identity_lock{native_identity_mutex}" in native_epoch
 assert uses_native.index("native_generations.contains(fd)") < uses_native.index("CaptureTicket(session->process)")
 # Late promotion is one-way and still epoch-gated at all native entry points.
 gpu_close=nvhost_cpp.split("void nvhost_gpu::OnClose(",1)[1].split("\n}",1)[0]

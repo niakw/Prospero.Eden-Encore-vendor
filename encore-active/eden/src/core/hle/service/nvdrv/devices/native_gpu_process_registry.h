@@ -310,15 +310,15 @@ public:
         }
         if (!free_slot || entry.semaphore_waiter_count >= MaxSemaphoreWaiters)
             return false;
-        free_slot->emplace();
-        auto& waiter = **free_slot;
-        waiter.channel = channel;
-        waiter.channel_generation = channel_generation;
-        waiter.gpu_address = gpu_address;
-        waiter.device_address = device_address & ~std::uint64_t{3};
-        waiter.value = value;
-        waiter.operation = operation;
-        waiter.latched = false;
+        free_slot->emplace(SemaphoreWaiter{
+            .channel = channel,
+            .channel_generation = channel_generation,
+            .gpu_address = gpu_address,
+            .device_address = device_address & ~std::uint64_t{3},
+            .value = value,
+            .operation = operation,
+            .latched = false,
+        });
         ++entry.semaphore_waiter_count;
         return true;
     }

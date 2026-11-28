@@ -269,7 +269,7 @@ private:
     NvResult SetChannelPriority(IoctlChannelSetPriority& params);
     // Authenticate the exact FD before changing channel/engine state. Native
     // sessions may not share a GPU channel with another guest process.
-    [[nodiscard]] NvResult ValidateChannelOwner(DeviceFD fd, u64& program_id) const;
+    [[nodiscard]] NvResult ValidateChannelOwner(DeviceFD fd, u64& program_id);
     NvResult AllocGPFIFOEx(IoctlAllocGpfifoEx& params, DeviceFD fd);
     NvResult AllocGPFIFOEx2(IoctlAllocGpfifoEx& params, DeviceFD fd);
 
@@ -284,7 +284,7 @@ private:
     // ABI identity is sticky for the lifetime of a native channel FD. The
     // generation check is separate so a closed GSV epoch fails closed instead
     // of re-routing the same Ampere fd through legacy Maxwell handlers.
-    [[nodiscard]] bool UsesNativeAbi(DeviceFD fd) const;
+    [[nodiscard]] bool UsesNativeAbi(DeviceFD fd);
     [[nodiscard]] bool NativeEpochCurrent(DeviceFD fd) const;
     static void SignalNativeChannelFault(void* context) noexcept;
 
@@ -306,9 +306,12 @@ private:
     NvCore::NvMap& nvmap;
     std::shared_ptr<Tegra::Control::ChannelState> channel_state;
     ::Common::unordered_map<DeviceFD, NvCore::SessionId> sessions;
-    // Mutable so const ABI probes can perform the one-way late capture of a
-    // registry generation for an FD opened before GSV publication.
-    mutable ::Common::unordered_map<DeviceFD, u64> native_generations;
+    // Descriptor identity is read before some ioctl handlers acquire the
+    // channel mutex. Serialize session/generation publication separately;
+    // writers take channel_mutex first, then this mutex, and no reverse
+    // acquisition exists.
+    mutable std::mutex native_identity_mutex;
+    ::Common::unordered_map<DeviceFD, u64> native_generations;
     // Successful legacy allocations made before the same FD acquired a native
     // GSV epoch. The entry count is retained so late promotion can re-run the
     // native ring-size admission instead of trusting a legacy-only success.

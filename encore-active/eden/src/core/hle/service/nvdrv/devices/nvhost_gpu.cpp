@@ -353,10 +353,12 @@ NvResult nvhost_gpu::Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> inpu
 }
 
 void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
+    const std::scoped_lock channel_lock{channel_mutex};
+    const std::scoped_lock identity_lock{native_identity_mutex};
     sessions[fd] = session_id;
-    // OunceVK opens /dev/nvhost-gpu only after gsvOpenGpu/VM import. Capture
-    // that exact process epoch now; later GSV teardown must invalidate work,
-    // not silently reclassify this descriptor as a Switch 1 channel.
+    // OunceVK normally opens /dev/nvhost-gpu after gsvOpenGpu/VM import.
+    // Capture that exact process epoch now; a pre-GSV descriptor can still
+    // perform the same one-way capture later in UsesNativeAbi().
     if (const auto* session = core.GetSession(session_id);
         session && session->process) {
         if (const auto ticket =
@@ -367,9 +369,12 @@ void nvhost_gpu::OnOpen(NvCore::SessionId session_id, DeviceFD fd) {
 
 void nvhost_gpu::OnClose(DeviceFD fd) {
     const std::scoped_lock lock{channel_mutex};
-    native_generations.erase(fd);
+    {
+        const std::scoped_lock identity_lock{native_identity_mutex};
+        native_generations.erase(fd);
+        sessions.erase(fd);
+    }
     pre_native_gpfifo_entries.erase(fd);
-    sessions.erase(fd);
     // One shared ChannelState backs every live /dev/nvhost-gpu descriptor.
     // Closing a 3D or copy FD must not disable the surviving channel. Reset
     // device-wide native state only when the final descriptor is gone.
@@ -737,7 +742,7 @@ NvResult nvhost_gpu::SetChannelPriority(IoctlChannelSetPriority& params) {
     return NvResult::Success;
 }
 
-NvResult nvhost_gpu::ValidateChannelOwner(DeviceFD fd, u64& program_id) const {
+NvResult nvhost_gpu::ValidateChannelOwner(DeviceFD fd, u64& program_id) {
     // Never index the session map: a malformed FD creates a ghost entry, and a
     // null GetSession/process could dereference during GPFIFO allocation.
     const auto it = sessions.find(fd);
@@ -1539,15 +1544,12 @@ bool nvhost_gpu::AdoptPreNativeGpfifo(DeviceFD fd) {
     return true;
 }
 
-bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {
+bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) {
     // ABI identity is descriptor-scoped and sticky once captured. Some NS2
-    // runtimes open /dev/nvhost-gpu before GSV publishes the process epoch;
-    // the Nov-28 Z-A trace proved that such an FD otherwise stays on the
-    // Maxwell path forever (native=0) even after the same KProcess becomes
-    // the registered native owner. Permit a one-way late promotion only when
-    // the exact session KProcess now has a live NativeGpuProcessRegistry
-    // ticket. NS1 processes never enter that registry, and a captured
-    // generation is still checked separately by NativeEpochCurrent().
+    // runtimes open /dev/nvhost-gpu before GSV publishes the process epoch.
+    // Serialize the first late capture: ioctls and QueryEvent can reach this
+    // before taking channel_mutex, so a mutable map in a const probe races.
+    const std::scoped_lock identity_lock{native_identity_mutex};
     const auto session_it = sessions.find(fd);
     if (session_it == sessions.end())
         return false;
@@ -1565,6 +1567,7 @@ bool nvhost_gpu::UsesNativeAbi(DeviceFD fd) const {
 }
 
 bool nvhost_gpu::NativeEpochCurrent(DeviceFD fd) const {
+    const std::scoped_lock identity_lock{native_identity_mutex};
     const auto session_it = sessions.find(fd);
     const auto generation_it = native_generations.find(fd);
     if (session_it == sessions.end() || generation_it == native_generations.end())
