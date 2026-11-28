@@ -37,10 +37,18 @@ public:
             const s64 target = s64{index} * 16 + 16 + relative;
             if (target < 0 || target % 16 || target >= MaximumInstructions * 16)
                 return Result::InvalidTarget;
-            if (opcode == 0x944 && instruction.Bits(12, 4) == 7) {
-                last_call_target = std::max(last_call_target, static_cast<u32>(target / 16));
+            // CALL.REL.NOINC (bit 86) pushes no return address. The native
+            // compiler uses it as a forward transfer; waiting for a RET makes
+            // capture run into the following shader and eventually reject it.
+            const bool noinc_call =
+                opcode == 0x944 && (instruction.words[2] & 0x400000U) != 0;
+            if (opcode == 0x944 && !noinc_call &&
+                instruction.Bits(12, 4) == 7) {
+                last_call_target =
+                    std::max(last_call_target, static_cast<u32>(target / 16));
             } else {
-                last_forward_target = std::max(last_forward_target, static_cast<u32>(target / 16));
+                last_forward_target =
+                    std::max(last_forward_target, static_cast<u32>(target / 16));
             }
         }
         if (opcode == 0x94d && instruction.Bits(12, 4) == 7 && instruction.Bits(87, 4) == 7 &&

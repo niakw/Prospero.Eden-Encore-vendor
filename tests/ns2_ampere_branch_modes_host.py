@@ -26,8 +26,10 @@ code=r"""
 #include <cstdint>
 #include <iostream>
 #include "shader_recompiler/frontend/ampere/lower_to_maxwell.h"
+#include "shader_recompiler/frontend/ampere/program_capture.h"
 using Shader::Ampere::Instruction;
 using Shader::Ampere::LowerToMaxwell;
+using Shader::Ampere::ProgramCaptureState;
 
 constexpr Instruction EXIT{{0x0000794d, 0, 0x03800000, 0}};
 
@@ -63,9 +65,26 @@ int main() {
     const auto normal=LowerToMaxwell(ordinary);
     assert(normal);
     assert(count_branch(normal)==1);
+
+    // Lichii f7be55d: CALL.REL.NOINC is a forward transfer, not a real
+    // function call. Capture must complete at the target EXIT without RET.
+    Instruction noinc{{0x00007944, 0x10, 0x03c00000, 0}};
+    Instruction regular_call{{0x00007944, 0x10, 0x03800000, 0}};
+    Instruction neutral{};
+    ProgramCaptureState noinc_capture;
+    assert(noinc_capture.Observe(noinc,0)==ProgramCaptureState::Result::Continue);
+    assert(noinc_capture.Observe(neutral,1)==ProgramCaptureState::Result::Continue);
+    assert(noinc_capture.Observe(EXIT,2)==ProgramCaptureState::Result::Complete);
+
+    ProgramCaptureState regular_capture;
+    assert(regular_capture.Observe(regular_call,0)==ProgramCaptureState::Result::Continue);
+    assert(regular_capture.Observe(neutral,1)==ProgramCaptureState::Result::Continue);
+    assert(regular_capture.Observe(EXIT,2)==ProgramCaptureState::Result::Continue);
+
     std::cout << "conv=" << taken.instructions.size()
               << " div=" << dropped.instructions.size()
-              << " bra=" << normal.instructions.size() << "\n";
+              << " bra=" << normal.instructions.size()
+              << " noinc_capture=complete regular_call=await_ret\n";
 }
 """
 with tempfile.TemporaryDirectory(prefix="ns2-ampere-branch-mode-") as td:
@@ -84,4 +103,4 @@ with tempfile.TemporaryDirectory(prefix="ns2-ampere-branch-mode-") as td:
     r=subprocess.run([str(p/"test")],text=True,capture_output=True,timeout=30)
     if r.returncode:
         raise RuntimeError("Ampere branch-mode harness failed:\n"+r.stdout+r.stderr)
-print("NS2_AMPERE_BRANCH_MODES_HOST_PASS conv=branch div=fallthrough ordinary=branch ps5=unverified")
+print("NS2_AMPERE_BRANCH_MODES_HOST_PASS conv=branch div=fallthrough ordinary=branch noinc_capture=forward ps5=unverified")
