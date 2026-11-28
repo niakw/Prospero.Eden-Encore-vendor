@@ -990,6 +990,33 @@ void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch(std::span<const std::pa
         if (start >= device_as_size || length > device_as_size - start)
             return;
     std::shared_lock registry_lk(process_registry_guard);
+
+    // WordManager emits changed page runs in ascending address order. When
+    // those runs are already strictly separated, sorting and re-coalescing
+    // would be an identity transform that allocates two vectors while the
+    // caller still owns its cache lock. Keep the historical path for every
+    // adjacent, overlapping or unordered input.
+    bool separated = true;
+    for (size_t i = 1; i < ranges.size(); ++i) {
+        const auto& previous = ranges[i - 1];
+        const auto& current = ranges[i];
+        if (previous.first > current.first ||
+            previous.first + previous.second >= current.first) {
+            separated = false;
+            break;
+        }
+    }
+    if (separated) {
+        const DAddr lock_begin = ranges.front().first;
+        const DAddr lock_end = ranges.back().first + ranges.back().second;
+        Common::ScopedRangeLock lk(counter_guard, lock_begin,
+                                   static_cast<size_t>(lock_end - lock_begin));
+        for (const auto& [addr, size] : ranges) {
+            UpdatePagesCachedCountNoLock(addr, size, delta);
+        }
+        return;
+    }
+
     // Make a local copy and sort by address
     std::vector<std::pair<DAddr, size_t>> tmp(ranges.begin(), ranges.end());
     std::sort(tmp.begin(), tmp.end(), [](const auto& a, const auto& b) { return a.first < b.first; });

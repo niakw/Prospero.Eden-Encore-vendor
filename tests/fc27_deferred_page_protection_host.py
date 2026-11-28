@@ -41,6 +41,21 @@ assert "ImagePages::NeverHeld" in method
 assert "device_inter->InvalidateRegion(address, size);" in device
 assert "WaitForPublished" not in device
 assert "void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch" in device
+batch_start=device.index("void DeviceMemoryManager<Traits>::UpdatePagesCachedBatch")
+batch_end=device.index("\n}\n\n} // namespace Core",batch_start)
+batch=device[batch_start:batch_end]
+for marker in (
+    "bool separated = true;",
+    "previous.first + previous.second >= current.first",
+    "if (separated) {",
+    "Common::ScopedRangeLock lk(counter_guard, lock_begin",
+    "UpdatePagesCachedCountNoLock(addr, size, delta);",
+):
+    assert marker in batch, marker
+# Malformed ranges are rejected before either the allocation-free or fallback path.
+assert batch.index("length > device_as_size - start") < batch.index("bool separated = true;")
+# Adjacent/overlapping/unordered inputs still reach the historical sort/coalesce fallback.
+assert batch.index("if (separated) {") < batch.index("std::vector<std::pair<DAddr, size_t>> tmp")
 assert "TryAdd(" not in device
 
 fixture=r"""
