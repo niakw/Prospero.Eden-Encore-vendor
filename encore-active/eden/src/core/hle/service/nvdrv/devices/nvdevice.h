@@ -1,0 +1,105 @@
+// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+#pragma once
+
+#include <span>
+#include <vector>
+
+#include "common/common_types.h"
+#include "core/hle/service/nvdrv/core/container.h"
+#include "core/hle/service/nvdrv/nvdata.h"
+
+namespace Core {
+class System;
+}
+
+namespace Kernel {
+class KEvent;
+}
+
+namespace Service::Nvidia::Devices {
+
+/// Represents an abstract nvidia device node. It is to be subclassed by concrete device nodes to
+/// implement the ioctl interface.
+class nvdevice {
+public:
+    explicit nvdevice(Core::System& system_) : system{system_} {}
+    virtual ~nvdevice() = default;
+
+    /**
+     * Handles an ioctl1 request.
+     * @param command The ioctl command id.
+     * @param input A buffer containing the input data for the ioctl.
+     * @param output A buffer where the output data will be written to.
+     * @returns The result code of the ioctl.
+     */
+    virtual NvResult Ioctl1(DeviceFD fd, Ioctl command, std::span<const u8> input,
+                            std::span<u8> output) = 0;
+
+    /**
+     * Handles an ioctl2 request.
+     * @param command The ioctl command id.
+     * @param input A buffer containing the input data for the ioctl.
+     * @param inline_input A buffer containing the input data for the ioctl which has been inlined.
+     * @param output A buffer where the output data will be written to.
+     * @returns The result code of the ioctl.
+     */
+    virtual NvResult Ioctl2(DeviceFD fd, Ioctl command, std::span<const u8> input,
+                            std::span<const u8> inline_input, std::span<u8> output) = 0;
+
+    /**
+     * Handles an ioctl3 request.
+     * @param command The ioctl command id.
+     * @param input A buffer containing the input data for the ioctl.
+     * @param output A buffer where the output data will be written to.
+     * @param inline_output A buffer where the inlined output data will be written to.
+     * @returns The result code of the ioctl.
+     */
+    virtual NvResult Ioctl3(DeviceFD fd, Ioctl command, std::span<const u8> input,
+                            std::span<u8> output, std::span<u8> inline_output) = 0;
+
+    /**
+     * Called once a device is opened
+     * @param fd The device fd
+     */
+    virtual void OnOpen(NvCore::SessionId session_id, DeviceFD fd) = 0;
+
+    /**
+     * Called once a device is closed
+     * @param fd The device fd
+     */
+    virtual void OnClose(DeviceFD fd) = 0;
+
+    // Module::GetDevice<T> uses a static downcast. Always check the concrete
+    // device family before converting an untrusted guest FD into a GPU
+    // channel; valid NvMap/ctrl FDs must not become nvhost_gpu objects.
+    virtual bool IsGpuChannelDevice() const { return false; }
+
+    // A Switch 2 TSG may only bind an existing native GPU channel opened
+    // by the SAME KProcess. Non-channel NVDRV devices must reject this check.
+    virtual bool CanBindNativeTsgChannel(DeviceFD, NvCore::SessionId) { return false; }
+
+    // TSG enable/disable converges on the same per-channel state as H:0x0E/0x0F.
+    // Non-GPU devices fail closed.
+    virtual NvResult SetNativeTsgChannelEnabled(DeviceFD, NvCore::SessionId, bool) {
+        return NvResult::NotImplemented;
+    }
+
+    virtual Kernel::KEvent* QueryEvent(u32 event_id) {
+        return nullptr;
+    }
+
+    // QueryEvent is descriptor-scoped in NVDRV. Keep the legacy overload for
+    // devices whose event namespace is device-wide, while allowing native
+    // multi-channel devices to authenticate the exact FD.
+    virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) {
+        (void)fd;
+        return QueryEvent(event_id);
+    }
+
+protected:
+    Core::System& system;
+};
+
+} // namespace Service::Nvidia::Devices

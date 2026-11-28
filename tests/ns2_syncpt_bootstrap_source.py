@@ -282,8 +282,8 @@ assert "std::array<Kernel::KEvent*, MaxSlots> m_events{};" in cpp
 # GSV 1402 is a *real* NVDRV-backed nvsrv child session, needed by
 # newer NS2 graphics SDKs before they can reach any GPFIFO submit.
 # Compare Lichii nx2 GSV 1402; do not substitute a zero-reply stub.
-nvhdr=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv_interface.h").read_text()
-nvcpp=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv_interface.cpp").read_text()
+nvhdr=(R/"encore-active/eden/src/core/hle/service/nvdrv/nvdrv_interface.h").read_text()
+nvcpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/nvdrv_interface.cpp").read_text()
 assert '{1402, &IGraphicsSupervisor::OpenNvsrvSession, "OpenNvsrvSession"}' in cpp
 assert 'void OpenNvsrvSession(HLERequestContext& ctx);' in hdr
 nvsrv=cpp.split("void IGraphicsSupervisor::OpenNvsrvSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]

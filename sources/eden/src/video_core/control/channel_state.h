@@ -56,13 +56,6 @@ struct ChannelState {
         Engines::Nv01Timer nv01_timer;
         DmaPusher dma_pusher;
     };
-    // A bound NVDRV GPU address space owns this GMMU and all its NvMap
-    // pins. The channel (and the GPU scheduler that retains the channel)
-    // must keep the address space alive even after the guest closes its FD.
-    // Declare the lease BEFORE payload: reverse member destruction releases
-    // every GPU engine/DmaPusher first, then finally the GMMU owner.
-    // Legacy NS1 channels leave this lease empty.
-    std::shared_ptr<void> address_space_owner{};
     std::optional<Payload> payload;
     MemoryManager* memory_manager = nullptr;
 

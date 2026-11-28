@@ -467,7 +467,7 @@ assert "result = Kernel::ResultOutOfResource;" in open_gpu
 # Keep a strong AS/GMMU lease in ChannelState through GPU payload teardown.
 # Maxwell/NS1 and Ampere/NS2 both require the exact bound AS lease;
 # it does not allocate another GPU VA, synthetic mapping or ASID.
-channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
+channel_h=(R/"encore-active/eden/src/video_core/control/channel_state.h").read_text()
 as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
 as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
@@ -489,7 +489,7 @@ assert "if (!owner) {" in as_bind
 # The AS owner alone cannot prevent NvCore::CloseSession from unmapping
 # every NVMap handle. The actual PS5-selected Container must hold a checked
 # reference to the same live session until the last bound channel retires.
-nvcore_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
+nvcore_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
 nvcore_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.cpp").read_text()
 assert "bool RetainSession(SessionId id, const Kernel::KProcess* process);" in nvcore_h
 retain=nvcore_cpp.split("bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {",1)[1].split(
@@ -725,8 +725,8 @@ assert submit_impl.index("if (!native_channel_enabled)") < submit_impl.index(
 # calls nvQueryEvent(fd, 7) for each. Module::QueryEvent must therefore retain
 # the descriptor through virtual dispatch; a device-wide sessions.size()==1
 # gate rejects the second valid channel before its first submit.
-module_query=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
-nvdevice=(R/"sources/eden/src/core/hle/service/nvdrv/devices/nvdevice.h").read_text()
+module_query=(R/"encore-active/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
+nvdevice=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvdevice.h").read_text()
 assert "virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id)" in nvdevice
 fd_fallback=nvdevice.split(
     "virtual Kernel::KEvent* QueryEvent(DeviceFD fd, u32 event_id) {",1
@@ -1362,7 +1362,7 @@ print("NS1_PREBIND_GPU_CLOSE_SOURCE_PASS initialized_pointer=1 unbound_close=1")
 # Final-FD retirement must never prevent Module::Close from erasing the FD,
 # and the destructor fallback must remain noexcept in practice. A failed GPU
 # worker is already a latched fatal condition; record it and continue cleanup.
-module_cpp=(R/"sources/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
+module_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/nvdrv.cpp").read_text()
 on_close=nvhost_cpp.split("void nvhost_gpu::OnClose(DeviceFD fd) {",1)[1].split("\n}\n",1)[0]
 dtor=nvhost_cpp.split("nvhost_gpu::~nvhost_gpu() {",1)[1].split("\n}\n",1)[0]
 for block in (on_close,dtor):
@@ -1430,8 +1430,8 @@ print("NS1_MAXWELL_CHANNEL_RETIRE_SOURCE_PASS exact_epoch=1 worker_order=1 "
 # same existing NvCore session until ChannelState payload teardown completes.
 as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
 as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
-channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
-container_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
+channel_h=(R/"encore-active/eden/src/video_core/control/channel_state.h").read_text()
+container_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
 container_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.cpp").read_text()
 assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
 assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(

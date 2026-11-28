@@ -23,7 +23,6 @@
 #include "core/hle/service/nvdrv/devices/nvhost_nvjpg.h"
 #include "core/hle/service/nvdrv/devices/nvhost_vic.h"
 #include "core/hle/service/nvdrv/devices/nvmap.h"
-#include "core/hle/service/nvdrv/devices/nx2_stub_device.h"
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
 #include "core/hle/service/nvdrv/nvmemp.h"
@@ -126,23 +125,6 @@ void LoopProcess(Core::System& system) {
 
 Module::Module(Core::System& system)
     : container{system.Host1x()}, service_context{system, "nvdrv"}, events_interface{*this} {
-    nx2_stub_builder = [this, &system](DeviceFD fd, const std::string& name) {
-        auto device = std::make_shared<Devices::nx2_stub_device>(
-            system, name,
-            [this](NvCore::SessionId owner, DeviceFD channel_fd) {
-                const auto it = open_files.find(channel_fd);
-                return it != open_files.end() &&
-                       it->second->CanBindNativeTsgChannel(channel_fd, owner);
-            },
-            [this](NvCore::SessionId owner, DeviceFD channel_fd, bool enabled) {
-                const auto it = open_files.find(channel_fd);
-                if (it == open_files.end()) return NvResult::InvalidState;
-                return it->second->SetNativeTsgChannelEnabled(
-                    channel_fd, owner, enabled);
-            });
-        open_files.emplace(fd, device);
-        return std::static_pointer_cast<Devices::nvdevice>(device);
-    };
     builders["/dev/nvhost-as-gpu"] = [this, &system](DeviceFD fd) {
         auto device = std::make_shared<Devices::nvhost_as_gpu>(system, *this, container);
         return open_files.emplace(fd, std::move(device)).first;
@@ -153,9 +135,6 @@ Module::Module(Core::System& system)
     };
     builders["/dev/nvhost-ctrl-gpu"] = [this, &system](DeviceFD fd) {
         auto device = std::make_shared<Devices::nvhost_ctrl_gpu>(system, events_interface);
-        // The native owner queries this Container to distinguish the exact
-        // Switch 2 KProcess on its FD; legacy controller C++ ignores it.
-        device->SetNativeContainer(container);
         return open_files.emplace(fd, std::move(device)).first;
     };
     builders["/dev/nvmap"] = [this, &system](DeviceFD fd) {
@@ -184,21 +163,7 @@ Module::Module(Core::System& system)
     };
 }
 
-Module::~Module() {
-    // FD devices borrow EventInterface, ServiceContext and Container.
-    // Implicit member destruction would destroy the first two before
-    // open_files, leaving e.g. nvhost_gpu and nvhost_ctrl_gpu to close
-    // their kernel events through dead service owners during relaunch.
-    // Service loops are joined before the last Module owner is retired.
-    // Detach each descriptor before its destructor can run reentrant
-    // cleanup, without allocating or calling guest ioctl close again.
-    while (!open_files.empty()) {
-        auto it = open_files.begin();
-        auto device = std::move(it->second);
-        open_files.erase(it);
-        device.reset();
-    }
-}
+Module::~Module() {}
 
 NvResult Module::VerifyFD(DeviceFD fd) const {
     if (fd < 0) {
@@ -216,24 +181,6 @@ NvResult Module::VerifyFD(DeviceFD fd) const {
 
 DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_id) {
     auto it = builders.find(device_name);
-    if (it == builders.end() && device_name.starts_with("/dev/nvhost-")) {
-        // Lichii 5cb4786: Switch 2 NvRm opens additional nvgpu nodes such as
-        // /dev/nvhost-tsg-gpu. Failing the open aborts NVN device init before
-        // NativeWindow::Acquire. Never shadow a known device.
-        LOG_WARNING(Service_NVDRV, "Opening unknown device {} as a Switch 2 stub", device_name);
-        const DeviceFD fd = next_fd++;
-        auto device = nx2_stub_builder(fd, device_name);
-        try {
-            device->OnOpen(session_id, fd);
-        } catch (...) {
-            // The builder publishes the device before OnOpen. Roll it back if
-            // session/process setup throws so a failed launch cannot retain an
-            // unreachable NVDRV device in the shared module.
-            open_files.erase(fd);
-            throw;
-        }
-        return fd;
-    }
     if (it == builders.end()) {
         LOG_ERROR(Service_NVDRV, "Trying to open unknown device {}", device_name);
         return INVALID_NVDRV_FD;
@@ -243,15 +190,7 @@ DeviceFD Module::Open(const std::string& device_name, NvCore::SessionId session_
     auto& builder = it->second;
     auto device = builder(fd)->second;
 
-    try {
-        device->OnOpen(session_id, fd);
-    } catch (...) {
-        // Known builders also publish before device-specific OnOpen. Preserve
-        // the map's strong ownership invariant when an allocation or process
-        // lease fails during launch.
-        open_files.erase(fd);
-        throw;
-    }
+    device->OnOpen(session_id, fd);
 
     return fd;
 }
@@ -320,15 +259,7 @@ NvResult Module::Close(DeviceFD fd) {
         return NvResult::NotImplemented;
     }
 
-    try {
-        itr->second->OnClose(fd);
-    } catch (...) {
-        // Never leave a published FD behind if device-specific teardown
-        // reports a fatal host error. The exception still propagates, but the
-        // shared module no longer retains the failed device into a relaunch.
-        open_files.erase(itr);
-        throw;
-    }
+    itr->second->OnClose(fd);
 
     open_files.erase(itr);
 
@@ -348,10 +279,7 @@ NvResult Module::QueryEvent(DeviceFD fd, u32 event_id, Kernel::KEvent*& event) {
         return NvResult::NotImplemented;
     }
 
-    // Preserve the descriptor all the way to devices that have per-FD
-    // event admission (native Switch 2 GPU channels). Legacy devices inherit
-    // NvDevice's delegating overload and keep their existing event behavior.
-    event = itr->second->QueryEvent(fd, event_id);
+    event = itr->second->QueryEvent(event_id);
     if (!event) {
         return NvResult::BadParameter;
     }
