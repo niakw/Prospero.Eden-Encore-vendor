@@ -31,7 +31,6 @@ public:
     ~ISelfController() override;
 
 private:
-    Result RejectDebugOnlyCommand();
     void GetGraphicsSupervisor(HLERequestContext& ctx);
     void StubReplyZeroedNx2(HLERequestContext& ctx);
     Result Exit();
@@ -46,11 +45,7 @@ private:
     Result SetFocusHandlingMode(bool notify, bool background, bool suspend);
     Result SetRestartMessageEnabled(bool enabled);
     Result SetScreenShotAppletIdentityInfo(AppletIdentityInfo screen_shot_applet_identity_info);
-    Result GetScreenShotProgramId(Out<u64> out_program_id);
     Result SetOutOfFocusSuspendingEnabled(bool enabled);
-    Result SetControllerFirmwareUpdateSection(bool enabled);
-    Result SetDesirableKeyboardLayout(u32 layout);
-    Result SetRequiresCaptureButtonShortPressedMessage(bool required);
     Result SetAlbumImageOrientation(Capture::AlbumImageOrientation album_image_orientation);
     Result IsSystemBufferSharingEnabled();
     Result GetSystemSharedBufferHandle(Out<u64> out_buffer_id);
@@ -58,8 +53,6 @@ private:
     Result CreateManagedDisplayLayer(Out<u64> out_layer_id);
     Result CreateManagedDisplaySeparableLayer(Out<u64> out_layer_id,
                                               Out<u64> out_recording_layer_id);
-    Result RejectUnavailableManagedDisplayLayerSeparationMode(u32 mode);
-    Result RejectUnavailableRecordingLayerComposition(bool enabled);
     Result SetHandlesRequestToDisplay(bool enable);
     Result ApproveToDisplay();
     Result SetMediaPlaybackState(bool state);
@@ -70,22 +63,11 @@ private:
     Result ReportUserIsActive();
     Result SetAutoSleepDisabled(bool is_auto_sleep_disabled);
     Result IsAutoSleepDisabled(Out<bool> out_is_auto_sleep_disabled);
-    Result SetInputDetectionSourceSet(u32 input_detection_source_set);
-    Result GetCurrentIlluminance(Out<f32> out_illuminance);
     Result IsIlluminanceAvailable(Out<bool> out_is_illuminance_available);
-    void ReportMultimediaError(HLERequestContext& ctx);
-    struct CurrentIlluminanceEx {
-        u32 over_limit{};
-        f32 illuminance{};
-    };
-    static_assert(sizeof(CurrentIlluminanceEx) == 0x8);
-    Result GetCurrentIlluminanceEx(Out<CurrentIlluminanceEx> out_illuminance);
     Result SetInputDetectionPolicy(InputDetectionPolicy input_detection_policy);
-    Result SetWirelessPriorityMode(u32 wireless_priority_mode);
     Result GetAccumulatedSuspendedTickValue(Out<u64> out_accumulated_suspended_tick_value);
     Result GetAccumulatedSuspendedTickChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result SetAlbumImageTakenNotificationEnabled(bool enabled);
-    void SetApplicationAlbumUserData(HLERequestContext& ctx);
     Result SaveCurrentScreenshot(Capture::AlbumReportOption album_report_option);
     Result SetRecordVolumeMuted(bool muted);
     Result Unknown230(u32 in_val, Out<u16> out_val);
@@ -94,9 +76,6 @@ private:
     Kernel::KClientSession* m_graphics_supervisor_session{};
     Kernel::KProcess* const m_process;
     const std::shared_ptr<Applet> m_applet;
-    u32 m_input_detection_source_set{};
-    InputDetectionPolicy m_input_detection_policy{};
-    u32 m_wireless_priority_mode{};
 };
 
 } // namespace Service::AM

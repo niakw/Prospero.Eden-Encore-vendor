@@ -7,7 +7,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <string>
 #include "common/common_funcs.h"
 #include "common/common_types.h"
@@ -43,10 +42,6 @@ public:
     static std::string GetFullPath(ProgramId program_id, VirtualDir dir, SaveDataSpaceId space,
                                    SaveDataType type, u64 title_id, u128 user_id, u64 save_id);
     static std::string GetUserGameSaveDataRoot(u128 user_id, bool future);
-
-    static std::optional<u64> ReadSaveDataId(const VirtualDir& save_directory);
-    static std::optional<u64> EnsureSaveDataId(const VirtualDir& root_directory,
-                                               const VirtualDir& save_directory);
 
     SaveDataSize ReadSaveDataSize(SaveDataType type, u64 title_id, u128 user_id) const;
     void WriteSaveDataSize(SaveDataType type, u64 title_id, u128 user_id,
