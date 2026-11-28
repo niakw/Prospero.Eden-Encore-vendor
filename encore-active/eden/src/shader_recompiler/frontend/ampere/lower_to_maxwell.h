@@ -4754,27 +4754,19 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             break;
         }
         case 0x947: case 0x945: case 0x941: { // BRA / BSSY B0 / BSYNC B0
-            if (opcode == 0x947 && (insn.words[2] & ~0x3ffffU) == 0x0b800000U) {
-                // BRA.DIV Ur: the warp-uniformity shortcut around a library shuffle (VOTEU, BRA.DIV, inline
-                // SHFL or call). Lanes are emulated together, so the shortcut is always taken; the
-                // fall-through call computes the same value.
-                if (insn.words[0] != ((insn.Bits(24, 8) << 24) | 0x7947U) || insn.Bits(24, 8) >= 63 ||
-                    (insn.words[1] & 3) != 3)
-                    return fail(index, "native divergence branch mode");
-                insn.words[0] = 0x7947;
-                insn.words[1] &= ~3U;
-                insn.words[2] = 0x03800000 | (insn.words[2] & 0x3ffffU);
-            }
-            // Ampere BRA.U encodes its warp-uniform branch modifier in
-            // address bits 32..33; these bits are NOT part of the signed
-            // relative PC. Admit only the reviewed U mode with all
-            // convergence/reserved fields clear, then reuse the same
-            // checked Maxwell relocation path as ordinary BRA.
-            if (opcode == 0x947 && (insn.words[1] & 3U) == 1U) {
-                if (insn.Bits(91, 1) || insn.Bits(82, 5) ||
-                    insn.Bits(92, 13))
+            if (opcode == 0x947) {
+                // Lichii nx2: Ampere stores the branch convergence mode in
+                // the low two bits of the relative offset. Eden executes the
+                // translated warp converged at these library fast paths:
+                // BRA.CONV is therefore always taken and BRA.DIV never is.
+                // Mode 0 remains ordinary BRA; mode 1 is the reviewed BRA.U
+                // form and may not carry the convergence-only fields.
+                const u32 mode = insn.Bits(32, 2);
+                if ((mode <= 1 && insn.Bits(91, 1)) ||
+                    (mode == 1 && (insn.Bits(82, 5) || insn.Bits(92, 13))))
                     return fail(index, "native branch convergence mode");
-                insn.words[1] &= ~3U;
+                if (mode == 2)
+                    break;
             }
             u64 branch_predicate = predicate;
             if (opcode == 0x947 && insn.Bits(87, 4) != 7) {
@@ -4810,7 +4802,8 @@ inline LoweredProgram LowerToMaxwell(std::span<const Instruction> code,
             }
             s64 relative = static_cast<s32>(insn.words[1]);
             if (opcode == 0x947) {
-                const u64 raw = insn.words[1] | (u64{insn.words[2] & 0x3ffff} << 32);
+                const u64 raw = (insn.words[1] & ~3U) |
+                                (u64{insn.words[2] & 0x3ffff} << 32);
                 relative = static_cast<s64>(raw << 14) >> 14;
             }
             const s64 target = s64{index} * 16 + 16 + relative;
