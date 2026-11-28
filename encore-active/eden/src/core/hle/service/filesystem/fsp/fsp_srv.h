@@ -36,6 +36,12 @@ class IStorage;
 class IStorageForBatchRead;
 class IMultiCommitManager;
 
+enum class AccessLogVersion : u32 {
+    V7_0_0 = 2,
+
+    Latest = V7_0_0,
+};
+
 enum class AccessLogMode : u32 {
     None,
     Log,
@@ -209,8 +215,8 @@ private:
     Result RegisterProgramIndexMapInfo(InBuffer<BufferAttr_HipcMapAlias> map_info_buffer,
                                        s32 program_count);
     Result FlushAccessLogOnSdCard();
-    Result GetProgramIndexForAccessLog(Out<u32> out_program_index,
-                                       Out<u32> out_program_count);
+    Result GetProgramIndexForAccessLog(Out<AccessLogVersion> out_access_log_version,
+                                       Out<u32> out_access_log_program_index);
     Result OpenMultiCommitManager(OutInterface<IMultiCommitManager> out_interface);
     Result ExtendSaveDataFileSystem(FileSys::SaveDataSpaceId space_id, u64 save_data_id,
                                     s64 available_size, s64 journal_size);
