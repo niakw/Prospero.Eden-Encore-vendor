@@ -4,7 +4,7 @@
 from pathlib import Path
 import subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
-h=ROOT/"encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
+h=ROOT/"encore-active/eden/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
 src=h.read_text()
 for needle,count in [
     ("#include <bit>",1),

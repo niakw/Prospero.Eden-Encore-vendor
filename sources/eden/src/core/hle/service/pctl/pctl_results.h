@@ -11,6 +11,5 @@ constexpr Result ResultNoFreeCommunication{ErrorModule::PCTL, 101};
 constexpr Result ResultStereoVisionRestricted{ErrorModule::PCTL, 104};
 constexpr Result ResultNoCapability{ErrorModule::PCTL, 131};
 constexpr Result ResultNoRestrictionEnabled{ErrorModule::PCTL, 181};
-constexpr Result ResultInvalidPin{ErrorModule::PCTL, 221};
 
 } // namespace Service::PCTL

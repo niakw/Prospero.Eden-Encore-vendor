@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_session.cpp").read_text()
-hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_session.h").read_text()
-proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_session_protocol.h").read_text()
+cpp=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_session.cpp").read_text()
+hdr=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_session.h").read_text()
+proto=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_session_protocol.h").read_text()
 for marker in (
     '{200, &IGpuSession::SynchronizeAddressSpace, "SynchronizeGpuAddressSpace"}',
     '{201, &IGpuSession::GetUserPartition, "GetUserPartition"}',
@@ -14,8 +14,8 @@ for marker in (
 # Lichii nx2 GSV: TIPC 0 is a real token-echo handshake before graphics init.
 # A missing handler in the PS5-selected session returned NotImplemented and
 # could stop newer SDKs before a single NVDRV GPFIFO or guest frame.
-worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
-worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
+worker=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker.cpp").read_text()
+worker_hdr=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker.h").read_text()
 for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpuWorker")):
     assert '{0, &'+klass+'::Handshake, "Handshake"}' in owner
     assert "void Handshake(HLERequestContext& ctx);" in owner_hdr
@@ -35,7 +35,7 @@ for owner, owner_hdr, klass in ((cpp,hdr,"IGpuSession"),(worker,worker_hdr,"IGpu
     assert body.index("const u32 token_lo = command[2];") < body.index("IPC::ResponseBuilder rb{ctx, 4};")
     assert body.index("const u32 token_hi = command[3];") < body.index("IPC::ResponseBuilder rb{ctx, 4};")
     assert body.index("IPC::ResponseBuilder rb{ctx, 4};") < body.index("rb.PushRaw<u32>(token_lo);")
-    ipc=(R/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
+    ipc=(R/"encore-active/eden/include/core/hle/service/ipc_helpers.h").read_text()
     assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in ipc
     assert "return ServiceFrameworkBase::HandleSyncRequest(session, ctx);" in owner
     assert "handlers_tipc.contains(ctx.GetCommand())" in owner
@@ -124,10 +124,10 @@ assert cpp.count("size = Nvidia::Devices::NativeNs2GpuVaSmallSplit - first;") ==
 # NVIDIA VA page-table geometry can cover 1 TiB, while NVN's reported
 # user region ends at 768 GiB. Keep those distinct exactly as the
 # reviewed Lichii upstream reports GetUserPartition/GetVaRange.
-layout=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
-as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
-as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
-registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+layout=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
+as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 assert "NativeNs2GpuVaSmallSplit = 3ULL << 38;" in layout
 assert "NativeNs2GpuVaEnd = 1ULL << 40;" in layout
 assert "0xC000000000" in cpp

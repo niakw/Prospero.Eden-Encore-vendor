@@ -5,8 +5,8 @@ on:
       - research/ns1-r23-hid-joyhold-reload-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/hid_core/**"
-      - "encore-active/eden-core/include/hid_core/hid_core.h"
+      - "encore-active/eden/src/hid_core/**"
+      - "encore-active/eden/include/hid_core/hid_core.h"
       - "tests/ns1_r23_19_joyhold_host.py"
       - ".github/workflows/ns1-r23-19-joyhold.yml"
   workflow_dispatch:

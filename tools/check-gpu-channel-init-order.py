@@ -7,11 +7,11 @@ The scheduler must never receive that empty state. PS5 retest still required.
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 owners = (
-    "encore-active/eden-core/src/video_core/gpu_vulkan.cpp",
-    "encore-active/eden-core/src/video_core/gpu_gl_host.cpp",
-    "encore-active/eden-core/src/video_core/gpu_gl_native.cpp",
-    "encore-active/eden-core/src/video_core/gpu_gl_host_dev.cpp",
-    "encore-active/eden-core/src/video_core/gpu_gl_native_dev.cpp",
+    "encore-active/eden/src/video_core/gpu_vulkan.cpp",
+    "encore-active/eden/src/video_core/gpu_gl_host.cpp",
+    "encore-active/eden/src/video_core/gpu_gl_native.cpp",
+    "encore-active/eden/src/video_core/gpu_gl_host_dev.cpp",
+    "encore-active/eden/src/video_core/gpu_gl_native_dev.cpp",
     "sources/eden/src/video_core/gpu.cpp",
 )
 for path in owners:

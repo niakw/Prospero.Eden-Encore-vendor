@@ -3,8 +3,8 @@
 from pathlib import Path
 import hashlib
 r=Path(__file__).resolve().parents[1]/"encore-active"
-file=r/"ns2-runtime/self_controller/core/hle/service/am/service/self_controller.cpp"
-header=r/"eden-backports/src/core/hle/service/am/service/self_controller.h"
+file=r/"eden/src/core/hle/service/am/service/self_controller.cpp"
+header=r/"eden/src/core/hle/service/am/service/self_controller.h"
 s=file.read_text()
 h=header.read_text()
 old='        {230, D<&ISelfController::Unknown230>, "Unknown230"},'

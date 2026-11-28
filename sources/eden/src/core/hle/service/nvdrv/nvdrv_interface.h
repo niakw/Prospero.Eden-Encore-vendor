@@ -36,18 +36,16 @@ private:
     void Close(HLERequestContext& ctx);
     void Initialize(HLERequestContext& ctx);
     void QueryEvent(HLERequestContext& ctx);
-    void SetAruidWithoutCheck(HLERequestContext& ctx);
     void SetAruid(HLERequestContext& ctx);
     void SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx);
     void GetStatus(HLERequestContext& ctx);
     void DumpGraphicsMemoryInfo(HLERequestContext& ctx);
-    void RejectUnsupportedExtension(HLERequestContext& ctx);
 
     void ServiceError(HLERequestContext& ctx, NvResult result);
 
     std::shared_ptr<Module> nvdrv;
 
-    u64 aruid{};
+    u64 pid{};
     bool is_initialized{};
     NvCore::SessionId session_id{};
     Common::ScratchBuffer<u8> output_buffer;

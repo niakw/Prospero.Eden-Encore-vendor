@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-source = (root / "encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/translate_program.cpp").read_text()
+source = (root / "encore-active/eden/src/shader_recompiler/frontend/maxwell/translate_program.cpp").read_text()
 anchor = "            if (!normalized_host_info.support_geometry_shader_passthrough) {\n"
 delta = "                // Lichii #1466: lowering forwards Position and the generic vec4s.\n                // Do not declare unrelated built-in inputs in an emulated geometry stage.\n                for (size_t i = 0; i < program.info.passthrough.mask.size(); ++i) {\n                    if (i < static_cast<size_t>(IR::Attribute::PositionX) ||\n                        i > static_cast<size_t>(IR::Attribute::Generic31W)) {\n                        program.info.passthrough.mask[i] = false;\n                    }\n                }\n"
 assert source.count(anchor + delta) == 1
@@ -20,7 +20,7 @@ end = "                LowerGeometryPassthrough(program, normalized_host_info);\
 assert source.count(start) == source.count(end) == 1
 body = source[source.index(start):source.index(end) + len(end)]
 for header in ("sources/eden/src/shader_recompiler/frontend/ir/attribute.h",
-               "encore-active/ns2-runtime/shader_resource/include/shader_recompiler/frontend/ir/attribute.h"):
+               "encore-active/eden/src/shader_recompiler/frontend/ir/attribute.h"):
     enum_entries = re.findall(r"SRIR_ATTRIBUTE_ELEM\((\w+),\s*(\d+)\)", (root / header).read_text())
     assert len(enum_entries) > 128
     enum = ",".join(name+"="+n for name,n in enum_entries)

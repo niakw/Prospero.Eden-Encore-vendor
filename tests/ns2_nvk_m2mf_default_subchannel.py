@@ -11,7 +11,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 pristine = (root / "sources/eden/src/video_core/control/channel_state.cpp").read_text()
-active = (root / "encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp").read_text()
+active = (root / "encore-active/eden/src/video_core/control/channel_state.cpp").read_text()
 
 old_decl = """constexpr u32 NvkComputeSubchannel = 1;
 constexpr u32 Nvk2DSubchannel = 3;"""

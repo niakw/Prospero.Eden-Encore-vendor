@@ -5,14 +5,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <cstring>
-#include <utility>
 #include "common/common_types.h"
 #include "core/core.h"
 #include "core/core_timing.h"
 #include "core/frontend/emu_window.h"
 #include "core/hle/kernel/k_process.h"
-#include "core/hle/kernel/k_transfer_memory.h"
-#include "core/hle/kernel/svc_results.h"
 #include "core/memory.h"
 #include "hid_core/frontend/emulated_console.h"
 #include "hid_core/frontend/emulated_devices.h"
@@ -25,16 +22,15 @@ SevenSixAxis::SevenSixAxis(Core::System& system_)
     console = hid_core.GetEmulatedConsole();
 }
 
-SevenSixAxis::~SevenSixAxis() {
-    ReleaseTransferMemory();
-}
+SevenSixAxis::~SevenSixAxis() = default;
 
 void SevenSixAxis::OnInit() {}
 void SevenSixAxis::OnRelease() {}
 
 void SevenSixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
-    std::scoped_lock lk{transfer_mutex};
-    if (!sampling_enabled || transfer_memory == nullptr) {
+    if (!IsControllerActivated() || transfer_memory == 0 || transfer_memory_owner == nullptr) {
+        seven_sixaxis_lifo.buffer_count = 0;
+        seven_sixaxis_lifo.buffer_tail = 0;
         return;
     }
 
@@ -56,85 +52,16 @@ void SevenSixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
         -motion_status.quaternion[2],
     };
     seven_sixaxis_lifo.WriteNextEntry(next_seven_sixaxis_state);
-    transfer_memory->GetOwner()->GetMemory().WriteBlock(
-        transfer_memory->GetSourceAddress(), &seven_sixaxis_lifo, sizeof(seven_sixaxis_lifo));
+    transfer_memory_owner->GetMemory().WriteBlock(transfer_memory, &seven_sixaxis_lifo,
+                                                  sizeof(seven_sixaxis_lifo));
 }
 
-Result SevenSixAxis::InitializeTransferMemory(u64 aruid, Kernel::KTransferMemory* first,
-                                              Kernel::KTransferMemory* second) {
-    R_UNLESS(first && second && first != second && first->GetOwner() == second->GetOwner(),
-             Kernel::ResultInvalidHandle);
-    R_UNLESS(first->GetSize() == 0x1000 && second->GetSize() == 0x7F000,
-             Kernel::ResultInvalidSize);
-    std::scoped_lock lk{transfer_mutex};
-    R_UNLESS(transfer_memory == nullptr, Kernel::ResultInvalidState);
-    R_UNLESS(first->Open(system.Kernel()), Kernel::ResultInvalidHandle);
-    if (!second->Open(system.Kernel())) {
-        first->Close(system.Kernel());
-        R_THROW(Kernel::ResultInvalidHandle);
-    }
-    transfer_memory = first;
-    auxiliary_memory = second;
-    owner_aruid = aruid;
-    sampling_enabled = false;
-    seven_sixaxis_lifo.buffer_count = 0;
-    seven_sixaxis_lifo.buffer_tail = 0;
-    next_seven_sixaxis_state = {};
-    last_global_timestamp = system.CoreTiming().GetGlobalTimeNs().count();
-    last_saved_timestamp = last_global_timestamp;
-    R_SUCCEED();
-}
-
-Result SevenSixAxis::StartSampling(u64 aruid) {
-    std::scoped_lock lk{transfer_mutex};
-    R_UNLESS(transfer_memory && owner_aruid == aruid, Kernel::ResultInvalidState);
-    sampling_enabled = true;
-    R_SUCCEED();
-}
-
-Result SevenSixAxis::StopSampling(u64 aruid) {
-    std::scoped_lock lk{transfer_mutex};
-    R_UNLESS(transfer_memory && owner_aruid == aruid, Kernel::ResultInvalidState);
-    sampling_enabled = false;
-    R_SUCCEED();
-}
-
-Result SevenSixAxis::FinalizeTransferMemory(u64 aruid) {
-    Kernel::KTransferMemory* first{};
-    Kernel::KTransferMemory* second{};
-    {
-        std::scoped_lock lk{transfer_mutex};
-        R_UNLESS(transfer_memory && owner_aruid == aruid, Kernel::ResultInvalidState);
-        sampling_enabled = false;
-        owner_aruid = 0;
-        first = std::exchange(transfer_memory, nullptr);
-        second = std::exchange(auxiliary_memory, nullptr);
-    }
-    second->Close(system.Kernel());
-    first->Close(system.Kernel());
-    R_SUCCEED();
-}
-
-void SevenSixAxis::ReleaseTransferMemory() {
-    Kernel::KTransferMemory* first{};
-    Kernel::KTransferMemory* second{};
-    {
-        std::scoped_lock lk{transfer_mutex};
-        sampling_enabled = false;
-        owner_aruid = 0;
-        first = std::exchange(transfer_memory, nullptr);
-        second = std::exchange(auxiliary_memory, nullptr);
-    }
-    if (second) {
-        second->Close(system.Kernel());
-    }
-    if (first) {
-        first->Close(system.Kernel());
-    }
+void SevenSixAxis::SetTransferMemoryAddress(Common::ProcessAddress t_mem, Kernel::KProcess* owner) {
+    transfer_memory = t_mem;
+    transfer_memory_owner = owner;
 }
 
 void SevenSixAxis::ResetTimestamp() {
-    std::scoped_lock lk{transfer_mutex};
     last_saved_timestamp = last_global_timestamp;
 }
 

@@ -118,11 +118,7 @@ Result INewsDatabaseService::UpdateIntegerValueWithAddition(u32 value,
 Result INewsDatabaseService::UpdateStringValue(InBuffer<BufferAttr_HipcPointer> key,
                                                InBuffer<BufferAttr_HipcPointer> value,
                                                InBuffer<BufferAttr_HipcPointer> where) {
-    // NewsRecord models the numeric state consumed by Encore (read/new/displayed/etc.) but not
-    // Horizon's arbitrary text columns. Accept these cosmetic DB mutations as a documented no-op.
-    LOG_DEBUG(Service_BCAT, "String news-field update ignored, key_size={}, value_size={}, "
-                            "where_size={}",
-              key.size(), value.size(), where.size());
+    LOG_WARNING(Service_BCAT, "(STUBBED) UpdateStringValue");
     R_SUCCEED();
 }
 

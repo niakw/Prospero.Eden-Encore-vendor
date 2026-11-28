@@ -14,9 +14,7 @@
 #include "common/polyfill_thread.h"
 #include "common/uuid.h"
 #include "core/hle/result.h"
-#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/cmif_types.h"
-#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/psc/time/common.h"
 #include "core/hle/service/service.h"
 #include "core/hle/service/set/setting_formats/appln_settings.h"
@@ -66,8 +64,6 @@ public:
     Result SetUserSystemClockContext(const Service::PSC::Time::SystemClockContext& clock_context);
     Result GetAccountSettings(Out<AccountSettings> out_account_settings);
     Result SetAccountSettings(AccountSettings account_settings);
-    Result GetAudioVolume(Out<std::array<u8, 0x8>> out_volume, u32 device);
-    Result SetAudioVolume(u32 device, const std::array<u8, 0x8>& volume);
     Result GetEulaVersions(Out<s32> out_count,
                            OutArray<EulaVersion, BufferAttr_HipcMapAlias> out_eula_versions);
     Result SetEulaVersions(InArray<EulaVersion, BufferAttr_HipcMapAlias> eula_versions);
@@ -103,9 +99,6 @@ public:
         Out<RebootlessSystemUpdateVersion> out_rebootless_system_update);
     Result GetDeviceTimeZoneLocationName(Out<Service::PSC::Time::LocationName> out_name);
     Result SetDeviceTimeZoneLocationName(const Service::PSC::Time::LocationName& name);
-    Result GetWirelessCertificationFileSize(Out<u64> out_size);
-    Result GetWirelessCertificationFile(
-        Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_file);
     Result SetRegionCode(SystemRegionCode region_code);
     Result GetNetworkSystemClockContext(Out<Service::PSC::Time::SystemClockContext> out_context);
     Result SetNetworkSystemClockContext(const Service::PSC::Time::SystemClockContext& context);
@@ -120,156 +113,6 @@ public:
     Result SetConsoleInformationUploadFlag(bool flag);
     Result GetAutomaticApplicationDownloadFlag(Out<bool> out_flag);
     Result SetAutomaticApplicationDownloadFlag(bool flag);
-    Result GetLdnChannel(Out<s32> out_value);
-    Result SetLdnChannel(s32 value);
-    Result AcquireTelemetryDirtyFlagEventHandle(
-        OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result GetTelemetryDirtyFlags(Out<u64> out_flags_0, Out<u64> out_flags_1);
-    Result AcquireFatalDirtyFlagEventHandle(
-        OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result GetFatalDirtyFlags(Out<u64> out_flags_0, Out<u64> out_flags_1);
-    Result GetExternalRtcResetFlag(Out<bool> out_value);
-    Result SetExternalRtcResetFlag(bool value);
-    Result GetUsbFullKeyEnableFlag(Out<bool> out_value);
-    Result SetUsbFullKeyEnableFlag(bool value);
-    Result GetHeadphoneVolumeWarningCount(Out<s32> out_value);
-    Result SetHeadphoneVolumeWarningCount(s32 value);
-    Result GetBluetoothAfhEnableFlag(Out<bool> out_value);
-    Result SetBluetoothAfhEnableFlag(bool value);
-    Result GetBluetoothBoostEnableFlag(Out<bool> out_value);
-    Result SetBluetoothBoostEnableFlag(bool value);
-    Result GetHeadphoneVolumeUpdateFlag(Out<bool> out_value);
-    Result SetHeadphoneVolumeUpdateFlag(bool value);
-    Result GetPctlReadyFlag(Out<bool> out_value);
-    Result SetPctlReadyFlag(bool value);
-    Result GetDataDeletionSettings(Out<std::array<u8, 0x8>> out_settings);
-    Result SetDataDeletionSettings(const std::array<u8, 0x8>& settings);
-    Result GetInitialSystemAppletProgramId(Out<u64> out_program_id);
-    Result GetOverlayDispProgramId(Out<u64> out_program_id);
-    Result GetPtmBatteryLot(Out<BatteryLot> out_lot);
-    Result SetPtmBatteryLot(const BatteryLot& lot);
-    Result GetPtmFuelGaugeParameter(Out<std::array<u8, 0x18>> out_parameter);
-    Result SetPtmFuelGaugeParameter(const std::array<u8, 0x18>& parameter);
-    Result SetShutdownRtcValue(s64 value);
-    Result GetShutdownRtcValue(Out<s64> out_value);
-    Result GetAnalogStickUserCalibrationL(Out<std::array<u8, 0x10>> out_value);
-    Result SetAnalogStickUserCalibrationL(const std::array<u8, 0x10>& value);
-    Result GetAnalogStickUserCalibrationR(Out<std::array<u8, 0x10>> out_value);
-    Result SetAnalogStickUserCalibrationR(const std::array<u8, 0x10>& value);
-    Result GetPtmBatteryVersion(Out<u8> out_value);
-    Result SetPtmBatteryVersion(u8 value);
-    Result GetUsb30HostEnableFlag(Out<bool> out_value);
-    Result SetUsb30HostEnableFlag(bool value);
-    Result GetUsb30DeviceEnableFlag(Out<bool> out_value);
-    Result SetUsb30DeviceEnableFlag(bool value);
-    Result GetConsoleSixAxisSensorAccelerationBias(Out<Common::Vec<f32, 3>> out_value);
-    Result SetConsoleSixAxisSensorAccelerationBias(const Common::Vec<f32, 3>& value);
-    Result GetConsoleSixAxisSensorAngularVelocityBias(Out<Common::Vec<f32, 3>> out_value);
-    Result SetConsoleSixAxisSensorAngularVelocityBias(const Common::Vec<f32, 3>& value);
-    Result GetConsoleSixAxisSensorAccelerationGain(Out<std::array<u8, 0x24>> out_value);
-    Result SetConsoleSixAxisSensorAccelerationGain(const std::array<u8, 0x24>& value);
-    Result GetConsoleSixAxisSensorAngularVelocityGain(Out<std::array<u8, 0x24>> out_value);
-    Result SetConsoleSixAxisSensorAngularVelocityGain(const std::array<u8, 0x24>& value);
-    Result GetConsoleSixAxisSensorAngularVelocityTimeBias(Out<Common::Vec<f32, 3>> out_value);
-    Result SetConsoleSixAxisSensorAngularVelocityTimeBias(const Common::Vec<f32, 3>& value);
-    Result GetConsoleSixAxisSensorAngularAcceleration(Out<std::array<u8, 0x24>> out_value);
-    Result SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value);
-    Result GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type);
-    Result SetThemeId(s32 type, const std::array<u64, 0x10>& value);
-    Result SetNetworkSettings(
-        InArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> settings);
-    Result GetBacklightSettings(Out<std::array<u8, 0x28>> out_settings);
-    Result SetBacklightSettings(const std::array<u8, 0x28>& settings);
-    Result GetButtonConfigSettingsFull(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetButtonConfigSettingsFull(
-        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
-    Result GetButtonConfigSettingsEmbedded(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetButtonConfigSettingsEmbedded(
-        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
-    Result GetButtonConfigSettingsLeft(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetButtonConfigSettingsLeft(
-        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
-    Result GetButtonConfigSettingsRight(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetButtonConfigSettingsRight(
-        InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings);
-    Result GetButtonConfigRegisteredSettingsEmbedded(
-        OutLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetButtonConfigRegisteredSettingsEmbedded(
-        InLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings);
-    Result GetButtonConfigRegisteredSettings(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetButtonConfigRegisteredSettings(
-        InArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings);
-    Result GetNetworkSettings(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetBluetoothDevicesSettings(
-        InArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> settings);
-    Result GetBluetoothDevicesSettings(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> out_settings);
-    Result GetNxControllerSettings(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetNxControllerSettings(
-        InArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> settings);
-    Result GetNxControllerSettingsEx(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetNxControllerSettingsEx(
-        InArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> settings);
-    Result GetBacklightSettingsEx(Out<std::array<u8, 0x2C>> out_settings);
-    Result SetBacklightSettingsEx(const std::array<u8, 0x2C>& settings);
-    Result GetEdid(
-        OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> out_edid);
-    Result SetEdid(
-        InLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> edid);
-    Result GetAllowedSslHosts(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_hosts);
-    Result GetHostFsMountPoint(
-        OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_mount_point);
-    Result GetInRepairProcessEnableFlag(Out<bool> out_value);
-    Result SetInRepairProcessEnableFlag(bool value);
-    Result GetServiceDiscoveryControlSettings(Out<u32> out_value);
-    Result SetServiceDiscoveryControlSettings(u32 value);
-    Result GetThemeKey(Out<std::array<u8, 0x10>> out_value);
-    Result SetThemeKey(const std::array<u8, 0x10>& value);
-    Result SetBlePairingSettings(
-        InArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> settings);
-    Result GetBlePairingSettings(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> out_settings);
-    Result GetAccountOnlineStorageSettings(
-        Out<s32> out_count,
-        OutArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> out_settings);
-    Result SetAccountOnlineStorageSettings(
-        InArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> settings);
-    Result GetRequiresRunRepairTimeReviser(Out<bool> out_value);
-    Result SetRequiresRunRepairTimeReviser(bool value);
-    Result GetHearingProtectionSafeguardFlag(Out<bool> out_value);
-    Result SetHearingProtectionSafeguardFlag(bool value);
-    Result GetHearingProtectionSafeguardRemainingTime(Out<s64> out_value);
-    Result SetHearingProtectionSafeguardRemainingTime(s64 value);
-    Result GetWebInspectorFlag(Out<bool> out_value);
-    Result SetChineseTraditionalInputMethod(ChineseTraditionalInputMethod value);
-    Result GetPtmCycleCountReliability(Out<u32> out_value);
-    Result SetPtmCycleCountReliability(u32 value);
-    Result GetThemeSettings(Out<std::array<u8, 0x8>> out_value);
-    Result SetThemeSettings(const std::array<u8, 0x8>& value);
-    Result GetZoomFlag(Out<bool> out_value);
-    Result SetZoomFlag(bool value);
-    Result GetMemoryUsageRateFlag(Out<bool> out_value);
-    Result SetFieldTestingFlag(bool value);
     Result GetUsb30EnableFlag(Out<bool> out_usb30_enable_flag);
     Result SetUsb30EnableFlag(bool usb30_enable_flag);
     Result GetNfcEnableFlag(Out<bool> out_nfc_enable_flag);
@@ -317,8 +160,6 @@ public:
     Result GetHomeMenuScheme(Out<HomeMenuScheme> out_home_menu_scheme);
     Result GetHomeMenuSchemeModel(Out<u32> out_home_menu_scheme_model);
     Result GetTouchScreenMode(Out<TouchScreenMode> out_touch_screen_mode);
-    Result GetT(Out<bool> out_is_terra);
-    Result SetT(bool is_terra);
     Result GetPlatformRegion(Out<PlatformRegion> out_platform_region);
     Result SetPlatformRegion(PlatformRegion platform_region);
     Result SetTouchScreenMode(TouchScreenMode touch_screen_mode);
@@ -339,9 +180,6 @@ private:
     void SetSaveNeeded();
 
     Core::System& m_system;
-    KernelHelpers::ServiceContext m_service_context;
-    Kernel::KEvent* m_telemetry_dirty_event{};
-    Kernel::KEvent* m_fatal_dirty_event{};
     SystemSettings m_system_settings{};
     PrivateSettings m_private_settings{};
     DeviceSettings m_device_settings{};

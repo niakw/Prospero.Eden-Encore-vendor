@@ -12,8 +12,8 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-CONST=ROOT/"encore-active/eden-shader/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp"
-CACHE=ROOT/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+CONST=ROOT/"encore-active/eden/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp"
+CACHE=ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp"
 PINNED=ROOT/"sources/eden/src/shader_recompiler/ir_opt/constant_propagation_pass.cpp"
 
 def blob(path: Path)->str:

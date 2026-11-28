@@ -3,7 +3,7 @@ on:
   pull_request:
     paths:
       - "sources/jxrlib/**"
-      - "encore-active/ps5-jxr/**"
+      - "encore-active/jxrlib/**"
       - "tests/ps5_jxr_security_host.py"
       - ".github/workflows/jxr-security-host.yml"
   workflow_dispatch:

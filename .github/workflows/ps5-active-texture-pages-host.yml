@@ -2,13 +2,13 @@ name: PS5 active texture page publication
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h'
-      - 'encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h'
+      - 'encore-active/eden/src/video_core/texture_cache/texture_cache.h'
+      - 'encore-active/eden/src/video_core/texture_cache/texture_cache.h'
       - 'tests/ps5_active_texture_page_publication_source.py'
       - 'tests/fc27_vic_texture_invalidation_source.py'
-      - 'encore-active/eden-core/src/video_core/host1x/vic.cpp'
-      - 'encore-active/eden-core/overrides/core/guest_memory.h'
-      - 'encore-active/eden-vulkan/vulkan_rasterizer.cpp'
+      - 'encore-active/eden/src/video_core/host1x/vic.cpp'
+      - 'encore-active/eden/src/core/guest_memory.h'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp'
       - '.github/workflows/ps5-active-texture-pages-host.yml'
   workflow_dispatch:
 permissions:

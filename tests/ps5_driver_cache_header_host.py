@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-source = (ROOT / "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
+source = (ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp").read_text()
 helper = source.split("// ENCORE_DRIVER_CACHE_HEADER_BEGIN", 1)[1].split(
     "// ENCORE_DRIVER_CACHE_HEADER_END", 1)[0]
 begin = "vk::PipelineCache PipelineCache::LoadVulkanPipelineCache("

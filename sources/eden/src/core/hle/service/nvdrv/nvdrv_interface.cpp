@@ -220,39 +220,14 @@ void NVDRV::QueryEvent(HLERequestContext& ctx) {
     }
 }
 
-void NVDRV::SetAruidWithoutCheck(HLERequestContext& ctx) {
-    IPC::RequestParser rp{ctx};
-    aruid = rp.Pop<u64>();
-    LOG_DEBUG(Service_NVDRV, "SetAruidWithoutCheck, aruid={:#x}", aruid);
-
-    IPC::ResponseBuilder rb{ctx, 3};
-    rb.Push(ResultSuccess);
-    rb.PushEnum(NvResult::Success);
-}
-
 void NVDRV::SetAruid(HLERequestContext& ctx) {
     IPC::RequestParser rp{ctx};
-    const u64 requested_aruid = rp.Pop<u64>();
-    const u64 caller_pid = ctx.GetPID();
+    pid = rp.Pop<u64>();
+    LOG_WARNING(Service_NVDRV, "(STUBBED) called, pid={:#x}", pid);
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    if (caller_pid == 0 || requested_aruid != caller_pid) {
-        LOG_WARNING(Service_NVDRV,
-                    "SetAruid rejected mismatched PID descriptor, aruid={:#x}, caller_pid={:#x}",
-                    requested_aruid, caller_pid);
-        rb.PushEnum(NvResult::BadParameter);
-        return;
-    }
-
-    aruid = requested_aruid;
-    LOG_DEBUG(Service_NVDRV, "SetAruid, aruid={:#x}", aruid);
     rb.PushEnum(NvResult::Success);
-}
-
-void NVDRV::RejectUnsupportedExtension(HLERequestContext& ctx) {
-    LOG_WARNING(Service_NVDRV, "Unsupported nvdrv extension command {}", ctx.GetCommand());
-    ServiceError(ctx, NvResult::NotSupported);
 }
 
 void NVDRV::SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx) {
@@ -263,31 +238,10 @@ void NVDRV::SetGraphicsFirmwareMemoryMarginEnabled(HLERequestContext& ctx) {
 }
 
 void NVDRV::GetStatus(HLERequestContext& ctx) {
-    // Horizon returns the nvdrv work-buffer status (0x20 bytes) followed by NvResult.
-    // The four memory counters are not modeled by Encore yet, so preserve their neutral
-    // zero values while keeping the ABI and initialization error contract exact.
-    struct NvStatus {
-        u32 memory_value_1{};
-        u32 memory_value_2{};
-        u32 memory_value_3{};
-        u32 memory_value_4{};
-        u64 reserved_1{};
-        u64 reserved_2{};
-    };
-    static_assert(sizeof(NvStatus) == 0x20);
+    LOG_WARNING(Service_NVDRV, "(STUBBED) called");
 
-    if (!is_initialized) {
-        LOG_DEBUG(Service_NVDRV, "called before Initialize");
-        IPC::ResponseBuilder rb{ctx, 3};
-        rb.Push(ResultSuccess);
-        rb.PushEnum(NvResult::NotInitialized);
-        return;
-    }
-
-    LOG_DEBUG(Service_NVDRV, "called");
-    IPC::ResponseBuilder rb{ctx, 11};
+    IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);
-    rb.PushRaw(NvStatus{});
     rb.PushEnum(NvResult::Success);
 }
 
@@ -308,12 +262,12 @@ NVDRV::NVDRV(Core::System& system_, std::shared_ptr<Module> nvdrv_, const char* 
         {2, &NVDRV::Close, "Close"},
         {3, &NVDRV::Initialize, "Initialize"},
         {4, &NVDRV::QueryEvent, "QueryEvent"},
-        {5, &NVDRV::RejectUnsupportedExtension, "MapSharedMem"},
+        {5, nullptr, "MapSharedMem"},
         {6, &NVDRV::GetStatus, "GetStatus"},
-        {7, &NVDRV::SetAruidWithoutCheck, "SetAruidWithoutCheck"},
+        {7, nullptr, "SetAruidForTest"},
         {8, &NVDRV::SetAruid, "SetAruid"},
         {9, &NVDRV::DumpGraphicsMemoryInfo, "DumpGraphicsMemoryInfo"},
-        {10, &NVDRV::RejectUnsupportedExtension, "InitializeDevtools"},
+        {10, nullptr, "InitializeDevtools"},
         {11, &NVDRV::Ioctl2, "Ioctl2"},
         {12, &NVDRV::Ioctl3, "Ioctl3"},
         {13, &NVDRV::SetGraphicsFirmwareMemoryMarginEnabled,

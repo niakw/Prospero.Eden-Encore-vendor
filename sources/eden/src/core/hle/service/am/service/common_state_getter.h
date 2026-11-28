@@ -29,7 +29,6 @@ public:
     ~ICommonStateGetter() override;
 
 private:
-    void RejectUnavailableFeature(HLERequestContext& ctx);
     Result GetEventHandle(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result ReceiveMessage(Out<AppletMessage> out_applet_message);
     Result GetCurrentFocusState(Out<FocusState> out_focus_state);
@@ -46,13 +45,6 @@ private:
     Result GetHdcpAuthenticationStateChangeEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result GetOperationMode(Out<OperationMode> out_operation_mode);
     Result GetPerformanceMode(Out<APM::PerformanceMode> out_performance_mode);
-    Result GetCradleStatus(Out<u8> out_status);
-    Result GetCradleFwVersion(Out<u32> out_version0, Out<u32> out_version1,
-                              Out<u32> out_version2, Out<u32> out_version3);
-    Result SetTvPowerStateMatchingMode(u32 mode);
-    Result SetPerformanceConfigurationChangedNotification(bool enabled);
-    Result GetCurrentPerformanceConfiguration(
-        Out<APM::PerformanceConfiguration> out_performance_configuration);
     Result GetBootMode(Out<PM::SystemBootMode> out_boot_mode);
     Result IsVrModeEnabled(Out<bool> out_is_vr_mode_enabled);
     Result SetVrModeEnabled(bool is_vr_mode_enabled);
@@ -65,10 +57,6 @@ private:
     Result GetBuiltInDisplayType(Out<s32> out_display_type);
     Result PerformSystemButtonPressingIfInFocus(SystemButtonType type);
     Result EnableStartupLogoDisappearedMessage();
-    Result DisableSleepTillShutdown();
-    Result SuppressDisablingSleepTemporarily(u64 duration_ns);
-    Result IsSleepEnabled(Out<bool> out_is_sleep_enabled);
-    Result IsDisablingSleepSuppressed(Out<bool> out_is_suppressed);
     Result GetOperationModeSystemInfo(Out<u32> out_operation_mode_system_info);
     Result GetAppletLaunchedHistory(Out<s32> out_count,
                                     OutArray<AppletId, BufferAttr_HipcMapAlias> out_applet_ids);
@@ -87,8 +75,6 @@ private:
     Result GetPanelResolutionForSpecificTitle(Out<s32> out_width, Out<s32> out_height);
 
     void SetCpuBoostMode(HLERequestContext& ctx);
-    Result CancelCpuBoostMode();
-    Result RejectUnsupportedLegacyCommand();
 
     const std::shared_ptr<Applet> m_applet;
 };

@@ -2,7 +2,7 @@
 """R23 #97 native WindowSystem overlay foreground eligibility source regression."""
 from pathlib import Path
 import hashlib, os, subprocess, tempfile
-r=Path(__file__).resolve().parents[1]/"encore-active/eden-core/src/core/hle/service/am/window_system.cpp"
+r=Path(__file__).resolve().parents[1]/"encore-active/eden/src/core/hle/service/am/window_system.cpp"
 s=r.read_text()
 raw=s.replace("    if (m_applets.empty() && !m_exit_sent) {\n        m_exit_sent = true;\n        m_system.Exit();\n    }", "    if (m_applets.empty()) {\n        m_system.Exit();\n    }").encode("utf-8")
 assert s.count("    if (m_applets.empty() && !m_exit_sent) {\n        m_exit_sent = true;\n        m_system.Exit();\n    }") == 1

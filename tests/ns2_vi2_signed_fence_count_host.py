@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-supervisor = (root / "encore-active/ns2-runtime/graphics_supervisor"
+supervisor = (root / "encore-active/eden/src"
               "/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 header = (root / "sources/eden/src/core/hle/service/nvnflinger/ui/fence.h").read_text()
 assert "u32 num_fences{};" in header

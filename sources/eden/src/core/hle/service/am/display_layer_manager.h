@@ -7,7 +7,6 @@
 #pragma once
 
 #include <set>
-#include <span>
 
 #include "common/common_types.h"
 #include "core/hle/result.h"
@@ -52,10 +51,6 @@ public:
 
     Result WriteAppletCaptureBuffer(bool* out_was_written, s32* out_fbshare_layer_index,
                                     VI::CaptureKind kind);
-    Result ReadAppletCaptureBuffer(bool* out_was_written, std::span<u8> out_data,
-                                   VI::CaptureKind kind);
-    Result WriteAppletCaptureBufferToSlot(s32 fbshare_layer_index, bool screenshot_permitted);
-    Result CopyAppletCaptureBuffer(s32 dst_fbshare_layer_index, s32 src_fbshare_layer_index);
     Result ClearAppletCaptureBuffer(s32 fbshare_layer_index, u32 color);
 
 private:

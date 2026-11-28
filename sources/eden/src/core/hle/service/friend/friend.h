@@ -21,7 +21,6 @@ public:
 
         void CreateFriendService(HLERequestContext& ctx);
         void CreateNotificationService(HLERequestContext& ctx);
-        void CreateDaemonSuspendSessionService(HLERequestContext& ctx);
 
     protected:
         std::shared_ptr<Module> module;

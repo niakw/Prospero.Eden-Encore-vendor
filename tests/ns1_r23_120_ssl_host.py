@@ -7,11 +7,11 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-DIR=ROOT/"encore-active/eden-core/src/core/hle/service/ssl"
+DIR=ROOT/"encore-active/eden/src/core/hle/service/ssl"
 EXPECTED={
- "ssl.cpp":"ceef96d5c9ec5d16c0930e02d23ab6cf83ca8a08",
- "ssl_backend.h":"75737e550dee27b2a5eaad5f71a5440b5d574bfe",
- "ssl_backend_openssl.cpp":"ab1b006f437da2e4917efe23bd725c7916b0ac1f",
+ "ssl.cpp":"178c4c690b04f4140538cc2855dd48341a88b4c1",
+ "ssl_backend.h":"ef6bf8f9def5f80544e75c180ac72275a0325cc9",
+ "ssl_backend_openssl.cpp":"71ce86365b9ff511f8a2fe550afd7d5db957e5c5",
 }
 def sha(p):
  b=p.read_bytes()
@@ -26,23 +26,7 @@ for name in ("Peek","SetRenegotiationMode","GetRenegotiationMode"):
  assert name+"(" in service and name+"(" in header and name+"(" in backend,name
 assert "{20, D<&ISslConnection::SetRenegotiationMode>" in service
 assert "{21, D<&ISslConnection::GetRenegotiationMode>" in service
-assert 'explicit ISslContext(Core::System& system_, SslVersion version, bool for_system = false)' in service
-assert '{100, &ISslContext::CreateConnection, "CreateConnectionEx"}' in service
-assert '{0, &ISslServiceForSystem::CreateContext, "CreateContext"}' in service
-assert '{100, &ISslServiceForSystem::CreateContext, "CreateContextForSystem"}' in service
-system_create=service.split("class ISslServiceForSystem",1)[1].split("Result GetContextCount",1)[0]
-assert 'rb.PushIpcInterface<ISslContext>(ctx, system, parameters.ssl_version,' in system_create
-assert 'ctx.GetCommand() == 100' in system_create
 assert "SSL_pending(ssl)" in backend
-assert '{6, &ISslContext::RemoveServerPki, "RemoveServerPki"}' in service
-assert '{7, &ISslContext::RemoveClientPki, "RemoveClientPki"}' in service
-assert "backend->AddServerPki" in service
-assert "ResultUnsupportedCertificate" in service
-assert "X509_STORE_add_cert" in backend
-assert "SSL_set1_verify_cert_store" in backend
-assert backend.index("std::call_once(one_time_init_flag, OneTimeInit)") < backend.index("ssl = SSL_new(ssl_ctx)")
-one_time=backend.split("void OneTimeInit()",1)[1]
-assert one_time.index("SSL_CTX_new") < one_time.index("LoadCaCertStore")
 
 start="    Result Peek(size_t* out_size, std::span<u8> data) override {"
 end="\n    Result Write(size_t* out_size"

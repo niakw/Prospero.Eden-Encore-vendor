@@ -9,7 +9,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 cpm = ROOT / "sources/eden-cpm"
 sirit = cpm / "sirit/v1.0.5"
-shader = ROOT / "encore-active/eden-shader/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
+shader = ROOT / "encore-active/eden/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
 src = shader.read_text()
 start = src.index("    template <typename T>\n    Id CachedConstant(")
 end = src.index("\n\n    // Keep integer and float namespaces distinct", start)

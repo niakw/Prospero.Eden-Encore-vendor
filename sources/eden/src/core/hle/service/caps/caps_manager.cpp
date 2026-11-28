@@ -61,73 +61,6 @@ Result AlbumManager::IsAlbumMounted(AlbumStorage storage) {
     return is_mounted ? ResultSuccess : ResultIsNotMounted;
 }
 
-Result AlbumManager::GetAlbumFileCount(u64& out_count, AlbumStorage storage, u8 flags) const {
-    if (storage > AlbumStorage::Sd) {
-        return ResultInvalidStorage;
-    }
-    if (!is_mounted) {
-        return ResultIsNotMounted;
-    }
-
-    out_count = 0;
-    for (const auto& [file_id, path] : album_files) {
-        if (file_id.storage == storage) {
-            ++out_count;
-        }
-    }
-    return ResultSuccess;
-}
-
-Result AlbumManager::GetAlbumFileSize(u64& out_size, const AlbumFileId& file_id) const {
-    if (!is_mounted) {
-        return ResultIsNotMounted;
-    }
-    std::filesystem::path path;
-    R_TRY(GetFile(path, file_id));
-    out_size = Common::FS::GetSize(path);
-    return ResultSuccess;
-}
-
-Result AlbumManager::GetAlbumMountResult(AlbumStorage storage) const {
-    if (storage > AlbumStorage::Sd) {
-        return ResultInvalidStorage;
-    }
-    return is_mounted ? ResultSuccess : ResultIsNotMounted;
-}
-
-Result AlbumManager::RefreshAlbumCache(AlbumStorage storage) {
-    if (storage > AlbumStorage::Sd) {
-        return ResultInvalidStorage;
-    }
-    if (storage == AlbumStorage::Sd) {
-        FindScreenshots();
-    } else {
-        is_mounted = true;
-    }
-    return ResultSuccess;
-}
-
-Result AlbumManager::GetRequiredStorageSpaceSizeToCopyAll(
-    u64& out_size, AlbumStorage source, AlbumStorage destination) const {
-    if (source > AlbumStorage::Sd || destination > AlbumStorage::Sd) {
-        return ResultInvalidStorage;
-    }
-    if (!is_mounted) {
-        return ResultIsNotMounted;
-    }
-
-    out_size = 0;
-    if (source == destination) {
-        return ResultSuccess;
-    }
-    for (const auto& [file_id, path] : album_files) {
-        if (file_id.storage == source) {
-            out_size += Common::FS::GetSize(path);
-        }
-    }
-    return ResultSuccess;
-}
-
 Result AlbumManager::GetAlbumFileList(std::span<AlbumEntry> out_entries, u64& out_entries_count,
                                       AlbumStorage storage, u8 flags) const {
     if (storage > AlbumStorage::Sd) {
@@ -228,24 +161,6 @@ Result AlbumManager::GetAlbumFileList(std::span<ApplicationAlbumEntry> out_entri
 
 Result AlbumManager::GetAutoSavingStorage(bool& out_is_autosaving) const {
     out_is_autosaving = false;
-    return ResultSuccess;
-}
-
-Result AlbumManager::SetAlbumStorageAvailable(AlbumStorage storage, bool available) {
-    if (storage > AlbumStorage::Sd) {
-        return ResultInvalidStorage;
-    }
-
-    if (!available) {
-        is_mounted = false;
-        return ResultSuccess;
-    }
-
-    if (storage == AlbumStorage::Sd) {
-        FindScreenshots();
-    } else {
-        is_mounted = true;
-    }
     return ResultSuccess;
 }
 

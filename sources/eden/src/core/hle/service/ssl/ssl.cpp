@@ -79,10 +79,10 @@ public:
             {1, &ISslConnection::SetHostName, "SetHostName"},
             {2, &ISslConnection::SetVerifyOption, "SetVerifyOption"},
             {3, &ISslConnection::SetIoMode, "SetIoMode"},
-            {4, &ISslConnection::GetSocketDescriptor, "GetSocketDescriptor"},
+            {4, nullptr, "GetSocketDescriptor"},
             {5, nullptr, "GetHostName"},
-            {6, &ISslConnection::GetVerifyOption, "GetVerifyOption"},
-            {7, &ISslConnection::GetIoMode, "GetIoMode"},
+            {6, nullptr, "GetVerifyOption"},
+            {7, nullptr, "GetIoMode"},
             {8, &ISslConnection::DoHandshake, "DoHandshake"},
             {9, &ISslConnection::DoHandshakeGetServerCert, "DoHandshakeGetServerCert"},
             {10, &ISslConnection::Read, "Read"},
@@ -150,8 +150,6 @@ private:
     bool skip_default_verify = false;
     bool enable_alpn = false;
     std::shared_ptr<Network::SocketBase> socket;
-    s32 input_socket_fd{-1};
-    IoMode io_mode{IoMode::Blocking};
     std::vector<u8> next_alpn_proto;
     bool did_handshake = false;
     u32 verify_option = 0;
@@ -177,7 +175,6 @@ private:
                 return ResultInvalidSocket;
             }
             socket = std::move(*sock);
-            input_socket_fd = fd;
             backend->SetSocket(socket);
             return ResultSuccess;
         }
@@ -201,19 +198,14 @@ private:
 
     Result SetIoModeImpl(u32 input_mode) {
         auto mode = static_cast<IoMode>(input_mode);
-        if (mode != IoMode::Blocking && mode != IoMode::NonBlocking) {
-            LOG_ERROR(Service_SSL, "Invalid TLS I/O mode: {}", input_mode);
-            return ResultInternalError;
-        }
+        ASSERT(mode == IoMode::Blocking || mode == IoMode::NonBlocking);
         ASSERT_OR_EXECUTE(socket, { return ResultNoSocket; });
 
         const bool non_block = mode == IoMode::NonBlocking;
         const Network::Errno error = socket->SetNonBlock(non_block);
         if (error != Network::Errno::SUCCESS) {
             LOG_ERROR(Service_SSL, "Failed to set native socket non-block flag to {}", non_block);
-            return ResultInternalError;
         }
-        io_mode = mode;
         return ResultSuccess;
     }
 
@@ -315,25 +307,6 @@ private:
         const Result res = SetIoModeImpl(mode);
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(res);
-    }
-
-    // Report the caller's original BSD descriptor, not the internal duplicate.
-    void GetSocketDescriptor(HLERequestContext& ctx) {
-        IPC::ResponseBuilder rb{ctx, 3};
-        rb.Push(socket ? ResultSuccess : ResultNoSocket);
-        rb.Push<s32>(socket ? input_socket_fd : -1);
-    }
-
-    void GetVerifyOption(HLERequestContext& ctx) {
-        IPC::ResponseBuilder rb{ctx, 3};
-        rb.Push(ResultSuccess);
-        rb.Push<u32>(verify_option);
-    }
-
-    void GetIoMode(HLERequestContext& ctx) {
-        IPC::ResponseBuilder rb{ctx, 3};
-        rb.Push(socket ? ResultSuccess : ResultNoSocket);
-        rb.Push<u32>(static_cast<u32>(io_mode));
     }
 
     void DoHandshake(HLERequestContext& ctx) {
@@ -585,24 +558,20 @@ private:
     void ImportServerPki(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
         const auto certificate_format = rp.PopEnum<CertificateFormat>();
-        const auto certificate_data = ctx.ReadBuffer(0);
+        [[maybe_unused]] const auto pkcs_12_certificates = ctx.ReadBuffer(0);
 
         constexpr u64 server_id = 0;
 
-        // Encore's active TLS backend has no context-local trust-store/PKI registry. Returning
-        // Success here would hand the guest an unusable id and silently skip certificate import.
-        LOG_WARNING(Service_SSL,
-                    "ImportServerPki unsupported by the active TLS backend, format={}, size={}",
-                    certificate_format, certificate_data.size());
+        LOG_WARNING(Service_SSL, "(STUBBED) called, certificate_format={}", certificate_format);
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(IPC::ResultNotSupported);
+        rb.Push(ResultSuccess);
         rb.Push(server_id);
     }
 
     void ImportClientPki(HLERequestContext& ctx) {
-        const auto pkcs_12_certificate = ctx.ReadBuffer(0);
-        const auto ascii_password = [&ctx] {
+        [[maybe_unused]] const auto pkcs_12_certificate = ctx.ReadBuffer(0);
+        [[maybe_unused]] const auto ascii_password = [&ctx] {
             if (ctx.CanReadBuffer(1)) {
                 return ctx.ReadBuffer(1);
             }
@@ -612,15 +581,10 @@ private:
 
         constexpr u64 client_id = 0;
 
-        // Client-certificate installation is not represented by SSLConnectionBackend either.
-        // Consume both buffers but fail closed instead of publishing a fake id 0 as Success.
-        LOG_WARNING(Service_SSL,
-                    "ImportClientPki unsupported by the active TLS backend, certificate_size={}, "
-                    "password_size={}",
-                    pkcs_12_certificate.size(), ascii_password.size());
+        LOG_WARNING(Service_SSL, "(STUBBED) called");
 
         IPC::ResponseBuilder rb{ctx, 4};
-        rb.Push(IPC::ResultNotSupported);
+        rb.Push(ResultSuccess);
         rb.Push(client_id);
     }
 };
@@ -635,11 +599,11 @@ public:
             {1, nullptr, "GetContextCount"},
             {2, D<&ISslService::GetCertificates>, "GetCertificates"},
             {3, D<&ISslService::GetCertificateBufSize>, "GetCertificateBufSize"},
-            {4, &ISslService::UnsupportedDebugCommand, "DebugIoctl"},
+            {4, nullptr, "DebugIoctl"},
             {5, &ISslService::SetInterfaceVersion, "SetInterfaceVersion"},
             {6, nullptr, "FlushSessionCache"},
-            {7, &ISslService::UnsupportedDebugCommand, "SetDebugOption"},
-            {8, &ISslService::UnsupportedDebugCommand, "GetDebugOption"},
+            {7, nullptr, "SetDebugOption"},
+            {8, nullptr, "GetDebugOption"},
             {8, nullptr, "ClearTls12FallbackFlag"},
         };
         // clang-format on
@@ -648,12 +612,6 @@ public:
     }
 
 private:
-    void UnsupportedDebugCommand(HLERequestContext& ctx) {
-        LOG_WARNING(Service_SSL, "SSL debug command is not supported by the production runtime");
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(IPC::ResultNotSupported);
-    }
-
     void CreateContext(HLERequestContext& ctx) {
         struct Parameters {
             SslVersion ssl_version;
@@ -674,12 +632,9 @@ private:
 
     void SetInterfaceVersion(HLERequestContext& ctx) {
         IPC::RequestParser rp{ctx};
-        const u32 interface_version = rp.Pop<u32>();
+        u32 ssl_version = rp.Pop<u32>();
 
-        // This command only selects the Horizon SSL IPC interface generation
-        // (libnx uses 1/2/3 for HOS 3/5/6+). Encore exposes the compatible
-        // command superset directly, so there is no backend state to mutate.
-        LOG_DEBUG(Service_SSL, "called, interface_version={}", interface_version);
+        LOG_DEBUG(Service_SSL, "called, ssl_version={}", ssl_version);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);

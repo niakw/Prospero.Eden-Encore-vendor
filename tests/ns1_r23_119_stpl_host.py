@@ -7,29 +7,19 @@ import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 files={
- "encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp":"f20596f9c1d7b2ce70b37fd21e0c55422f4aabd0",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"54f7d65f8487e5d86c0126ec312e29b403932d03",
- "encore-active/eden-core/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
- "encore-active/eden-core/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
- "encore-active/eden-backports/src/core/crypto/key_manager.cpp":"bb253fcecbcda9a4bc2ea6fbba4b41903d72d411",
- "encore-active/eden-backports/src/core/crypto/key_manager.h":"e633f122d3c363258e7dd05f3ec5b075cd7ac246",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp":"647e2499f82de4ac921e6ab709c8a67d4f2f10cc",
- "encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.h":"4599b92b022b18439014288b43c0c3ecb93f0eb7",
- "encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp":"30a259b7b1d9a2816f6f3c6e525878e68b05c918",
- "sources/eden/src/core/hle/service/nifm/nifm.h":"3c9db32f17240d6b9d3498b334a68aa6699d6569",
+ "encore-active/eden/src/core/hle/service/ngc/ngc.cpp":"1e04b2e1877d781db79f9933d55e8087ebb42d1e",
+ "encore-active/eden/src/core/hle/service/filesystem/fsp/fsp_srv.cpp":"58303a0bd66387244c44968a0878e2f7c821bc9f",
+ "encore-active/eden/include/core/hle/service/acc/profile_manager.h":"81688175c2b96b509a9108cc1e69b12391d2127f",
+ "encore-active/eden/include/core/hle/service/ipc_helpers.h":"a266b1a05cf0b20b7cad6d70f9b16dfec503cf7c",
 }
 for file,expected in files.items():
  d=(ROOT/file).read_bytes()
  sha=hashlib.sha1(b"blob "+str(len(d)).encode()+bytes([0])+d).hexdigest()
  assert sha==expected,(file,sha)
-ngc=(ROOT/"encore-active/eden-backports/src/core/hle/service/ngc/ngc.cpp").read_text()
-fsp=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
-keys=(ROOT/"encore-active/eden-backports/src/core/crypto/key_manager.cpp").read_text()
-keyh=(ROOT/"encore-active/eden-backports/src/core/crypto/key_manager.h").read_text()
-reader=(ROOT/"encore-active/eden-backports/src/core/hle/service/filesystem/fsp/fs_i_save_data_info_reader.cpp").read_text()
-nifm=(ROOT/"encore-active/eden-backports/src/core/hle/service/nifm/nifm.cpp").read_text()
-ipch=(ROOT/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
-profile=(ROOT/"encore-active/eden-core/include/core/hle/service/acc/profile_manager.h").read_text()
+ngc=(ROOT/"encore-active/eden/src/core/hle/service/ngc/ngc.cpp").read_text()
+fsp=(ROOT/"encore-active/eden/src/core/hle/service/filesystem/fsp/fsp_srv.cpp").read_text()
+ipch=(ROOT/"encore-active/eden/include/core/hle/service/ipc_helpers.h").read_text()
+profile=(ROOT/"encore-active/eden/include/core/hle/service/acc/profile_manager.h").read_text()
 assert 'RegisterNamedService("stpl:u"' in ngc
 assert 'RegisterNamedService("stpl:sys"' in ngc
 assert "#if !defined(EDEN_NATIVE_SHARED_NS2_STPL_OWNER)" in ngc
@@ -40,62 +30,6 @@ assert "R_THROW(IPC::ResultNotSupported);" in write
 assert "R_SUCCEED();" not in write
 for n in (820,830,831):
  assert f'{{{n}, nullptr' in fsp
-assert '{33, D<&FSP_SRV::DeleteCacheStorage>, "DeleteCacheStorage"}' in fsp
-delete_cache=fsp.split("Result FSP_SRV::DeleteCacheStorage(",1)[1].split("Result FSP_SRV::GetCacheStorageSize",1)[0]
-assert 'index == 0' in delete_cache
-assert 'GetDirectoryRelative("save/cache")' in delete_cache
-assert 'DeleteSubdirectoryRecursive(cache_name)' in delete_cache
-assert '{68, D<&FSP_SRV::OpenSaveDataInfoReaderWithFilter>, "OpenSaveDataInfoReaderWithFilter"}' in fsp
-filtered=fsp.split("Result FSP_SRV::OpenSaveDataInfoReaderWithFilter(",1)[1].split("Result FSP_SRV::WriteSaveDataFileSystemExtraData",1)[0]
-assert 'space_id, filter, program_id' in filtered
-assert 'std::erase_if(info' in reader
-assert 'filter.use_program_id' in reader and 'filter.use_save_data_type' in reader
-assert 'filter.use_user_id' in reader and 'filter.use_save_data_id' in reader
-assert 'filter.use_index' in reader
-assert '{66, D<&FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask>, "WriteSaveDataFileSystemExtraDataWithMask"}' in fsp
-masked=fsp.split("Result FSP_SRV::WriteSaveDataFileSystemExtraDataWithMask(",1)[1].split("Result FSP_SRV::FindSaveDataWithFilter",1)[0]
-assert 'mask_buffer.size() == sizeof(FileSys::SaveDataExtraData)' in masked
-assert 'FindDirectorySaveById' in masked
-assert '{606, D<&FSP_SRV::GetRightsId>, "GetRightsId"}' in fsp
-rights=fsp.split("Result FSP_SRV::GetRightsId(",1)[1].split("Result FSP_SRV::SetSdCardAccessibility",1)[0]
-assert 'OpenBaseNca(program_id_, storage_id, FileSys::ContentRecordType::Program)' in rights
-assert 'nca->GetRightsId()' in rights
-for cmd,name in ((607,"RegisterExternalKey"),(608,"UnregisterAllExternalKey"),(617,"UnregisterExternalKey")):
- assert f'{{{cmd}, D<&FSP_SRV::{name}>, "{name}"}}' in fsp
-assert 'RegisterExternalTitleKey(rights_id, access_key)' in fsp
-assert 'ClearExternalTitleKeys()' in fsp
-assert 'UnregisterExternalTitleKey(rights_id)' in fsp
-assert 'external_title_keys.find(index)' in keys
-assert 'external->second' in keys
-assert 'external_title_keys.clear()' in keys
-assert 'RegisterExternalTitleKey' in keyh and 'UnregisterExternalTitleKey' in keyh
-assert '{5, &IRequest::SetRequirement, "SetRequirement"}' in nifm
-assert '{19, &IRequest::GetRequirement, "GetRequirement"}' in nifm
-requirement_set=nifm.split("void SetRequirement(HLERequestContext& ctx)",1)[1].split("void GetRequirement",1)[0]
-assert 'PopRaw<std::array<u8, 0x24>>()' in requirement_set
-requirement_get=nifm.split("void GetRequirement(HLERequestContext& ctx)",1)[1].split("void SetRequirementPreset",1)[0]
-assert 'ResponseBuilder rb{ctx, 11}' in requirement_get
-assert 'rb.PushRaw(requirement)' in requirement_get
-assert '{12, &IRequest::SetPersistent, "SetPersistent"}' in nifm
-persistent=nifm.split("void SetPersistent(HLERequestContext& ctx)",1)[1].split("void SetConnectionConfirmationOption",1)[0]
-assert 'persistent = rp.Pop<u8>() != 0' in persistent
-request_state=nifm.split("void GetRequestState(HLERequestContext& ctx)",1)[1].split("void SetRequirement(",1)[0]
-assert 'persistent ? RequestState::OnHold : RequestState::Invalid' in request_state
-request_result=nifm.split("void GetResult(HLERequestContext& ctx)",1)[1].split("void GetSystemEventReadableHandles",1)[0]
-assert 'else if (!persistent)' in request_result
-for cmd,name in ((8,"SetPriority"),(10,"SetRejectable"),(13,"SetInstant"),(14,"SetSustainable"),(15,"SetRawPriority"),(16,"SetGreedy"),(17,"SetSharable"),(18,"SetRequirementByRevision"),(20,"GetRevision"),(23,"SetKeptInSleep"),(24,"RegisterSocketDescriptor"),(25,"UnregisterSocketDescriptor")):
- assert f'{{{cmd}, &IRequest::{name}, "{name}"}}' in nifm
-assert 'const bool enabled = rp.Pop<u8>() != 0' in nifm
-assert 'requirement_revision = value' in nifm
-assert 'rb.Push(value)' in nifm
-assert 'socket_descriptors.insert(descriptor)' in nifm
-assert 'socket_descriptors.erase(descriptor)' in nifm
-assert '{42, &IGeneralService::NotifyConnectionStateChanged, "NotifyConnectionStateChanged"}' in nifm
-assert '{43, &IGeneralService::SetWowlDelayedWakeTime, "SetWowlDelayedWakeTime"}' in nifm
-notify=nifm.split("void IGeneralService::NotifyConnectionStateChanged(",1)[1].split("void IGeneralService::SetWowlDelayedWakeTime",1)[0]
-assert 'live network state requires no explicit invalidation' in notify
-wowl=nifm.split("void IGeneralService::SetWowlDelayedWakeTime(",1)[1].split("void IGeneralService::IsWiredConnectionAvailable",1)[0]
-assert 'rp.Pop<s32>()' in wowl and 'wowl_delayed_wake_time.store' in wowl
 assert "constexpr Result ResultNotSupported{ErrorModule::HIPC, 1};" in ipch
 assert "static_assert(sizeof(Uid) == 0x10)" in profile
 test=r"""

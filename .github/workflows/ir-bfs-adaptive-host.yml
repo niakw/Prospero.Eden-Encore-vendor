@@ -2,7 +2,7 @@ name: IR adaptive BFS order parity (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
+      - "encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h"
       - "tests/ps5_ir_bfs_adaptive_host.py"
       - ".github/workflows/ir-bfs-adaptive-host.yml"
   workflow_dispatch:

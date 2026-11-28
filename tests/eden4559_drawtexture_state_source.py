@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib
 
 root=Path(__file__).resolve().parents[1]
-active=root/"encore-active/eden-vulkan"
+active=root/"encore-active/eden/src/video_core/renderer_vulkan"
 source=root/"sources/eden/src/video_core/renderer_vulkan"
 
 def blob(path):

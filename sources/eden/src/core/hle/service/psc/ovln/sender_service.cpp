@@ -19,11 +19,11 @@ ISenderService::ISenderService(Core::System& system_) : ServiceFramework{system_
 
 ISenderService::~ISenderService() = default;
 
-Result ISenderService::OpenSender(Out<SharedPointer<ISender>> out_sender,
-                                  SourceName source_name, QueueAttribute attribute) {
-    const auto name = source_name.GetString();
-    LOG_DEBUG(Service_PSC, "called, source='{}', queue_length={}", name, attribute.queue_length);
-    *out_sender = std::make_shared<ISender>(system, source_name, attribute);
+Result ISenderService::OpenSender(Out<SharedPointer<ISender>> out_sender, u32 sender_id,
+                                  std::array<u64, 2> data) {
+    LOG_WARNING(Service_PSC, "(STUBBED) called, sender_id={}, data={:016X} {:016X}", sender_id,
+                data[0], data[1]);
+    *out_sender = std::make_shared<ISender>(system);
     R_SUCCEED();
 }
 

@@ -8,7 +8,7 @@ filesystem permissions, memory correctness or a PS5 build.
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-owner = (root / "encore-active/ns2-runtime/metadata/core/loader/"
+owner = (root / "encore-active/eden/src/core/loader/"
               "deconstructed_rom_directory.cpp").read_text()
 
 def require(fragment: str) -> int:

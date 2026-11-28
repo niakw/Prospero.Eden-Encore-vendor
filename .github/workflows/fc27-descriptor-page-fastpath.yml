@@ -2,7 +2,7 @@ name: FC27 one-page descriptor read fast path
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/video_core/texture_cache/descriptor_table.h'
+      - 'encore-active/eden/src/video_core/texture_cache/descriptor_table.h'
       - 'tests/fc27_descriptor_page_fastpath_host.py'
       - '.github/workflows/fc27-descriptor-page-fastpath.yml'
   workflow_dispatch:

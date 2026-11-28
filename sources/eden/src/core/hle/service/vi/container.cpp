@@ -176,19 +176,6 @@ Result Container::SetLayerStackMask(u64 layer_id, u32 layer_stack_mask) {
     R_SUCCEED();
 }
 
-Result Container::UpdateLayerStack(u64 layer_id, u32 stack_id, bool add) {
-    // Match the known Horizon layer-stack IDs; avoid an unchecked bit shift.
-    R_UNLESS(stack_id <= 6 || stack_id == 10, VI::ResultOperationFailed);
-    std::scoped_lock lk{m_lock};
-    R_UNLESS(!m_is_shut_down, VI::ResultOperationFailed);
-    auto* const layer = m_layers.GetLayerById(layer_id);
-    R_UNLESS(layer != nullptr, VI::ResultNotFound);
-    R_UNLESS(m_surface_flinger->UpdateLayerStackMask(layer->GetConsumerBinderId(),
-                                                    1U << stack_id, add),
-             VI::ResultNotFound);
-    R_SUCCEED();
-}
-
 Result Container::SetLayerIsOverlay(u64 layer_id, bool is_overlay) {
     std::scoped_lock lk{m_lock};
 

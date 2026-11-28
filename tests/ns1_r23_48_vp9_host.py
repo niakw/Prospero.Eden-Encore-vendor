@@ -15,9 +15,9 @@ def blob(p):
  return hashlib.sha1(b"blob "+str(len(b)).encode()+bytes([0])+b).hexdigest()
 for rel,(original,maintained) in paths.items():
  assert blob(R/"sources/eden/src"/rel)==original,rel
- assert blob(R/"encore-active/eden-core/src"/rel)==maintained,rel
+ assert blob(R/"encore-active/eden/src"/rel)==maintained,rel
  print("R23_48_COHERENT_VP9_SOURCE_PASS",rel)
-s=(R/"encore-active/eden-core/src/video_core/host1x/codecs/vp9.cpp").read_text()
+s=(R/"encore-active/eden/src/video_core/host1x/codecs/vp9.cpp").read_text()
 start="void VP9::WriteSegmentation(VpxBitStreamWriter& writer) {"
 end="\nVp9PictureInfo VP9::GetVp9PictureInfo()"
 assert s.count(start)==1 and s.count(end)==1

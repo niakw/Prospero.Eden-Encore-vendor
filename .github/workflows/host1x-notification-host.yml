@@ -2,7 +2,7 @@ name: Host1x published-counter wake regression (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp"
+      - "encore-active/eden/src/video_core/host1x/syncpoint_manager.cpp"
       - "tests/ps5_host1x_wait_notification_host.py"
       - ".github/workflows/host1x-notification-host.yml"
   workflow_dispatch:

@@ -5,8 +5,8 @@ on:
       - research/ns1-r23-amd-fragpattern-20261112
   pull_request:
     paths:
-      - "encore-active/eden-shader/src/shader_recompiler/ir_opt/**"
-      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "encore-active/eden/src/shader_recompiler/ir_opt/**"
+      - "encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp"
       - "tests/ns1_r23_80_fragpattern.py"
       - ".github/workflows/ns1-r23-amd-fragpattern.yml"
   workflow_dispatch:

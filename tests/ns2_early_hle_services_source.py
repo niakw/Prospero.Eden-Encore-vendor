@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib
 ROOT=Path(__file__).resolve().parents[1]
 BASE=ROOT/"sources/eden/src/core/hle/service"
-ACTIVE=ROOT/"encore-active/ns2-runtime/hle/core/hle/service"
+ACTIVE=ROOT/"encore-active/eden/src/core/hle/service"
 def blob(path):
     raw=path.read_bytes()
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
@@ -68,8 +68,8 @@ assert "use_auto_stub" not in jcms
 assert "void StubJcms(HLERequestContext& ctx);" in hidh
 # Switch 2 application functions command 321 is a one-byte output.
 # It must not silently return success without the byte, nor modify 320.
-appfunc=(ROOT/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp").read_text()
-appfunc_header=(ROOT/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.h").read_text()
+appfunc=(ROOT/"encore-active/eden/src/core/hle/service/am/service/application_functions.cpp").read_text()
+appfunc_header=(ROOT/"encore-active/eden/src/core/hle/service/am/service/application_functions.h").read_text()
 assert '{321, D<&IApplicationFunctions::Unknown321>, "Unknown321"}' in appfunc
 assert 'Result Unknown321(Out<u8> out);' in appfunc_header
 assert 'Result IApplicationFunctions::Unknown321(Out<u8> out) {' in appfunc

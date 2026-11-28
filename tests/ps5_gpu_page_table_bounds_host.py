@@ -8,7 +8,7 @@ import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
 original=ROOT/"sources/eden/src"
-fixed=ROOT/"encore-active/eden-core/src/common/multi_level_page_table.cpp"
+fixed=ROOT/"encore-active/eden/src/common/multi_level_page_table.cpp"
 src=fixed.read_text()
 assert "const u64 new_end = (start + size - 1) >> first_level_shift;" in src
 assert "if (size == 0)" in src

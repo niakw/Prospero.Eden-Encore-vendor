@@ -12,7 +12,7 @@ import subprocess
 root = Path(__file__).resolve().parents[1]
 active = root / "encore-active"
 deps = root / "sources/eden-cpm"
-src = active / "ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp"
+src = active / "eden/src/core/hle/kernel/svc.cpp"
 assert src.is_file()
 inc = [
     active / "ns2-runtime/gpu_access_svc",
@@ -27,12 +27,8 @@ inc = [
     active / "ns2-runtime/gpu_dispatch",
     active / "ns2-runtime/ampere",
     active / "ns2-runtime/hle",
-    active / "eden-core/overrides/native-tiling",
-    active / "eden-core/overrides",
-    active / "eden-backports/src",
-    active / "eden-shader/src",
-    active / "ns2-helpers/include",
-    active / "eden-core/src",
+    # Consolidated maintained owner for threading, core, shader and helpers.
+    active / "eden/src",
     root / "sources/eden/src",
     root / "sources/eden/src/dynarmic/src",
     root / "sources/fmt/include",

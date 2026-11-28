@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-path = ROOT / "encore-active/eden-core/src/core/file_sys/romfs_factory.cpp"
+path = ROOT / "encore-active/eden/src/core/file_sys/romfs_factory.cpp"
 source = path.read_text()
 marker = "VirtualFile RomFSFactory::OpenPatchedRomFSWithProgramIndex("
 start = source.index(marker)

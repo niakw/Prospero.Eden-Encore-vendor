@@ -54,11 +54,8 @@ private:
 
         const auto cpu_overclock_enabled = rp.Pop<bool>();
 
-        // Horizon exposes this as a hardware overclock request. Encore has no guest CPU clock
-        // domain to mutate on PS5, so the request is intentionally accepted without changing
-        // host clocks. IsCpuOverclockEnabled therefore remains false.
-        LOG_DEBUG(Service_APM, "Ignoring guest CPU overclock request: enabled={}",
-                  cpu_overclock_enabled);
+        LOG_WARNING(Service_APM, "(STUBBED) called, cpu_overclock_enabled={}",
+                    cpu_overclock_enabled);
 
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
@@ -96,9 +93,7 @@ void APM::GetPerformanceMode(HLERequestContext& ctx) {
 }
 
 void APM::IsCpuOverclockEnabled(HLERequestContext& ctx) {
-    // No guest CPU overclock domain is exposed by Encore. This is an intentional emulation
-    // policy rather than an unimplemented hardware query.
-    LOG_DEBUG(Service_APM, "Guest CPU overclock is not exposed on this platform");
+    LOG_WARNING(Service_APM, "(STUBBED) called");
 
     IPC::ResponseBuilder rb{ctx, 3};
     rb.Push(ResultSuccess);

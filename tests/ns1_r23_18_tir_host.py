@@ -9,10 +9,10 @@ import tempfile
 
 r=Path(__file__).resolve().parents[1]
 files={
-"encore-active/eden-vulkan/fixed_pipeline_state.cpp":"71f35e18d4c3cdbfb6d23e065dc98e1d525ad2e4",
-"encore-active/eden-vulkan/vk_texture_cache_cost.cpp":"2b344e2c9adce18a7037194cc4d5f81a5c6df144",
-"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h":"1b725abab76168d9787d9b062d7406df733cf49d",
-"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h":"da6ab6dcea2a1c02fcb2e862d111dc410b025d66",
+"encore-active/eden/src/video_core/renderer_vulkan/fixed_pipeline_state.cpp":"49d707e08245b7a7f485e57b8d38185afe28d6f0",
+"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache_cost.cpp":"2b344e2c9adce18a7037194cc4d5f81a5c6df144",
+"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache.h":"6623a5d5164d4b09f1ea9089b62b7c5fdfdfaa05",
+"encore-active/eden/src/video_core/texture_cache/texture_cache.h":"da6ab6dcea2a1c02fcb2e862d111dc410b025d66",
 }
 for name,expected in files.items():
  raw=(r/name).read_bytes()
@@ -233,7 +233,7 @@ for name,expected in files.items():
                   "return GetImageViewForFramebuffer(freshest_id);"):
     assert needle in text, ("selected F07 texture protection missing", needle)
    if sha in {"859a9e46fb63a97fee82c8ea6b1566317264f98f", "c7cb95ecaf388b925fc29582499bbd4b54a77f75", "9384f3f5534717762dea82796086617b41f1eb53", "f4fc069bee00c6794907b54a9b29ccc52203c880"}:
-    shadow=(r/"encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h").read_text()
+    shadow=(r/"encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
     sig="void TextureCache<P>::TickAsyncUnswizzle() {"
     def selected_method(src):
      return src.split(sig,1)[1].split("\n}\n",1)[0]
@@ -310,7 +310,7 @@ for name,expected in files.items():
    part=part.replace(new,old,1)
   prior=(text[:lo]+part+text[hi:]).encode()
   assert hashlib.sha1(b"blob "+str(len(prior)).encode()+bytes([0])+prior).hexdigest()==expected
- elif name=="encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h" and sha=="ecdadfd6b699d1d4ec58be58f7e37287c1986717":
+ elif name=="encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache.h" and sha=="ecdadfd6b699d1d4ec58be58f7e37287c1986717":
   # Normalize exactly one new layer-state declaration on the audit copy.
   new="    u32 num_images = 0;\n    u32 layers = 1;\n"
   old="    u32 num_images = 0;\n"
@@ -321,21 +321,17 @@ for name,expected in files.items():
   assert sha==expected,(name,sha)
  print("R23_18_FULL_SOURCE_OWNER_PASS",name)
 
-fixed=(r/"encore-active/eden-vulkan/fixed_pipeline_state.cpp").read_text()
-cost=(r/"encore-active/eden-vulkan/vk_texture_cache_cost.cpp").read_text()
-h=(r/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
-cache=(r/"encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
-# PS5 CMake puts ns2-astc first for video_core. Its active framebuffer ABI
-# adds only the reviewed layer count/accessor used by bounded clears/copies.
-# Strip exactly those two additions on this audit copy and require every
-# other byte to match the shadow Vulkan header.
-unified=(r/"encore-active/ns2-astc/include/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
+fixed=(r/"encore-active/eden/src/video_core/renderer_vulkan/fixed_pipeline_state.cpp").read_text()
+cost=(r/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache_cost.cpp").read_text()
+h=(r/"encore-active/eden/src/video_core/renderer_vulkan/vk_texture_cache.h").read_text()
+cache=(r/"encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
+# The retired eden-vulkan shadow is gone: there is exactly one canonical
+# framebuffer ABI owner under encore-active/eden. Keep the reviewed Layers()
+# additions pinned on that owner instead of manufacturing a fake parity copy.
+unified=h
 layers_method="    [[nodiscard]] u32 Layers() const noexcept {\n        return layers;\n    }\n\n"
 layers_member="    u32 layers = 1;\n"
 assert unified.count(layers_method)==unified.count(layers_member)==1
-# Both headers share storage; only the PS5 ASTC header adds Layers().
-historical_unified=unified.replace(layers_method,"",1)
-assert historical_unified==h, "vk_texture_cache headers diverged beyond active Layers ABI"
 for symbol in ("GetOrCreateTirColorScratch", "tir_color_scratch",
                "RetireGpuImageView", "RetireGpuImage(", "pending_retired_views",
                "AccelerateImageUploadLayers", "StorageImageLayerView"):

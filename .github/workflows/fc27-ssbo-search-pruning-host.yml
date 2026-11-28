@@ -2,8 +2,8 @@ name: FC27 SSBO failed-search pruning (host)
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h'
-      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp'
+      - 'encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h'
+      - 'encore-active/eden/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp'
       - 'tests/ps5_ir_bfs_adaptive_host.py'
       - 'tests/fc27_ssbo_search_pruning_host.py'
       - '.github/workflows/fc27-ssbo-search-pruning-host.yml'

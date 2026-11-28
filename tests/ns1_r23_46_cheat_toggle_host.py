@@ -6,8 +6,8 @@ import os
 import subprocess
 import tempfile
 r=Path(__file__).resolve().parents[1]
-cpp=(r/"encore-active/eden-core/src/core/memory/cheat_engine.cpp").read_text()
-hdr=(r/"encore-active/eden-core/include/core/memory/cheat_engine.h").read_text()
+cpp=(r/"encore-active/eden/src/core/memory/cheat_engine.cpp").read_text()
+hdr=(r/"encore-active/eden/include/core/memory/cheat_engine.h").read_text()
 source="void CheatEngine::Reload(std::vector<CheatEntry> reload_cheats) {"
 end="\n} // namespace Core::Memory"
 assert cpp.count(source)==1

@@ -5,11 +5,11 @@ import hashlib
 
 ROOT=Path(__file__).resolve().parents[1]
 FILES={
-    "encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp":
+    "encore-active/eden/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp":
         "484ddb27e353979b4398b940045b14dc2ce5af10",
-    "encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_dev.cpp":
+    "encore-active/eden/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_dev.cpp":
         "849b0416ad647e39bbc8c6f0f5734b6e0b3a5133",
-    "encore-active/ns2-runtime/cpu6/maintained/core/arm/dynarmic/arm_dynarmic_64.cpp":
+    "encore-active/eden/src/core/arm/dynarmic/arm_dynarmic_64.cpp":
         "90ef34cf1ce04ea2a199622beb4ac0a8c89cb128",
 }
 

@@ -177,7 +177,7 @@ public:
 
 private:
     void CreateAccessorInterface(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIM, "called");
+        LOG_WARNING(Service_NIM, "(STUBBED) called");
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
         rb.PushIpcInterface<IShopServiceAccessor>(ctx, system);
@@ -425,9 +425,9 @@ public:
         // clang-format off
         static const FunctionInfo functions[] = {
             {0, &NIM_ECA::CreateServerInterface, "CreateServerInterface"},
-            {1, &NIM_ECA::UnsupportedDebugCommand, "RefreshDebugAvailability"},
-            {2, &NIM_ECA::UnsupportedDebugCommand, "ClearDebugResponse"},
-            {3, &NIM_ECA::UnsupportedDebugCommand, "RegisterDebugResponse"},
+            {1, nullptr, "RefreshDebugAvailability"},
+            {2, nullptr, "ClearDebugResponse"},
+            {3, nullptr, "RegisterDebugResponse"},
             {4, &NIM_ECA::IsLargeResourceAvailable, "IsLargeResourceAvailable"},
             {5, &NIM_ECA::CreateServerInterface2, "CreateServerInterface2"} // 17.0.0+
         };
@@ -437,14 +437,8 @@ public:
     }
 
 private:
-    void UnsupportedDebugCommand(HLERequestContext& ctx) {
-        LOG_WARNING(Service_NIM, "nim:eca debug-response command is not supported");
-        IPC::ResponseBuilder rb{ctx, 2};
-        rb.Push(IPC::ResultNotSupported);
-    }
-
     void CreateServerInterface(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIM, "called");
+        LOG_DEBUG(Service_NIM, "(STUBBED) called");
         IPC::ResponseBuilder rb{ctx, 2, 0, 1};
         rb.Push(ResultSuccess);
         rb.PushIpcInterface<IShopServiceAccessServer>(ctx, system);
@@ -614,16 +608,17 @@ private:
         rb.PushIpcInterface<IEnsureNetworkClockAvailabilityService>(ctx, system);
     }
 
+    // TODO(ogniK): Do we need these?
     void SuspendAutonomicTimeCorrection(HLERequestContext& ctx) {
-        // Network-clock availability tasks complete synchronously in Encore, so there is no
-        // autonomous correction worker to suspend.
-        LOG_DEBUG(Service_NIM, "Autonomic time-correction suspend acknowledged (no worker)");
+        LOG_WARNING(Service_NIM, "(STUBBED) called");
+
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
 
     void ResumeAutonomicTimeCorrection(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_NIM, "Autonomic time-correction resume acknowledged (no worker)");
+        LOG_WARNING(Service_NIM, "(STUBBED) called");
+
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }

@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
-f=root/"encore-active/eden-core/src/core/hle/service/am/service/application_functions.cpp"
+f=root/"encore-active/eden/src/core/hle/service/am/service/application_functions.cpp"
 source=f.read_text()
 start="    u8 hash[EVP_MAX_MD_SIZE]{};"
 end="    *out_pseudo_device_id = Common::UUID::MakeRFC4122V5(std::span<u8, 16>{hash, 16});"
@@ -28,7 +28,7 @@ sha=hashlib.sha1(b"blob "+str(len(recovered)).encode()+bytes([0])+recovered).hex
 assert sha=="6f80d50d4c732004bef6ff387dbbc68e0778d1e3",sha
 assert "R_UNLESS(ok && hash_len == 20, ResultUnknown);" in new
 assert "R_UNLESS(ctx != nullptr, ResultUnknown);" in new
-selected=root/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp"
+selected=root/"encore-active/eden/src/core/hle/service/am/service/application_functions.cpp"
 selected_bytes=selected.read_bytes()
 selected_blob=hashlib.sha1(b"blob "+str(len(selected_bytes)).encode()+bytes([0])+selected_bytes).hexdigest()
 # The selected AM unit also carries the independently reviewed NS2 CMIF
@@ -102,11 +102,11 @@ for rel, blob in [
  ("src/common/uuid.cpp","4b992c5df89897107226bbfa591ed29b332d968b"),
  ("include/common/uuid.h","465b5be58d7c8a948a2b5acba640ce47bd4bd73b"),
 ]:
-    p=root/"encore-active/eden-core"/rel
+    p=root/"encore-active/eden"/rel
     raw=p.read_bytes()
     actual=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
     assert actual==blob,(rel,actual)
-assert "std::span<u8, 16> sha1" in (root/"encore-active/eden-core/include/common/uuid.h").read_text()
+assert "std::span<u8, 16> sha1" in (root/"encore-active/eden/include/common/uuid.h").read_text()
 
 test=r"""
 #include <array>

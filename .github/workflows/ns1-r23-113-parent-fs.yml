@@ -5,8 +5,8 @@ on:
       - research/ns1-r23-bundled-parent-fs-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/core/file_sys/**"
-      - "encore-active/eden-core/include/core/file_sys/**"
+      - "encore-active/eden/src/core/file_sys/**"
+      - "encore-active/eden/include/core/file_sys/**"
       - "tests/ns1_r23_113_parent_fs.py"
       - ".github/workflows/ns1-r23-113-parent-fs.yml"
   workflow_dispatch:

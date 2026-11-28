@@ -2,16 +2,16 @@ name: NS2 SVC result and stopped-context host witness
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h'
-      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp'
+      - 'encore-active/eden/src/core/loader/ns2_svc_trace.h'
+      - 'encore-active/eden/src/core/hle/kernel/svc.cpp'
       - 'tests/ns2_recent_svc_fault_trace_host.py'
       - 'tests/ns2_svc_real_native_tu_host.py'
       - '.github/workflows/ns2-svc-outcome-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/ns2-helpers/include/core/loader/ns2_svc_trace.h'
-      - 'encore-active/ns2-runtime/gpu_access_svc/core/hle/kernel/svc.cpp'
+      - 'encore-active/eden/src/core/loader/ns2_svc_trace.h'
+      - 'encore-active/eden/src/core/hle/kernel/svc.cpp'
       - 'tests/ns2_recent_svc_fault_trace_host.py'
       - 'tests/ns2_svc_real_native_tu_host.py'
       - '.github/workflows/ns2-svc-outcome-host.yml'

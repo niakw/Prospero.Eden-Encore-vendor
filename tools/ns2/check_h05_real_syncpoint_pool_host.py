@@ -12,8 +12,8 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-OWNER=ROOT/"encore-active/eden-sync/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
-HEADER=ROOT/"encore-active/eden-sync/overrides/h05-syncpoint/core/hle/service/nvdrv/core/syncpoint_manager.h"
+OWNER=ROOT/"encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.cpp"
+HEADER=ROOT/"encore-active/eden/src/core/hle/service/nvdrv/core/syncpoint_manager.h"
 source=OWNER.read_text()
 start="u32 SyncpointManager::TryAllocateSyncpoint(bool client_managed) {"
 end="\nvoid SyncpointManager::FreeSyncpoint("
@@ -33,7 +33,7 @@ assert 'return 0;' in real
 for rel in ("syncpoint_manager.h","syncpoint_manager.cpp"):
     assert "TryAllocateSyncpoint" not in (
         ROOT/"sources/eden/src/core/hle/service/nvdrv/core"/rel).read_text()
-cmake=(ROOT/"encore-active/eden-threading/native-hle-overrides.cmake").read_text()
+cmake=(ROOT/"encore-active/eden/native-hle-overrides.cmake").read_text()
 assert "_encore_h05_header_root" in cmake and "_encore_h05_source" in cmake
 assert "if(PS5_NATIVE)" in cmake
 assert 'TryAllocateSyncpoint(bool client_managed)' in HEADER.read_text()

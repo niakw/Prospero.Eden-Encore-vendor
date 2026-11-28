@@ -10,8 +10,8 @@ InfoType 33's page-granule proof independent while requiring the combined protoc
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TYPES = ROOT / "encore-active/eden-backports/src/core/hle/kernel/svc_types.h"
-INFO = ROOT / "encore-active/eden-backports/src/core/hle/kernel/svc/svc_info.cpp"
+TYPES = ROOT / "encore-active/eden/src/core/hle/kernel/svc_types.h"
+INFO = ROOT / "encore-active/eden/src/core/hle/kernel/svc/svc_info.cpp"
 MEM = ROOT / "sources/eden/src/core/memory.h"
 
 types = TYPES.read_text()

@@ -12,7 +12,7 @@ import re
 root = Path(__file__).resolve().parents[2]
 vendor_names = re.compile(r"\b(?:Nvidia|Sony|Nintendo|PlayStation|Microsoft|AMD)\b", re.I)
 exts = {".cpp",".cc",".c",".h",".hpp",".py",".cmake",".sh"}
-roots = ["eden-core","eden-vulkan","ns2-runtime","ns2-helpers","ns2-a64","ns2-astc","eden-gpu","eden-shader","eden-threading","eden-sync"]
+roots = ["eden","compiler-rt","eden-cpm","jxrlib","ps5-mesa","ps5-mihawkgen"]
 counts = Counter()
 matches = []
 scanned = 0

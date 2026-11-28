@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # this independent GPU/GMMU lifetime fix: undo only its exact source delta
 # before comparing the original predecessor SHA.
 def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
-    if relative != "encore-active/ns2-runtime/process/core/core.cpp":
+    if relative != "encore-active/eden/src/core/core.cpp":
         return source
     # NS2 NUP process tracing is post-loader only. Historical provenance
     # must compare the predecessor C++ without this new diagnostic/handoff.
@@ -151,19 +151,19 @@ def remove_native_gpu_teardown_fix(source: str, relative: str) -> str:
     assert shutdown.index("gpu_core.reset();") < shutdown.index("services.reset();")
     return source.replace(early, legacy, 1).replace(late, old_late, 1)
 # Current PS5 host-service lifetime contract, independent of historical replay.
-active_core = (ROOT / "encore-active/ns2-runtime/process/core/core.cpp").read_text()
+active_core = (ROOT / "encore-active/eden/src/core/core.cpp").read_text()
 active_shutdown = active_core.split("    void ShutdownMainProcess() {", 1)[1].split(
     "\n    bool IsShuttingDown()", 1)[0]
 assert active_shutdown.index("service_manager->Close();") < active_shutdown.index(
     "kernel.CloseServices();") < active_shutdown.index("services.reset();") < active_shutdown.index(
     "kernel.ShutdownCores();")
-sm_header = (ROOT / "encore-active/eden-core/src/core/hle/service/sm/sm.h").read_text()
-sm_source = (ROOT / "encore-active/eden-core/src/core/hle/service/sm/sm.cpp").read_text()
-services_header = (ROOT / "encore-active/eden-core/src/core/hle/service/services.h").read_text()
-services_source = (ROOT / "encore-active/eden-core/src/core/hle/service/services.cpp").read_text()
-vi_source = (ROOT / "encore-active/eden-core/src/core/hle/service/vi/vi.cpp").read_text()
-server_header = (ROOT / "encore-active/eden-core/src/core/hle/service/server_manager.h").read_text()
-server_source = (ROOT / "encore-active/eden-core/src/core/hle/service/server_manager.cpp").read_text()
+sm_header = (ROOT / "encore-active/eden/src/core/hle/service/sm/sm.h").read_text()
+sm_source = (ROOT / "encore-active/eden/src/core/hle/service/sm/sm.cpp").read_text()
+services_header = (ROOT / "encore-active/eden/src/core/hle/service/services.h").read_text()
+services_source = (ROOT / "encore-active/eden/src/core/hle/service/services.cpp").read_text()
+vi_source = (ROOT / "encore-active/eden/src/core/hle/service/vi/vi.cpp").read_text()
+server_header = (ROOT / "encore-active/eden/src/core/hle/service/server_manager.h").read_text()
+server_source = (ROOT / "encore-active/eden/src/core/hle/service/server_manager.cpp").read_text()
 assert "bool WaitForService(const std::string& name);" in sm_header
 assert "void Close();" in sm_header and "std::condition_variable waiters_changed;" in sm_header
 assert "waiters_changed.wait(l" in sm_source and "closing = true;" in sm_source
@@ -181,11 +181,11 @@ assert loop_process.index("m_threads.clear();") < loop_process.index("m_stopped.
 print("PS5_HOST_SERVICE_SHUTDOWN_LIFETIME_SOURCE_PASS waiters=closed workers=joinable")
 
 cores = {
-    "encore-active/eden-core/src/core/core_standard.cpp":
+    "encore-active/eden/src/core/core_standard.cpp":
         "2085b5e5751669e9d3885e80c95cab8bf28dd24e",
-    "encore-active/eden-core/src/core/core_native.cpp":
+    "encore-active/eden/src/core/core_native.cpp":
         "ddfc45e5d66578728d13f468e668d2c136f92ef3",
-    "encore-active/ns2-runtime/process/core/core.cpp":
+    "encore-active/eden/src/core/core.cpp":
         "ac37dcd3d33373d6f5189dc4963f3dfbce898391",
 }
 early = """        Settings::values.use_squashed_iterated_blend = false;
@@ -314,7 +314,7 @@ for relative, predecessor in cores.items():
     reconstructed = before + old + stop + after
     assert blob(reconstructed) == predecessor, (relative, blob(reconstructed), predecessor)
 
-maintained = (ROOT / "encore-active/eden-threading/src/core/hle/kernel/k_thread.cpp").read_text()
+maintained = (ROOT / "encore-active/eden/src/core/hle/kernel/k_thread.cpp").read_text()
 pinned = (ROOT / "sources/eden/src/core/hle/kernel/k_thread.cpp").read_text()
 start = "    void KThread::FinishTermination(KernelCore& kernel) {"
 end = "\n    void KThread::DoWorkerTaskImpl("
@@ -336,9 +336,9 @@ print("SHUTDOWN_LIFETIME_1952_1957_SOURCE_PASS core_variants=3 early_cheat_stop=
 # R457 console: worker 211 identity cleanup and NVMap final unmap happen
 # after gpu_core.reset(). The renderer lease closes only callback admission;
 # the real PTE, reverse-map and physical ownership retirement still executes.
-gpu = (ROOT / "encore-active/eden-core/src/video_core/gpu_gl_native.cpp").read_text()
-gmmu = (ROOT / "encore-active/eden-core/src/video_core/memory_manager.cpp").read_text()
-smmu = (ROOT / "encore-active/eden-core/overrides/core/device_memory_manager.inc").read_text()
+gpu = (ROOT / "encore-active/eden/src/video_core/gpu_gl_native.cpp").read_text()
+gmmu = (ROOT / "encore-active/eden/src/video_core/memory_manager.cpp").read_text()
+smmu = (ROOT / "encore-active/eden/src/core/device_memory_manager.inc").read_text()
 destroy = gpu.split("    ~Impl() {", 1)[1].split("\n    }", 1)[0]
 assert destroy.index("gpu_thread.Stop();") < destroy.index("RetireMappingCallbacks();") < destroy.index("renderer.reset();")
 bind = gpu.split("    void BindRenderer(", 1)[1].split("\n    }", 1)[0]
@@ -386,7 +386,7 @@ int main() {
 ''')
     subprocess.run([compiler, "-std=c++20", "-O2", "-Wall", "-Wextra",
                     "-Werror", "-pthread", "-I",
-                    str(ROOT / "encore-active/eden-core/overrides"),
+                    str(ROOT / "encore-active/eden/src"),
                     str(cpp), "-o", str(exe)], check=True, timeout=60)
     subprocess.run([str(exe)], check=True, timeout=20)
 print("NATIVE_RENDERER_MAPPING_RETIREMENT_RACE_PASS cycles=100")

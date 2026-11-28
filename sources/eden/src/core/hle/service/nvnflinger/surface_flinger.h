@@ -49,7 +49,6 @@ public:
     void SetLayerBlending(s32 consumer_binder_id, LayerBlending blending);
     void SetLayerIsOverlay(s32 consumer_binder_id, bool is_overlay);
     void SetLayerStackMask(s32 consumer_binder_id, u32 layer_stack_mask);
-    bool UpdateLayerStackMask(s32 consumer_binder_id, u32 stack_bit, bool add);
 
     std::shared_ptr<Layer> FindLayer(s32 consumer_binder_id);
 

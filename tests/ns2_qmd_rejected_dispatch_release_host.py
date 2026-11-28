@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-header = root / "encore-active/ns2-runtime/gpu_dispatch/video_core/native_qmd.h"
+header = root / "encore-active/eden/src/video_core/native_qmd.h"
 source = header.read_text()
 assert 'return "native shader dispatch required";' in source
 assert "discard_uncommitted_dependent();" in source
@@ -139,7 +139,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-qmd-release-reject-") as td:
             build = subprocess.run(
                 [cxx, "-std=c++20", opt, "-Wall", "-Wextra", "-Werror", "-pedantic",
                  "-fsanitize=undefined", "-fno-sanitize-recover=all",
-                 "-I", str(root / "encore-active/ns2-runtime/gpu_dispatch"),
+                 "-I", str(root / "encore-active/eden/src"),
                  str(src), "-o", str(exe)],
                 text=True, capture_output=True, timeout=90)
             if build.returncode:

@@ -21,7 +21,6 @@ Applet::Applet(Core::System& system, std::unique_ptr<Process> process_, bool is_
 
     aruid.pid = process->GetProcessId();
     program_id = process->GetProgramId();
-    theme_storage.fill(0xAA);
 }
 
 Applet::~Applet() = default;

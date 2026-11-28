@@ -32,23 +32,17 @@ IAudioDevice::IAudioDevice(Core::System& system_, u64 applet_resource_user_id, u
         {12, D<&IAudioDevice::QueryAudioDeviceOutputEvent>, "QueryAudioDeviceOutputEvent"},
         {13, D<&IAudioDevice::GetActiveAudioDeviceName>, "GetActiveAudioOutputDeviceName"},
         {14, D<&IAudioDevice::ListAudioOutputDeviceName>, "ListAudioOutputDeviceName"},
-        {15, D<&IAudioDevice::AcquireAudioInputDeviceNotification>, "AcquireAudioInputDeviceNotification"}, //17.0.0+
-        {16, D<&IAudioDevice::ReleaseAudioInputDeviceNotification>, "ReleaseAudioInputDeviceNotification"}, //17.0.0+
-        {17, D<&IAudioDevice::AcquireAudioOutputDeviceNotification>, "AcquireAudioOutputDeviceNotification"}, //17.0.0+
-        {18, D<&IAudioDevice::ReleaseAudioOutputDeviceNotification>, "ReleaseAudioOutputDeviceNotification"}, //17.0.0+
+        {15, nullptr, "AcquireAudioInputDeviceNotification"}, //17.0.0+
+        {16, nullptr, "ReleaseAudioInputDeviceNotification"}, //17.0.0+
+        {17, nullptr, "AcquireAudioOutputDeviceNotification"}, //17.0.0+
+        {18, nullptr, "ReleaseAudioOutputDeviceNotification"}, //17.0.0+
         {19, D<&IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled>, "SetAudioDeviceOutputVolumeAutoTuneEnabled"}, //18.0.0+
         {20, D<&IAudioDevice::IsAudioDeviceOutputVolumeAutoTuneEnabled>, "IsAudioDeviceOutputVolumeAutoTuneEnabled"}, //18.0.0+
-        {21, D<&IAudioDevice::IsActiveOutputDeviceEstimatedLowLatency>, "IsActiveOutputDeviceEstimatedLowLatency"} //21.0.0+
+        {21, nullptr, "IsActiveOutputDeviceEstimatedLowLatency"} //21.0.0+
     };
     RegisterHandlers(functions);
 
     event->Signal(system.Kernel());
-}
-
-Result IAudioDevice::IsActiveOutputDeviceEstimatedLowLatency(Out<bool> out_is_low_latency) {
-    // The native PS5 sink has no qualified low-latency mode contract.
-    *out_is_low_latency = false;
-    R_SUCCEED();
 }
 
 IAudioDevice::~IAudioDevice() {
@@ -127,24 +121,20 @@ Result IAudioDevice::GetAudioDeviceOutputVolumeAuto(
 Result IAudioDevice::GetActiveAudioDeviceNameAuto(
     OutArray<AudioDevice::AudioDeviceName, BufferAttr_HipcAutoSelect> out_name) {
     R_UNLESS(!out_name.empty(), Audio::ResultInsufficientBuffer);
-    // HLE exposes one virtual Horizon output device. This is the same device accepted by
-    // Set/GetAudioDeviceOutputVolumeAuto and backed by the active AudioCore output sink.
     out_name[0] = AudioDevice::AudioDeviceName("AudioTvOutput");
-    LOG_DEBUG(Service_Audio, "called, active_device=AudioTvOutput");
+    LOG_DEBUG(Service_Audio, "(STUBBED) called");
     R_SUCCEED();
 }
 
 Result IAudioDevice::QueryAudioDeviceSystemEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_Audio, "called");
+    LOG_DEBUG(Service_Audio, "(STUBBED) called");
     event->Signal(system.Kernel());
     *out_event = &event->GetReadableEvent();
     R_SUCCEED();
 }
 
 Result IAudioDevice::QueryAudioDeviceInputEvent(OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    // Horizon's audio-device interface uses the device-change event for both input and output
-    // queries. Keep one ServiceContext-owned KEvent, matching the output-event path.
-    LOG_DEBUG(Service_Audio, "called");
+    LOG_DEBUG(Service_Audio, "(STUBBED) called");
     *out_event = &event->GetReadableEvent();
     R_SUCCEED();
 }
@@ -157,7 +147,7 @@ Result IAudioDevice::QueryAudioDeviceOutputEvent(OutCopyHandle<Kernel::KReadable
 
 Result IAudioDevice::GetActiveChannelCount(Out<u32> out_active_channel_count) {
     *out_active_channel_count = system.AudioCore().GetOutputSink().GetSystemChannels();
-    LOG_DEBUG(Service_Audio, "called. Channels={}", *out_active_channel_count);
+    LOG_DEBUG(Service_Audio, "(STUBBED) called. Channels={}", *out_active_channel_count);
     R_SUCCEED();
 }
 
@@ -178,30 +168,6 @@ Result IAudioDevice::ListAudioOutputDeviceName(
 
     LOG_DEBUG(Service_Audio, "called.\nNames={}", out);
     R_SUCCEED();
-}
-
-Result IAudioDevice::AcquireAudioInputDeviceNotification(OutCopyHandle<Kernel::KReadableEvent>, u64 notification_id) {
-    // Horizon on NX rejects this notification API; do not manufacture a handle.
-    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
-    R_THROW(Audio::ResultNotSupported);
-}
-
-Result IAudioDevice::ReleaseAudioInputDeviceNotification(u64 notification_id) {
-    // Horizon on NX rejects this notification API; do not manufacture a handle.
-    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
-    R_THROW(Audio::ResultNotSupported);
-}
-
-Result IAudioDevice::AcquireAudioOutputDeviceNotification(OutCopyHandle<Kernel::KReadableEvent>, u64 notification_id) {
-    // Horizon on NX rejects this notification API; do not manufacture a handle.
-    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
-    R_THROW(Audio::ResultNotSupported);
-}
-
-Result IAudioDevice::ReleaseAudioOutputDeviceNotification(u64 notification_id) {
-    // Horizon on NX rejects this notification API; do not manufacture a handle.
-    LOG_DEBUG(Service_Audio, "Unsupported notification API, id={:#x}", notification_id);
-    R_THROW(Audio::ResultNotSupported);
 }
 
 Result IAudioDevice::SetAudioDeviceOutputVolumeAutoTuneEnabled(bool enabled) {

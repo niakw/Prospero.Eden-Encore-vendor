@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-fw235-qlaunch-20261111
   pull_request:
     paths:
-      - "encore-active/eden-backports/src/core/hle/service/ns/application_manager_interface.*"
+      - "encore-active/eden/src/core/hle/service/ns/application_manager_interface.*"
       - "tests/ns1_r23_1_fw235_ns.py"
       - ".github/workflows/ns1-r23-fw235-host.yml"
   workflow_dispatch:

@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-hwc-visible-buffer-20261112
   pull_request:
     paths:
-      - "encore-active/eden-core/src/core/hle/service/nvnflinger/hardware_composer.cpp"
+      - "encore-active/eden/src/core/hle/service/nvnflinger/hardware_composer.cpp"
       - "tests/ns1_r23_64_hwc_visibility.py"
       - ".github/workflows/ns1-r23-64-hwc-host.yml"
   workflow_dispatch:

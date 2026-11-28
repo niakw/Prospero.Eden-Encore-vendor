@@ -1,10 +1,106 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.h").read_text()
-worker=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.cpp").read_text()
-worker_hdr=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker.h").read_text()
-registration=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_memory_registration.h").read_text()
+
+# NS2 shutdown regression (Pokopia/DK, 26/11): the main process can enter
+# gpu_core->NotifyShutdown while a native GPFIFO is parked or draining an
+# inter-list dependency. The GPU pthread join must not depend on an unbounded
+# ReleaseFences(true), and cancellation must not publish unexecuted work.
+dma=(R/"encore-active/eden/src/video_core/dma_pusher.cpp").read_text()
+dma_header=(R/"encore-active/eden/src/video_core/dma_pusher.h").read_text()
+puller=(R/"encore-active/eden/src/video_core/engines/puller.cpp").read_text()
+native_nvhost=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+native_process_registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+native_scheduler=(R/"encore-active/eden/src/video_core/control/scheduler.h").read_text()
+gpu_header=(R/"encore-active/eden/src/video_core/gpu.h").read_text()
+gpu_vulkan=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
+dispatch=dma.split("void DmaPusher::DispatchCalls() {",1)[1].split(
+    "\n[[noreturn]] void DmaPusher::FailNativeSubmission",1)[0]
+step=dma.split("bool DmaPusher::Step() {",1)[1].split(
+    "\nvoid DmaPusher::ProcessCommands",1)[0]
+process=dma.split("void DmaPusher::ProcessCommands",1)[1].split(
+    "\n// NVN2 may split",1)[0]
+resume=puller.split("bool Puller::ResumeNativeAcquire(DmaPusher& dma_pusher) {",1)[1].split(
+    "\n// One release contract",1)[0]
+native_acquire=puller.split("void Puller::ProcessNativeSemaphoreExecute",1)[1].split(
+    "\nvoid Puller::ProcessSemaphoreAcquire",1)[0]
+assert "if (!system.IsPoweredOn() || system.IsShuttingDown())" in dispatch
+assert dispatch.index("if (!system.IsPoweredOn() || system.IsShuttingDown())") < dispatch.index(
+    "system.GPU().FlushCommands();")
+assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in step
+assert "if (system.IsShuttingDown() || !system.IsPoweredOn())" in process
+interlist=step.split("if (signal_sync) {",1)[1]
+assert "std::shared_ptr<NativeInterlistFenceState> native_interlist_fence;" in dma_header
+assert "std::make_shared<NativeInterlistFenceState>()" in interlist
+assert "native_interlist_fence = state;" in interlist
+assert "SignalNativeFence([state]()" in interlist
+assert "SignalNativeFence([this]()" not in interlist
+assert "state->complete = true;" in interlist
+assert "state->cv.notify_all();" in interlist
+assert "if (signal_sync && native_interlist_fence)" in step
+assert "auto state = native_interlist_fence;" in step
+assert "rasterizer->ReleaseFences(true);" not in interlist
+assert "if (dma_pusher.system.IsShuttingDown() || !dma_pusher.system.IsPoweredOn())" in resume
+assert "rasterizer->ReleaseFences(" not in resume
+# The Ampere acquire section starts after operation validation; legacy Maxwell
+# ReleaseFences calls elsewhere in puller.cpp are intentionally untouched.
+ampere_wait=native_acquire.split("if (operation > 5U)",1)[1]
+assert "rasterizer->ReleaseFences(" not in ampere_wait
+assert "ReadCoherentNativeSemaphore(dma_pusher, address)" in ampere_wait
+
+# Generic NS2 frame ownership: CPU-authored GPFIFO words are copied at
+# SubmitGPFIFO, but a CPU/unknown semaphore release invalidates those copies.
+# GPU-retired releases retain them and expose in-flight producer state to VI2.
+for token in (
+    "std::vector<CommandHeader> submitted_words;",
+    "std::vector<std::size_t> submitted_offsets;",
+    "std::vector<u8> submitted_valid;",
+    "u64 snapshot_epoch{};",
+    "NativeSnapshotEpoch() const noexcept",
+    "NoteNativeAcquireResolved(bool gpu_produced)",
+):
+    assert token in dma_header, token
+for token in (
+    "entries.submitted_words.resize(total_words)",
+    "entries.snapshot_epoch =",
+    "dma_pusher.NativeSnapshotEpoch()",
+    "memory_manager->IsMemoryDirty(",
+    "memory_manager->ReadBlockUnsafe(",
+):
+    assert token in native_nvhost, token
+for token in (
+    "bool use_snapshot = false;",
+    "command_list.snapshot_epoch ==",
+    "native_snapshot_epoch.load(std::memory_order_acquire)",
+    "native_snapshot_resume_safe",
+    "native_snapshot_restart",
+    "submitted.subspan(command_resume_offset)",
+):
+    assert token in step, token
+for token in (
+    "RecordGpuSemaphoreValue(",
+    "BeginGpuSemaphoreRelease(",
+    "EndGpuSemaphoreRelease(",
+    "HasPendingGpuSemaphoreRelease(",
+    "IsGpuProducedSemaphoreValue(",
+):
+    assert token in native_process_registry, token
+assert puller.count("BeginGpuSemaphoreRelease(") >= 4
+assert puller.count("EndGpuSemaphoreRelease(") >= 8
+for token in (
+    "PendingNativeAcquireHasGpuProducer(",
+    "HasPendingGpuSemaphoreRelease(",
+    "NoteNativeAcquireResolved(observed.gpu_produced)",
+):
+    assert token in puller, token
+assert "HasCpuBlockedNativeChannels() const" in native_scheduler
+assert "HasCpuBlockedNativeChannels() const;" in gpu_header
+assert "impl->scheduler.HasCpuBlockedNativeChannels()" in gpu_vulkan
+
+shared=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker_shared.h").read_text()
+worker=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker.cpp").read_text()
+worker_hdr=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker.h").read_text()
+registration=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_memory_registration.h").read_text()
 # A 215/216 GMMU page-table OOM can poison an ALREADY-BACKED 214 AS.
 # The worker destructor must detect it before any NVMap release and must
 # skip both resident CPU alias retirement and NvCore CloseSession.
@@ -27,8 +123,8 @@ assert teardown.index("as->IsNativeSparsePoisoned()") < teardown.index(
 assert teardown.index("for (auto& [key, region] : m_dense_regions)") < teardown.index(
     "if (m_nv_session && !m_quarantined_nv_session)")
 
-native_as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
-native_as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+native_as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+native_as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 # A partially OOM-committed GMMU must never lose its physical page backing.
 # Native NvMap FreeHandle(final dupe) can unmap pins; the selected GPU-only
 # backing owner must quarantine the CPU alias + KPageGroup in this rare case.
@@ -53,7 +149,7 @@ for token in ("m_quarantined_nv_session = true;",
 assert dense.index("mapping_as->IsNativeSparsePoisoned()") < dense.index(
     "nvmap.FreeHandle(id, false)")
 
-worker_protocol=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_worker_protocol.h").read_text()
+worker_protocol=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker_protocol.h").read_text()
 # MKW recreates sparse region 214 at the exact same start VA while
 # growing its extent. Encore must retire that exact predecessor like a 215
 # before reserving the replacement, but keep arbitrary overlap fail-closed.
@@ -169,12 +265,12 @@ for needle in ("std::find(m_memory.begin(), m_memory.end(), *id)",
     assert needle in ensure, needle
 assert "WaitForIdle" not in ensure
 assert "CreateHandle" not in ensure and "Alloc(" not in ensure
-session=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_session.cpp").read_text()
-proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/gpu_session_protocol.h").read_text()
-shared_cpp=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
-registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
-as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
-as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+session=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_session.cpp").read_text()
+proto=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_session_protocol.h").read_text()
+shared_cpp=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 for x in ("struct IdentityGpuMapping","identity_gpu_mappings","AddSpace","RemoveSpace"):
     assert x in shared,x
 assert "Status Remove(U32 id)" in proto
@@ -295,8 +391,8 @@ assert shared_destroy.index("NativeGpuProcessRegistry::Instance().RemoveVm(") < 
 # Native NVDRV descriptors keep the ABI generation they were opened under.
 # GSV teardown invalidates that generation and retires imported VM ownership;
 # stale Ampere FDs must fail closed instead of falling through to Maxwell.
-nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
-nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+nvhost_hdr=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+nvhost_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 for token in ("std::optional<u64> m_native_generation{};",
               "std::atomic_bool m_native_vm_retired{};",
               "void RetireNativeVm(u32 id);",
@@ -346,7 +442,7 @@ fd_event=nvhost_cpp.split(
 )[1].split("\n}",1)[0]
 assert "UsesNativeAbi(fd) && !NativeEpochCurrent(fd)" in fd_event
 
-gsv=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+gsv=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 open_gpu=gsv.split("void IGraphicsSupervisor::OpenGpuSession(HLERequestContext& ctx) {",1)[1].split("\n}",1)[0]
 assert "std::make_shared<IGpuSession>(system, module, m_process)" in open_gpu
 assert "catch (const std::bad_alloc&)" in open_gpu
@@ -357,8 +453,8 @@ assert "result = Kernel::ResultOutOfResource;" in open_gpu
 # Maxwell/NS1 and Ampere/NS2 both require the exact bound AS lease;
 # it does not allocate another GPU VA, synthetic mapping or ASID.
 channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
-as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
-as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
 assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(
     "std::optional<Payload> payload;")
@@ -379,7 +475,7 @@ assert "if (!owner) {" in as_bind
 # every NVMap handle. The actual PS5-selected Container must hold a checked
 # reference to the same live session until the last bound channel retires.
 nvcore_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
-nvcore_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+nvcore_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.cpp").read_text()
 assert "bool RetainSession(SessionId id, const Kernel::KProcess* process);" in nvcore_h
 retain=nvcore_cpp.split("bool Container::RetainSession(SessionId id, const Kernel::KProcess* process) {",1)[1].split(
     "\n}",1)[0]
@@ -400,12 +496,12 @@ assert as_bind.index("container.RetainSession(*m_nv_session, m_native_process)")
 # batches, remove the pending epoch, release rasterizer channel caches,
 # then let the channel drop its AS/session lease. Never run this from the
 # global shutdown, which has already destroyed GPU before NVDRV.
-scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
-scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
-gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
-nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
-nvhost_hdr=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
-ioctl_serialization=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/devices/ioctl_serialization.h").read_text()
+scheduler_h=(R/"encore-active/eden/src/video_core/control/scheduler.h").read_text()
+scheduler_cpp=(R/"encore-active/eden/src/video_core/control/scheduler.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
+nvhost_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+nvhost_hdr=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.h").read_text()
+ioctl_serialization=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/ioctl_serialization.h").read_text()
 assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
 retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
     "\n}",1)[0]
@@ -430,15 +526,14 @@ assert release.index("if (FindChannel(channel_id) != owner)") < release.index(
     "renderer->ReadRasterizer()->ReleaseChannel(owner->bind_id);") < release.index(
     "std::scoped_lock lock{channel_mutex};") < release.index(
     "if (it != channels.end() && it->second == owner)") < release.index("channels.erase(it);")
-worker_header=(R/"encore-active/eden-gpu/include/video_core/gpu_thread.h").read_text()
+worker_header=(R/"encore-active/eden/src/video_core/gpu_thread.h").read_text()
 assert "GPUTickCommand, RetireChannelCommand>" in worker_header
-for variant in ("quiet", "dev"):
-    worker_cpp=(R/f"encore-active/eden-gpu/gpu_thread_{variant}.cpp").read_text()
-    assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
-    assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
-        "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
-        "retire->action();") < worker_cpp.index(
-        "state.signaled_fence.store(next.fence, std::memory_order_release);")
+worker_cpp=(R/"encore-active/eden/src/video_core/gpu_thread.cpp").read_text()
+assert "PushCommand(RetireChannelCommand{std::move(action)}, true, is_async);" in worker_cpp
+assert worker_cpp.index("scheduler.Push(system.GPU()") < worker_cpp.index(
+    "std::get_if<RetireChannelCommand>(&next.data)") < worker_cpp.index(
+    "retire->action();") < worker_cpp.index(
+    "state.signaled_fence.store(next.fence, std::memory_order_release);")
 find_channel=gpu_cpp.split("FindChannel(s32 channel_id) {",1)[1].split("\n    }",1)[0]
 assert find_channel.index("std::scoped_lock lock{channel_mutex};") < find_channel.index("channels.find(channel_id)")
 
@@ -454,7 +549,7 @@ assert dtor.index("system.GPU().ReleaseChannel(*channel_state)") < dtor.index(
 # worker destruction may occur inside that CloseServices call: never use the
 # stopped GPU optional, while ordinary guest FD close still drains the queue.
 worker_destroy=worker.split("IGpuWorker::~IGpuWorker() {",1)[1].split("\n}",1)[0]
-core_shutdown=(R/"encore-active/ns2-runtime/process/core/core.cpp").read_text().split(
+core_shutdown=(R/"encore-active/eden/src/core/core.cpp").read_text().split(
     "void ShutdownMainProcess() {",1)[1].split("\n    bool IsShuttingDown()",1)[0]
 assert core_shutdown.index("gpu_core.reset();") < core_shutdown.index("kernel.CloseServices();")
 assert "system.IsPoweredOn() && !system.IsShuttingDown()" in worker_destroy
@@ -501,7 +596,7 @@ for token in ("channel->process != tsg->process",
 # Native legacy ALLOC_GPFIFO_EX/EX2 cannot claim a configured channel from
 # zero entries or from a count unsafe for the nvgpu ring-sizing calculation.
 # Unlike S2 SETUP_BIND, the legacy ABI permits non-power-of-two counts.
-legacy_count=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
+legacy_count=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_submission.h").read_text()
 assert "constexpr bool ValidNativeGpfifoLegacyAllocationCount(" in legacy_count
 assert "entries != 0 && entries <= (1U << 28)" in legacy_count
 # Recent Lichii/upstream GPFIFO hot-path optimization: the five native
@@ -730,11 +825,11 @@ for body in (health_info,health):
 assert "params = native_error_info;" in health_info
 # Native Ampere producer counters must retire behind a real Vulkan fence,
 # independent of GPU fence behavior. Maxwell/NS1 keeps SignalSyncPoint.
-fence_manager=(R/"encore-active/eden-backports/src/video_core/fence_manager.h").read_text()
-raster_abi=(R/"encore-active/ns2-runtime/vulkan_abi/video_core/rasterizer_interface.h").read_text()
-vulkan_h=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
-vulkan_cpp=(R/"encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
-native_puller=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+fence_manager=(R/"encore-active/eden/src/video_core/fence_manager.h").read_text()
+raster_abi=(R/"encore-active/eden/src/video_core/rasterizer_interface.h").read_text()
+vulkan_h=(R/"encore-active/eden/src/video_core/renderer_vulkan/vk_rasterizer.h").read_text()
+vulkan_cpp=(R/"encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp").read_text()
+native_puller=(R/"encore-active/eden/src/video_core/engines/puller.cpp").read_text()
 strict=fence_manager.split("void SignalNativeSyncPoint(u32 value) {",1)[1].split("\n    }",1)[0]
 for token in ("CreateFence(false)",
               "syncpoint_manager.IncrementGuest(value);",
@@ -791,6 +886,19 @@ assert "Ampere SEM_EXECUTE requires strict Vulkan retirement" in native_puller
 fence_action=native_puller.split(
     "void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {",1
 )[1].split("void Puller::ProcessSemaphoreTriggerMethod",1)[0]
+native_acquire=fence_action.split(
+    "case Puller::FenceOperation::Acquire:",1
+)[1].split("case Puller::FenceOperation::Increment:",1)[0]
+# A retired Maxwell/NS1 dependency must not synthesize another global Vulkan
+# drain. Native NS2 still fails before this legacy path and keeps its parked
+# acquire contract.
+for token in ("FailNativeSubmission(\"Native GPFIFO FENCE_ACTION acquire unsupported\")",
+              "system.Host1x().GetSyncpointManager()",
+              "syncpoints.IsReadyHost(syncpoint_id, regs.fence_value)",
+              "dma_pusher.rasterizer->ReleaseFences();"):
+    assert token in native_acquire, token
+assert native_acquire.index("FailNativeSubmission(") < native_acquire.index(
+    "IsReadyHost(") < native_acquire.index("ReleaseFences();")
 native_increment=fence_action.split(
     "case Puller::FenceOperation::Increment:",1
 )[1].split("default:",1)[0]
@@ -946,7 +1054,7 @@ assert ((native_big_page_index<<17)&0xFFFFFFFF)==0
 # Native GPU topology and engine/runlist discovery must not leak through
 # the shared NVDRV ioctl3 device into a Maxwell/NS1 session. Guard after
 # the exact NS2 command-number check, before copying any response bytes.
-ctrl_gpu = (R/"encore-active/ns2-runtime/nvdrv/core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.cpp").read_text()
+ctrl_gpu = (R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.cpp").read_text()
 native_info = ctrl_gpu.split("if (command.raw != 0xC010471FU) break;", 1)[1].split("case 0x13: {", 1)[0]
 native_vsms = ctrl_gpu.split("if (command.raw != 0xC0084713U) break;", 1)[1].split("default:", 1)[0]
 for branch, use in ((native_info, "engine"), (native_vsms, "vsms")):
@@ -994,17 +1102,17 @@ for body, minimum in ((_alloc_body, 4), (_fixed_body, 4), (_free_body, 2)):
 # It must not be mistaken for an actual native PS5 build or guest frame.
 from pathlib import Path as _Path
 _as_runtime = (_Path(__file__).resolve().parents[1] /
-    "encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+    "encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 _as_header = (_Path(__file__).resolve().parents[1] /
-    "encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+    "encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
 _va_layout = (_Path(__file__).resolve().parents[1] /
-    "encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
+    "encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_va_layout.h").read_text()
 _native_gpu = (_Path(__file__).resolve().parents[1] /
-    "encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+    "encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 _ctrl_gpu = (_Path(__file__).resolve().parents[1] /
-    "encore-active/ns2-runtime/nvdrv/core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.cpp").read_text()
+    "encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_ctrl_gpu.cpp").read_text()
 _gsv = (_Path(__file__).resolve().parents[1] /
-    "encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+    "encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 for marker in ("case 0x4: {", "case 0x7: {", "case 0xa: {",
                "case 0xc: {", "case 0xd: {",
                "native_sparse_pins.merge(newly_pinned);",
@@ -1170,10 +1278,10 @@ print("NS2_GPU_IDENTITY_MAPPING_SOURCE_PASS sub101=identity replay=as_import vm_
 # The shared PS5 scheduler/NVDRV owner also serves Maxwell/NS1. Closing the
 # guest GPU FD must retire the exact ChannelState instead of leaving its
 # DmaPusher/engine payload reachable until process-wide GPU destruction.
-scheduler_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.h").read_text()
-scheduler_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/control/scheduler.cpp").read_text()
-gpu_cpp=(R/"encore-active/eden-core/src/video_core/gpu_vulkan.cpp").read_text()
-nvhost_cpp=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
+scheduler_h=(R/"encore-active/eden/src/video_core/control/scheduler.h").read_text()
+scheduler_cpp=(R/"encore-active/eden/src/video_core/control/scheduler.cpp").read_text()
+gpu_cpp=(R/"encore-active/eden/src/video_core/gpu_vulkan.cpp").read_text()
+nvhost_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp").read_text()
 assert "void RetireChannel(const ChannelState* old_channel);" in scheduler_h
 retire=scheduler_cpp.split("void Scheduler::RetireChannel(const ChannelState* old_channel) {",1)[1].split(
     "\n}\n",1)[0]
@@ -1193,7 +1301,7 @@ release=gpu_cpp.split("void ReleaseChannel(Control::ChannelState& to_release) {"
     "\n    /// Binds a renderer to the GPU.",1)[0]
 # The dual native build selects gpu_gl_native.cpp even for Vulkan gameplay.
 # Verify BOTH maintained owners; the selected one must not regress to a stub.
-for gpu_owner in (gpu_cpp, (R/"encore-active/eden-core/src/video_core/gpu_gl_native.cpp").read_text()):
+for gpu_owner in (gpu_cpp, (R/"encore-active/eden/src/video_core/gpu_gl_native.cpp").read_text()):
     assert "Tegra::Control::ChannelState* current_channel{};" in gpu_owner
     assert "s32 bound_channel{-1};" in gpu_owner
     release=gpu_owner.split("void ReleaseChannel(Control::ChannelState& to_release) {",1)[1].split(
@@ -1292,11 +1400,11 @@ print("NS1_MAXWELL_CHANNEL_RETIRE_SOURCE_PASS exact_epoch=1 worker_order=1 "
 # Maxwell/NS1 uses the same AS BindChannel owner. A raw MemoryManager pointer
 # cannot outlive an early AS-FD close, so retain the exact AS object and the
 # same existing NvCore session until ChannelState payload teardown completes.
-as_h=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
-as_cpp=(R/"encore-active/ns2-runtime/nvdrv_as/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
+as_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.h").read_text()
+as_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_as_gpu.cpp").read_text()
 channel_h=(R/"sources/eden/src/video_core/control/channel_state.h").read_text()
 container_h=(R/"sources/eden/src/core/hle/service/nvdrv/core/container.h").read_text()
-container_cpp=(R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/container.cpp").read_text()
+container_cpp=(R/"encore-active/eden/src/core/hle/service/nvdrv/core/container.cpp").read_text()
 assert "public std::enable_shared_from_this<nvhost_as_gpu>" in as_h
 assert channel_h.index("std::shared_ptr<void> address_space_owner{};") < channel_h.index(
     "std::optional<Payload> payload;")
@@ -1376,7 +1484,7 @@ assert "R_UNLESS(!m_quarantined_nv_session, Kernel::ResultInvalidState);" in wor
 
 # Exclusive native worker free performs its final ownership check under NvMap's
 # real handle mutex. The stale shared_ptr cannot pin after retirement.
-_nvmap_native = (R/"encore-active/eden-core/src/core/hle/service/nvdrv/core/nvmap.cpp").read_text()
+_nvmap_native = (R/"encore-active/eden/src/core/hle/service/nvdrv/core/nvmap.cpp").read_text()
 _free_impl = _nvmap_native.split("NvMap::FreeHandleImpl(",1)[1].split("void NvMap::UnmapAllHandles",1)[0]
 assert _free_impl.index("std::scoped_lock lock(handle_description->mutex);") < _free_impl.index("handle_description->pins != 0") < _free_impl.index("handle_description->native_retired = true;") < _free_impl.index("--handle_description->dupes")
 assert "if (handle_description->native_retired) return 0;" in _nvmap_native
@@ -1390,8 +1498,8 @@ assert "nvmap.FreeHandleIfUnpinned(id)" in worker.split("Result IGpuWorker::Rele
 # INFLIGHT_NATIVE_AS_LEASE: admitted NS2 work retains an AS health token through
 # the GPU queue. Poison/revocation must invalidate the token before command
 # fetch/dispatch and before any synthetic completion packet can retire.
-dma_h=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/dma_pusher.h").read_text()
-dma_cpp=(R/"encore-active/eden-core/src/video_core/dma_pusher.cpp").read_text()
+dma_h=(R/"encore-active/eden/src/video_core/dma_pusher.h").read_text()
+dma_cpp=(R/"encore-active/eden/src/video_core/dma_pusher.cpp").read_text()
 assert "CaptureNativeSubmissionLease() const;" in as_h
 assert "m_native_submission_lease" in as_h
 assert "void nvhost_as_gpu::PoisonNativeAddressSpace() noexcept" in as_cpp
@@ -1410,7 +1518,7 @@ assert "lease->load(std::memory_order_acquire)" in dma_cpp
 # Native H:17 propagation: the already-admitted AS lease is authoritative even
 # after process-generation revocation makes IsNative() false. A lease fault is
 # latched globally before the exact native channel event is signalled.
-registry_h=(R/"encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/native_gpu_channel_registry.h").read_text()
+registry_h=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_channel_registry.h").read_text()
 assert "using FaultNotifier = void (*)(void*) noexcept;" in registry_h
 assert "AttachFaultNotifier(" in registry_h and "ReportFault(" in registry_h
 assert "it->second.fault_notifier(it->second.fault_context);" in registry_h
@@ -1438,10 +1546,10 @@ for reason in (
 assert 'throw std::runtime_error("Native GPFIFO' not in dma_cpp
 
 # Puller/Ampere/QMD synchronous GPU failures use the same channel-aware fatal
-# path. Direct throws are confined to the four deferred fence callback
-# families: backing-epoch loss, timestamp report, and mirror-publication failure. Each callback
+# path. Direct throws are confined to deferred fence callbacks after
+# submission: backing-epoch/alias loss and mirror-publication failure. Each callback
 # catches, latches the GPU failure and faults the captured ChannelState.
-puller_cpp=(R/"encore-active/ns2-runtime/gpu_dispatch/video_core/engines/puller.cpp").read_text()
+puller_cpp=(R/"encore-active/eden/src/video_core/engines/puller.cpp").read_text()
 for reason in (
     "Native GPFIFO SET_OBJECT class unsupported",
     "Native GPFIFO FENCE_ACTION acquire unsupported",
@@ -1469,6 +1577,7 @@ deferred_throw_reasons = (
     "Ampere SEM_EXECUTE: semaphore mirror publication failed",
     "Native Compute report semaphore backing revoked after GPU submission",
     "Native Compute timestamp report backing revoked after GPU submission",
+    "Native Compute timestamp report lost CPU alias",
     "Native Compute semaphore mirror publication failed",
     "Native QMD3 release backing revoked after GPU submission",
     "Native QMD3 semaphore mirror publication failed",
@@ -1690,7 +1799,7 @@ with tempfile.TemporaryDirectory() as tmp:
     cpp=Path(tmp)/"preimport.cpp"
     exe=Path(tmp)/"preimport"
     cpp.write_text(fixture)
-    roots=[R/"encore-active/ns2-runtime/hle", R/"encore-active/ns2-runtime/nvdrv_as",
+    roots=[R/"encore-active/eden/src", R/"encore-active/eden/src",
            R/"sources/eden/src"]
     subprocess.run([compiler,"-std=c++20","-O2","-Wall","-Wextra","-Werror",
                     *[item for root in roots for item in ("-I",str(root))],
@@ -1759,9 +1868,9 @@ print("NS2_212_IDENTITY_KIND_SOURCE_PASS")
 # 26/11 NS2 GSV 435/1510/429 image-layout compatibility with working
 # Lichii/Eglantine owners. Test the production header on host; this proves
 # only layout/count and backing-ledger contracts, never console first frame.
-image_layout = (R / "encore-active/ns2-runtime/hle/core/hle/service/am/service/native_image_layout.h")
+image_layout = (R / "encore-active/eden/src/core/hle/service/am/service/native_image_layout.h")
 layout_source = image_layout.read_text()
-gsv_source = (R / "encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+gsv_source = (R / "encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
 assert "preference[6] != 1 && preference[6] != 4 && preference[6] != 5" in layout_source
 assert "const u64 bytes_per_pixel = preference[6] == 5 ? 8 : 4;" in layout_source
 assert "const u64 requested_images = std::max<u64>(count, 1);" in layout_source
@@ -1822,7 +1931,7 @@ with tempfile.TemporaryDirectory(prefix="eden-ns2-gsv-image-layout-") as tmp:
             executable = source.with_name("native_image_" + __import__("pathlib").Path(cc).name.replace("+","p") + opt)
             built = subprocess.run([cc,"-std=c++20",opt,"-Wall","-Wextra","-Werror",
                                     "-fsanitize=undefined","-fno-sanitize-recover=all",
-                                    "-I"+str(R/"encore-active/ns2-runtime/hle"),
+                                    "-I"+str(R/"encore-active/eden/src"),
                                     "-I"+str(R/"sources/eden/src"),
                                     str(source),"-o",str(executable)],
                                    capture_output=True,text=True,timeout=60,env=os.environ.copy())

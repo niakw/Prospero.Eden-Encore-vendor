@@ -6,9 +6,7 @@
 
 #pragma once
 
-#include <array>
 #include <map>
-#include <span>
 
 #include "common/math_util.h"
 #include "core/hle/service/nvdrv/core/container.h"
@@ -77,10 +75,6 @@ public:
     Result GetSharedFrameBufferAcquirableEvent(Kernel::KReadableEvent** out_event, u64 layer_id);
 
     Result WriteAppletCaptureBuffer(bool* out_was_written, s32* out_layer_index, CaptureKind kind);
-    Result ReadAppletCaptureBuffer(bool* out_was_written, std::span<u8> out_data,
-                                   CaptureKind kind);
-    Result WriteAppletCaptureBufferToSlot(s32 layer_index, bool screenshot_permitted);
-    Result CopyAppletCaptureBuffer(s32 dst_layer_index, s32 src_layer_index);
     Result ClearAppletCaptureBuffer(s32 layer_index, u32 color);
 
 private:
@@ -95,7 +89,6 @@ private:
     SharedMemoryPoolLayout m_pool_layout = {};
     std::map<u64, SharedBufferSession> m_sessions;
     std::unique_ptr<Kernel::KPageGroup> m_buffer_page_group;
-    std::array<bool, 3> m_capture_written{};
 
     std::mutex m_guard;
     Core::System& m_system;

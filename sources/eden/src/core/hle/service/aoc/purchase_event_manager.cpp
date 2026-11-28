@@ -32,22 +32,15 @@ IPurchaseEventManager::~IPurchaseEventManager() {
 
 Result IPurchaseEventManager::SetDefaultDeliveryTarget(
     ClientProcessId process_id, InBuffer<BufferAttr_HipcMapAlias> in_buffer) {
-    LOG_DEBUG(Service_AOC,
-              "called, process_id={} (Nintendo purchase transport unavailable; target ignored)",
-              process_id.pid);
+    LOG_WARNING(Service_AOC, "(STUBBED) called, process_id={}", process_id.pid);
 
-    // Encore has no Nintendo eShop purchase transport. With no purchase producer, the delivery
-    // target has no observable effect and is intentionally accepted as a no-op.
     R_SUCCEED();
 }
 
 Result IPurchaseEventManager::SetDeliveryTarget(u64 unknown,
                                                 InBuffer<BufferAttr_HipcMapAlias> in_buffer) {
-    LOG_DEBUG(Service_AOC,
-              "called, target={} (Nintendo purchase transport unavailable; target ignored)",
-              unknown);
+    LOG_WARNING(Service_AOC, "(STUBBED) called, unknown={}", unknown);
 
-    // See SetDefaultDeliveryTarget: there is no remote purchase producer to route.
     R_SUCCEED();
 }
 
@@ -60,13 +53,13 @@ Result IPurchaseEventManager::GetPurchasedEvent(OutCopyHandle<Kernel::KReadableE
 }
 
 Result IPurchaseEventManager::PopPurchasedProductInfo() {
-    LOG_DEBUG(Service_AOC, "called, purchase queue empty (no Nintendo purchase backend)");
+    LOG_DEBUG(Service_AOC, "(STUBBED) called");
 
     R_RETURN(ResultNoPurchasedProductInfoAvailable);
 }
 
 Result IPurchaseEventManager::PopPurchasedProductInfoWithUid() {
-    LOG_DEBUG(Service_AOC, "called, purchase queue empty for uid (no Nintendo purchase backend)");
+    LOG_DEBUG(Service_AOC, "(STUBBED) called");
 
     R_RETURN(ResultNoPurchasedProductInfoAvailable);
 }

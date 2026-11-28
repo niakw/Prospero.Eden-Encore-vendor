@@ -19,24 +19,12 @@ public:
     ~IDisplayController() override;
 
 private:
-    Result RejectLegacyCaptureImage(OutBuffer<BufferAttr_HipcMapAlias> out_image_data);
-    Result UpdateLastForegroundCaptureImage();
-    Result UpdateCallerAppletCaptureImage();
     Result GetLastForegroundCaptureImageEx(Out<bool> out_was_written,
-                                           OutBuffer<BufferAttr_HipcMapAlias> out_image_data);
-    Result GetLastApplicationCaptureImageEx(Out<bool> out_was_written,
-                                            OutBuffer<BufferAttr_HipcMapAlias> out_image_data);
+                                         OutBuffer<BufferAttr_HipcMapAlias> out_image_data);
     Result GetCallerAppletCaptureImageEx(Out<bool> out_was_written,
                                          OutBuffer<BufferAttr_HipcMapAlias> out_image_data);
-    Result TakeScreenShotOfOwnLayer(bool screenshot_permitted, s32 fbshare_layer_index);
-    Result TakeScreenShotOfOwnLayerEx(bool screenshot_permitted, bool immediately,
-                                      s32 fbshare_layer_index);
-    Result CopyBetweenCaptureBuffers(s32 dst_fbshare_layer_index, s32 src_fbshare_layer_index);
+    Result TakeScreenShotOfOwnLayer(bool unknown0, s32 fbshare_layer_index);
     Result ClearCaptureBuffer(bool unknown0, s32 fbshare_layer_index, u32 color);
-    Result RejectLegacyCaptureBufferAcquire();
-    Result ReleaseLastApplicationCaptureBuffer();
-    Result ReleaseLastForegroundCaptureBuffer();
-    Result ReleaseCallerAppletCaptureBuffer();
     Result AcquireLastForegroundCaptureSharedBuffer(Out<bool> out_was_written,
                                                     Out<s32> out_fbshare_layer_index);
     Result ReleaseLastForegroundCaptureSharedBuffer();

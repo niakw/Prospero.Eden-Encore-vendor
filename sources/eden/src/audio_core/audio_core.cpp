@@ -47,14 +47,6 @@ Sink::Sink& AudioCore::GetInputSink() {
     return *input_sink;
 }
 
-void AudioCore::SetInputTargetForceEnabled(bool enabled) {
-    input_target_force_enabled.store(enabled, std::memory_order_release);
-}
-
-bool AudioCore::IsInputTargetForceEnabled() const {
-    return input_target_force_enabled.load(std::memory_order_acquire);
-}
-
 ADSP::ADSP& AudioCore::ADSP() {
     return *adsp;
 }

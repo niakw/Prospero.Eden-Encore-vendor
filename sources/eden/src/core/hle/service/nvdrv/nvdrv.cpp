@@ -84,9 +84,21 @@ public:
 
 class NVDBG_D final : public ServiceFramework<NVDBG_D> {
 public:
-    explicit NVDBG_D(Core::System& system_) : ServiceFramework{system_, "nvdbg:d"} {
-        // Horizon 10.0.0+ exposes nvdbg:d as an empty debug service.
-        // INvDrv2User is a distinct Switch 2 interface and must not be registered here.
+    explicit NVDBG_D(Core::System& system_)
+        : ServiceFramework{system_, "nvdbg:d"}
+    {
+        static const FunctionInfo functions[] = {
+            {0, nullptr, "Open"},
+            {1, nullptr, "Ioctl"},
+            {2, nullptr, "Close"},
+            {4, nullptr, "QueryEvent"},
+            {9, nullptr, "DumpStatus"},
+            {10, nullptr, "InitializeDevtools"},
+            {11, nullptr, "Ioctl2"},
+            {12, nullptr, "Ioctl3"},
+            {13, nullptr, "SetConfiguration"},
+        };
+        RegisterHandlers(functions);
     }
 };
 

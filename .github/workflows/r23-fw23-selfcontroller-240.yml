@@ -5,7 +5,7 @@ on:
       - research/r23-fw23-selfcontroller-240-20261111
   pull_request:
     paths:
-      - "encore-active/ns2-runtime/self_controller/core/hle/service/am/service/self_controller.cpp"
+      - "encore-active/eden/src/core/hle/service/am/service/self_controller.cpp"
       - "tests/r23_fw23_selfcontroller_240.py"
       - ".github/workflows/r23-fw23-selfcontroller-240.yml"
   workflow_dispatch:

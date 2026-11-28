@@ -439,37 +439,6 @@ KeyboardKey EmulatedDevices::GetKeyboard() const {
     return device_status.keyboard_state;
 }
 
-void EmulatedDevices::ApplyKeyboardLockKeyEvents(u32 flags) {
-    bool changed = false;
-    {
-        std::scoped_lock lock{mutex};
-        auto apply = [&](auto index, auto& modifier, u32 shift) {
-            const u32 events = (flags >> shift) & 7;
-            if (events == 0) {
-                return;
-            }
-
-            auto& status = device_status.keyboard_moddifier_values[index];
-            bool value = status.value;
-            // libnx's KeyboardLockKeyEvent bits are On, Off, Toggle for each lock.
-            if (events & 1) value = true;
-            if (events & 2) value = false;
-            if (events & 4) value = !value;
-            changed |= status.value != value;
-            status.value = value;
-            modifier.Assign(value);
-        };
-
-        auto& modifier = device_status.keyboard_moddifier_state;
-        apply(Settings::NativeKeyboard::NumLock, modifier.num_lock, 0);
-        apply(Settings::NativeKeyboard::CapsLock, modifier.caps_lock, 3);
-        apply(Settings::NativeKeyboard::ScrollLock, modifier.scroll_lock, 6);
-    }
-    if (changed) {
-        TriggerOnChange(DeviceTriggerType::KeyboardModdifier);
-    }
-}
-
 KeyboardModifier EmulatedDevices::GetKeyboardModifier() const {
     std::scoped_lock lock{mutex};
     return device_status.keyboard_moddifier_state;

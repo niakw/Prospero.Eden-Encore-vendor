@@ -10,15 +10,15 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHED = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_scheduler.h"
-SCHED_IMPL = ROOT / "encore-active/eden-vulkan/vulkan_scheduler.cpp"
-STAGE = ROOT / "encore-active/eden-vulkan/vk_staging_buffer_pool.cpp"
-STAGE_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_staging_buffer_pool.h"
-CORE = ROOT / "encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h"
-VK_BUFFER_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_buffer_cache.h"
-RETIREMENT_H = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
-RUNTIME = ROOT / "encore-active/eden-vulkan/vk_buffer_cache_cost.cpp"
-BOUNDS = ROOT / "encore-active/eden-vulkan/include/video_core/renderer_vulkan/ns2_staging_upload_bounds.h"
+SCHED = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vk_scheduler.h"
+SCHED_IMPL = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_scheduler.cpp"
+STAGE = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vk_staging_buffer_pool.cpp"
+STAGE_H = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vk_staging_buffer_pool.h"
+CORE = ROOT / "encore-active/eden/src/video_core/buffer_cache/buffer_cache.h"
+VK_BUFFER_H = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vk_buffer_cache.h"
+RETIREMENT_H = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/ns2_gpu_retirement_hold.h"
+RUNTIME = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vk_buffer_cache_cost.cpp"
+BOUNDS = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/ns2_staging_upload_bounds.h"
 SOURCE_BLOBS = {
     SCHED: "d2d7e8b6cef6ea6ba912d5c7ad41b646527f6f0d",
     SCHED_IMPL: "db83d90460d93c8c50212753e51c54924f4f2e61",

@@ -4,8 +4,8 @@ on:
     paths:
       - 'tests/fc27_storage_offset_current_host.py'
       - '.github/workflows/fc27-storage-offset-current-host.yml'
-      - 'encore-active/eden-shader/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp'
-      - 'encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h'
+      - 'encore-active/eden/src/shader_recompiler/ir_opt/global_memory_to_storage_buffer_pass.cpp'
+      - 'encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h'
   workflow_dispatch:
 permissions:
   contents: read

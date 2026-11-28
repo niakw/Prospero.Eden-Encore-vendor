@@ -25,7 +25,6 @@ public:
     ~IHidSystemServer() override;
 
 private:
-    void SendKeyboardLockKeyEvent(HLERequestContext& ctx);
     void GetPlatformConfig(HLERequestContext& ctx);
     void ApplyNpadSystemCommonPolicy(HLERequestContext& ctx);
     void EnableAssigningSingleOnSlSrPress(HLERequestContext& ctx);

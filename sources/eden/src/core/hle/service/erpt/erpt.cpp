@@ -46,18 +46,15 @@ public:
 private:
     Result SubmitContext(InBuffer<BufferAttr_HipcMapAlias> context_entry,
                          InBuffer<BufferAttr_HipcMapAlias> field_list) {
-        // Nintendo erpt uploads are not exposed by Encore. Accept the guest context locally
-        // without transmitting telemetry or fabricating a remote report identifier.
-        LOG_DEBUG(Service_SET, "Error-report context accepted locally, context_entry_size={}, field_list_size={}",
-                  context_entry.size(), field_list.size());
+        LOG_WARNING(Service_SET, "(STUBBED) called, context_entry_size={}, field_list_size={}",
+                    context_entry.size(), field_list.size());
         R_SUCCEED();
     }
 
     Result CreateReportV0(u32 report_type, InBuffer<BufferAttr_HipcMapAlias> context_entry,
                           InBuffer<BufferAttr_HipcMapAlias> report_list,
                           InBuffer<BufferAttr_HipcMapAlias> report_meta_data) {
-        LOG_DEBUG(Service_SET, "Error-report V0 creation ignored locally, report_type={:#x}",
-                  report_type);
+        LOG_WARNING(Service_SET, "(STUBBED) called, report_type={:#x}", report_type);
         R_SUCCEED();
     }
 
@@ -65,9 +62,8 @@ private:
                           InBuffer<BufferAttr_HipcMapAlias> context_entry,
                           InBuffer<BufferAttr_HipcMapAlias> report_list,
                           InBuffer<BufferAttr_HipcMapAlias> report_meta_data) {
-        LOG_DEBUG(Service_SET,
-                  "Error-report V1 creation ignored locally, report_type={:#x}, unknown={:#x}",
-                  report_type, unknown);
+        LOG_WARNING(Service_SET, "(STUBBED) called, report_type={:#x}, unknown={:#x}", report_type,
+                    unknown);
         R_SUCCEED();
     }
 
@@ -75,20 +71,18 @@ private:
                         InBuffer<BufferAttr_HipcMapAlias> context_entry,
                         InBuffer<BufferAttr_HipcMapAlias> report_list,
                         InBuffer<BufferAttr_HipcMapAlias> report_meta_data) {
-        LOG_DEBUG(Service_SET,
-                  "Error-report creation ignored locally, report_type={:#x}, unknown={:#x}, "
-                  "create_report_option_flag={:#x}",
-                  report_type, unknown, create_report_option_flag);
+        LOG_WARNING(
+            Service_SET,
+            "(STUBBED) called, report_type={:#x}, unknown={:#x}, create_report_option_flag={:#x}",
+            report_type, unknown, create_report_option_flag);
         R_SUCCEED();
     }
 
     Result UpdateAwakeTime(InBuffer<BufferAttr_HipcMapAlias> data_a,
                            InBuffer<BufferAttr_HipcMapAlias> data_b, u32 flag_a, u32 flag_b) {
-        // Awake-time accounting is telemetry-only in erpt and has no guest-visible runtime state.
-        LOG_DEBUG(Service_SET,
-                  "Error-report awake-time update ignored locally, data_a_size={}, data_b_size={}, "
-                  "flag_a={}, flag_b={}",
-                  data_a.size(), data_b.size(), flag_a, flag_b);
+        LOG_WARNING(Service_SET,
+                    "(STUBBED) called, data_a_size={}, data_b_size={}, flag_a={}, flag_b={}",
+                    data_a.size(), data_b.size(), flag_a, flag_b);
         R_SUCCEED();
     }
 };

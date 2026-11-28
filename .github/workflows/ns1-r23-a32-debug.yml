@@ -5,7 +5,7 @@ on:
       - research/ns1-r23-a32-debug-halt-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/dynarmic/ir/opt_passes.cpp"
+      - "encore-active/eden/src/dynarmic/ir/opt_passes.cpp"
       - "tests/ns1_r23_10_a32_debug.py"
       - ".github/workflows/ns1-r23-a32-debug.yml"
   workflow_dispatch:

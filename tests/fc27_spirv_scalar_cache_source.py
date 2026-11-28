@@ -7,7 +7,7 @@ import struct
 
 ROOT=Path(__file__).resolve().parents[1]
 PINNED=ROOT/"sources/eden/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
-ACTIVE=ROOT/"encore-active/eden-shader/include/shader_recompiler/backend/spirv/spirv_emit_context.h"
+ACTIVE=ROOT/"encore-active/eden/src/shader_recompiler/backend/spirv/spirv_emit_context.h"
 
 def blob_bytes(raw: bytes) -> str:
     return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()

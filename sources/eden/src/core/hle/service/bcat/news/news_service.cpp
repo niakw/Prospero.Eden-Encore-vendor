@@ -43,37 +43,30 @@ INewsService::INewsService(Core::System& system_) : ServiceFramework{system_, "I
 INewsService::~INewsService() = default;
 
 Result INewsService::PostLocalNews(InBuffer<BufferAttr_HipcAutoSelect> buffer_data) {
-    // Horizon local-news archive ingestion is not modeled; Encore exposes its own built-in/local
-    // NewsStorage instead. Acknowledge the guest request without fabricating parsed records.
-    LOG_DEBUG(Service_BCAT, "Local-news archive ignored, size={}", buffer_data.size());
+    LOG_WARNING(Service_BCAT, "(STUBBED) PostLocalNews size={}", buffer_data.size());
     R_SUCCEED();
 }
 
 Result INewsService::GetSubscriptionStatus(Out<u32> out_status,
                                            InBuffer<BufferAttr_HipcPointer> buffer_data) {
-    // No Nintendo news subscription backend exists; report the neutral unsubscribed state.
-    LOG_DEBUG(Service_BCAT, "Returning local-news subscription status, buffer_size={}",
-              buffer_data.size());
+    LOG_WARNING(Service_BCAT, "(STUBBED) called, buffer_size={}", buffer_data.size());
     *out_status = 0;
     R_SUCCEED();
 }
 
 Result INewsService::IsSystemUpdateRequired(Out<bool> out_is_system_update_required) {
-    // News service must not invent firmware-update requirements for the emulated guest.
+    LOG_WARNING(Service_BCAT, "(STUBBED) called");
     *out_is_system_update_required = false;
-    LOG_DEBUG(Service_BCAT, "No news-triggered system update required");
     R_SUCCEED();
 }
 
 Result INewsService::RequestAutoSubscription(u64 value) {
-    // Nintendo account/news subscriptions are outside Encore's local NewsStorage model.
-    LOG_DEBUG(Service_BCAT, "Auto-subscription request ignored, value={}", value);
+    LOG_WARNING(Service_BCAT, "(STUBBED) called");
     R_SUCCEED();
 }
 
 Result INewsService::SetPassphrase(InBuffer<BufferAttr_HipcPointer> buffer_data) {
-    // Passphrases protect Nintendo-delivered news archives; local Encore news is not encrypted.
-    LOG_DEBUG(Service_BCAT, "News passphrase ignored, size={}", buffer_data.size());
+    LOG_WARNING(Service_BCAT, "(STUBBED) SetPassphrase called size={}", buffer_data.size());
     R_SUCCEED();
 }
 
@@ -97,20 +90,18 @@ Result INewsService::GetTopicList(Out<s32> out_count, OutBuffer<BufferAttr_HipcM
 }
 
 Result INewsService::ClearStorage() {
-    LOG_DEBUG(Service_BCAT, "Clearing local news storage");
+    LOG_WARNING(Service_BCAT, "(STUBBED) called");
     NewsStorage::Instance().Clear();
     R_SUCCEED();
 }
 
 Result INewsService::ClearSubscriptionStatusAll() {
-    // Encore does not persist Nintendo subscription state, so there is no local state to clear.
-    LOG_DEBUG(Service_BCAT, "Subscription-status clear ignored (no persisted subscription state)");
+    LOG_WARNING(Service_BCAT, "(STUBBED) called");
     R_SUCCEED();
 }
 
 Result INewsService::GetNewsDatabaseDump() {
-    // Debug/export command: the guest ABI is accepted, but Encore has no Nintendo DB dump format.
-    LOG_DEBUG(Service_BCAT, "News database dump ignored (unsupported Nintendo dump format)");
+    LOG_WARNING(Service_BCAT, "(STUBBED) called");
     R_SUCCEED();
 }
 

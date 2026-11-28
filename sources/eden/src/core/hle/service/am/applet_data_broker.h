@@ -49,10 +49,6 @@ public:
         return interactive_in_data;
     }
 
-    AppletStorageChannel& GetExtraStorage() {
-        return extra_storage;
-    }
-
     AppletStorageChannel& GetOutData() {
         return out_data;
     }
@@ -67,7 +63,6 @@ private:
 
     AppletStorageChannel in_data;
     AppletStorageChannel interactive_in_data;
-    AppletStorageChannel extra_storage;
     AppletStorageChannel out_data;
     AppletStorageChannel interactive_out_data;
 };

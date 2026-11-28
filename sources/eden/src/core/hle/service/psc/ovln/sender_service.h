@@ -4,7 +4,6 @@
 #pragma once
 
 #include "core/hle/service/cmif_types.h"
-#include "core/hle/service/psc/ovln/ovln_types.h"
 #include "core/hle/service/service.h"
 
 namespace Service::PSC {
@@ -17,8 +16,8 @@ public:
     ~ISenderService() override;
 
 private:
-    Result OpenSender(Out<SharedPointer<ISender>> out_sender, SourceName source_name,
-                      QueueAttribute attribute);
+    Result OpenSender(Out<SharedPointer<ISender>> out_sender, u32 sender_id,
+                      std::array<u64, 2> data);
 };
 
 } // namespace Service::PSC

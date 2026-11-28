@@ -18,15 +18,9 @@ public:
     ~IGlobalStateController() override;
 
 private:
-    Result RejectUnsupportedSleepCommand();
-    Result StartSleepSequence(bool sleep_requested);
     Result StartShutdownSequence();
     Result StartRebootSequence();
-    Result IsAutoPowerDownRequested(Out<bool> out_is_auto_power_down_requested);
     Result LoadAndApplyIdlePolicySettings();
-    Result NotifyCecSettingsChanged();
-    Result SetDefaultHomeButtonLongPressTime(s64 time);
-    Result UpdateDefaultDisplayResolution();
     Result ShouldSleepOnBoot(Out<bool> out_should_sleep_on_boot);
     Result GetHdcpAuthenticationFailedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result OpenCradleFirmwareUpdater(

@@ -10,10 +10,10 @@ Source proof only; PS5 picture output still requires hardware validation.
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-vic = (ROOT / "encore-active/eden-core/src/video_core/host1x/vic.cpp").read_text()
-guest = (ROOT / "encore-active/eden-core/overrides/core/guest_memory.h").read_text()
-raster = (ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp").read_text()
-texture = (ROOT / "encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h").read_text()
+vic = (ROOT / "encore-active/eden/src/video_core/host1x/vic.cpp").read_text()
+guest = (ROOT / "encore-active/eden/src/core/guest_memory.h").read_text()
+raster = (ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp").read_text()
+texture = (ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h").read_text()
 
 # Both VIC output families can write directly into guest GPU memory.
 assert vic.count("Core::Memory::GuestMemoryFlags::SafeWrite") >= 3

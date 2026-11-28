@@ -3,10 +3,6 @@
 
 #pragma once
 
-#include <mutex>
-#include <string>
-#include <vector>
-
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/psc/ovln/ovln_types.h"
 #include "core/hle/service/service.h"
@@ -15,17 +11,11 @@ namespace Service::PSC {
 
 class ISender final : public ServiceFramework<ISender> {
 public:
-    explicit ISender(Core::System& system_, SourceName source_name, QueueAttribute attribute);
+    explicit ISender(Core::System& system_);
     ~ISender() override;
 
 private:
-    Result Send(MessageFlags flags, const OverlayNotification& notification);
-    Result GetUnreceivedMessageCount(Out<u32> out_count);
-
-    std::mutex queue_mutex;
-    std::vector<OverlayNotification> queue;
-    std::string source_name;
-    u32 queue_capacity{};
+    Result Send(const OverlayNotification& notification, MessageFlags flags);
 };
 
 } // namespace Service::PSC

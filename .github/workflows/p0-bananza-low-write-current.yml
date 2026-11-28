@@ -2,8 +2,8 @@ name: P0 Bananza bounded low guest write diagnostic
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp'
-      - 'encore-active/eden-core/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_dev.cpp'
+      - 'encore-active/eden/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_normal.cpp'
+      - 'encore-active/eden/src/core/arm/dynarmic/g11/arm_dynarmic_64_native_dev.cpp'
       - 'tests/p0_bananza_low_write_current_source.py'
       - '.github/workflows/p0-bananza-low-write-current.yml'
   workflow_dispatch:

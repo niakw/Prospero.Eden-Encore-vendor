@@ -7,11 +7,11 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-ROOT_SRC=ROOT/"encore-active/eden-core"
+ROOT_SRC=ROOT/"encore-active/eden"
 known={
  "src/core/file_sys/patch_manager.cpp":"e3dea103363ce2212d88f700db787f9ab17188b9",
  "src/core/file_sys/registered_cache.cpp":"2658884ef0332ec7dc579824d9c89925f9168891",
- "src/core/file_sys/savedata_factory.cpp":"dba4ff1e9ee98566aaeb0e2d2a75ae831f9692bd",
+ "src/core/file_sys/savedata_factory.cpp":"825df37c9134b4f2c9ffa80a0ed0e47b8784bb16",
 }
 def blob(p):
  d=p.read_bytes()

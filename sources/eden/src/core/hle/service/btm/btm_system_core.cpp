@@ -18,24 +18,24 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
     static const FunctionInfo functions[] = {
         {0, C<&IBtmSystemCore::StartGamepadPairing>, "StartGamepadPairing"},
         {1, C<&IBtmSystemCore::CancelGamepadPairing>, "CancelGamepadPairing"},
-        {2, C<&IBtmSystemCore::ClearGamepadPairingDatabase>, "ClearGamepadPairingDatabase"},
-        {3, C<&IBtmSystemCore::GetPairedGamepadCount>, "GetPairedGamepadCount"},
+        {2, nullptr, "ClearGamepadPairingDatabase"},
+        {3, nullptr, "GetPairedGamepadCount"},
         {4, C<&IBtmSystemCore::EnableRadio>, "EnableRadio"},
         {5, C<&IBtmSystemCore::DisableRadio>, "DisableRadio"},
         {6, C<&IBtmSystemCore::IsRadioEnabled>, "IsRadioEnabled"},
         {7, C<&IBtmSystemCore::AcquireRadioEvent>, "AcquireRadioEvent"},
-        {8, C<&IBtmSystemCore::AcquireGamepadPairingEvent>, "AcquireGamepadPairingEvent"},
-        {9, C<&IBtmSystemCore::IsGamepadPairingStarted>, "IsGamepadPairingStarted"},
-        {10, C<&IBtmSystemCore::StartAudioDeviceDiscovery>, "StartAudioDeviceDiscovery"},
-        {11, C<&IBtmSystemCore::StopAudioDeviceDiscovery>, "StopAudioDeviceDiscovery"},
-        {12, C<&IBtmSystemCore::IsDiscoveringAudioDevice>, "IsDiscoveryingAudioDevice"},
+        {8, nullptr, "AcquireGamepadPairingEvent"},
+        {9, nullptr, "IsGamepadPairingStarted"},
+        {10, nullptr, "StartAudioDeviceDiscovery"},
+        {11, nullptr, "StopAudioDeviceDiscovery"},
+        {12, nullptr, "IsDiscoveryingAudioDevice"},
         {13, C<&IBtmSystemCore::GetDiscoveredAudioDevice>, "GetDiscoveredAudioDevice"},
         {14, C<&IBtmSystemCore::AcquireAudioDeviceConnectionEvent>, "AcquireAudioDeviceConnectionEvent"},
         {15, nullptr, "ConnectAudioDevice"},
-        {16, C<&IBtmSystemCore::IsConnectingAudioDevice>, "IsConnectingAudioDevice"},
+        {16, nullptr, "IsConnectingAudioDevice"},
         {17, C<&IBtmSystemCore::GetConnectedAudioDevices>, "GetConnectedAudioDevices"},
         {18, nullptr, "DisconnectAudioDevice"},
-        {19, C<&IBtmSystemCore::AcquirePairedAudioDeviceInfoChangedEvent>, "AcquirePairedAudioDeviceInfoChangedEvent"},
+        {19, nullptr, "AcquirePairedAudioDeviceInfoChangedEvent"},
         {20, C<&IBtmSystemCore::GetPairedAudioDevices>, "GetPairedAudioDevices"},
         {21, nullptr, "RemoveAudioDevicePairing"},
         {22, C<&IBtmSystemCore::RequestAudioDeviceConnectionRejection>, "RequestAudioDeviceConnectionRejection"},
@@ -45,11 +45,8 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
 
     RegisterHandlers(functions);
     radio_event = service_context.CreateEvent("IBtmSystemCore::RadioEvent");
-    gamepad_pairing_event = service_context.CreateEvent("IBtmSystemCore::GamepadPairingEvent");
     audio_device_connection_event =
         service_context.CreateEvent("IBtmSystemCore::AudioDeviceConnectionEvent");
-
-    paired_audio_info_event = service_context.CreateEvent("IBtmSystemCore::PairedAudioInfoEvent");
 
     m_set_sys =
         system.ServiceManager().GetService<Service::Set::ISystemSettingsServer>("set:sys", true);
@@ -57,50 +54,16 @@ IBtmSystemCore::IBtmSystemCore(Core::System& system_)
 
 IBtmSystemCore::~IBtmSystemCore() {
     service_context.CloseEvent(radio_event);
-    service_context.CloseEvent(gamepad_pairing_event);
     service_context.CloseEvent(audio_device_connection_event);
-    service_context.CloseEvent(paired_audio_info_event);
 }
 
 Result IBtmSystemCore::StartGamepadPairing() {
-    LOG_DEBUG(Service_BTM, "called; tracking guest pairing lifecycle without a PS5 Bluetooth backend");
-
-    gamepad_pairing_started = true;
-    R_RETURN(gamepad_pairing_event->Signal(system.Kernel()));
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
+    R_SUCCEED();
 }
 
 Result IBtmSystemCore::CancelGamepadPairing() {
-    LOG_DEBUG(Service_BTM, "called");
-
-    gamepad_pairing_started = false;
-    R_RETURN(gamepad_pairing_event->Signal(system.Kernel()));
-}
-
-Result IBtmSystemCore::ClearGamepadPairingDatabase() {
-    LOG_DEBUG(Service_BTM, "called; no persistent Switch gamepad pairing database is modeled");
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::GetPairedGamepadCount(Out<u8> out_count) {
-    LOG_DEBUG(Service_BTM, "called; modeled Switch pairing database is empty");
-
-    *out_count = 0;
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::AcquireGamepadPairingEvent(
-    Out<bool> out_is_valid, OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_BTM, "Returning live gamepad pairing state event");
-
-    *out_is_valid = true;
-    *out_event = &gamepad_pairing_event->GetReadableEvent();
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::IsGamepadPairingStarted(Out<bool> out_is_started) {
-    LOG_DEBUG(Service_BTM, "called");
-
-    *out_is_started = gamepad_pairing_started;
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
     R_SUCCEED();
 }
 
@@ -123,44 +86,15 @@ Result IBtmSystemCore::IsRadioEnabled(Out<bool> out_is_enabled) {
 
 Result IBtmSystemCore::AcquireRadioEvent(Out<bool> out_is_valid,
                                          OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_BTM, "Returning live Bluetooth radio event");
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
 
     *out_is_valid = true;
     *out_event = &radio_event->GetReadableEvent();
     R_SUCCEED();
 }
 
-Result IBtmSystemCore::StartAudioDeviceDiscovery() {
-    // A guest discovery session can be active, but the host supplies no Switch audio devices.
-    audio_discovery_active = true;
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::StopAudioDeviceDiscovery() {
-    audio_discovery_active = false;
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::IsDiscoveringAudioDevice(Out<bool> out_active) {
-    *out_active = audio_discovery_active;
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::IsConnectingAudioDevice(Out<bool> out_active) {
-    *out_active = false;
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::AcquirePairedAudioDeviceInfoChangedEvent(
-    OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    *out_event = &paired_audio_info_event->GetReadableEvent();
-    R_SUCCEED();
-}
-
-Result IBtmSystemCore::GetDiscoveredAudioDevice(Out<s32> out_total,
-    OutBuffer<BufferAttr_HipcPointer>) {
-    // The array capacity belongs to the IPC buffer descriptor, not an inline s32.
-    *out_total = 0;
+Result IBtmSystemCore::GetDiscoveredAudioDevice(OutArray<std::array<u8, 0xFF>, BufferAttr_HipcPointer> out_audio_devices, s32 count, Out<s32> out_total) {
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
     R_SUCCEED();
 }
 

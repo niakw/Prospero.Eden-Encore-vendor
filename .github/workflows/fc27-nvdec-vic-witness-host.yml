@@ -2,15 +2,15 @@ name: FC27 NVDEC/VIC bounded stage witness
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/video_core/host1x/ffmpeg.cpp'
-      - 'encore-active/eden-core/src/video_core/host1x/vic.cpp'
+      - 'encore-active/eden/src/video_core/host1x/ffmpeg.cpp'
+      - 'encore-active/eden/src/video_core/host1x/vic.cpp'
       - 'tests/fc27_nvdec_vic_witness_host.py'
       - '.github/workflows/fc27-nvdec-vic-witness-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/src/video_core/host1x/ffmpeg.cpp'
-      - 'encore-active/eden-core/src/video_core/host1x/vic.cpp'
+      - 'encore-active/eden/src/video_core/host1x/ffmpeg.cpp'
+      - 'encore-active/eden/src/video_core/host1x/vic.cpp'
       - 'tests/fc27_nvdec_vic_witness_host.py'
       - '.github/workflows/fc27-nvdec-vic-witness-host.yml'
   workflow_dispatch:

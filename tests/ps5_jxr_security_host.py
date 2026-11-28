@@ -7,7 +7,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 JXR = ROOT / "sources/jxrlib"
-ADAPTER = ROOT / "encore-active/ps5-jxr"
+ADAPTER = ROOT / "encore-active/jxrlib"
 checks = {
     "jxrgluelib/JXRMeta.c": (
         "Call(uCount > ((U32)-1) - 2 ? WMP_errFail : WMP_errSuccess);",

@@ -2,7 +2,7 @@ name: Vulkan driver cache header preflight (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp"
+      - "encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp"
       - "tests/ps5_driver_cache_header_host.py"
       - ".github/workflows/driver-cache-header-host.yml"
   workflow_dispatch:

@@ -22,7 +22,6 @@ public:
     explicit IManagerDisplayService(Core::System& system_, std::shared_ptr<Container> container);
     ~IManagerDisplayService() override;
 
-    Result GetDisplayResolution(Out<s64> out_width, Out<s64> out_height, u64 display_id);
     Result CreateSharedLayerSession(Kernel::KProcess* owner_process, u64* out_buffer_id,
                                     u64* out_layer_handle, u64 display_id, bool enable_blending);
     void DestroySharedLayerSession(Kernel::KProcess* owner_process);
@@ -35,11 +34,9 @@ public:
                               AppletResourceUserId aruid);
     Result DestroyManagedLayer(u64 layer_id);
     Result AddToLayerStack(u32 stack_id, u64 layer_id);
-    Result RemoveFromLayerStack(u32 stack_id, u64 layer_id);
     Result SetLayerVisibility(bool visible, u64 layer_id);
 
 private:
-    void RejectUnsupportedManagerDisplayCommand(HLERequestContext& ctx);
     const std::shared_ptr<Container> m_container;
 };
 

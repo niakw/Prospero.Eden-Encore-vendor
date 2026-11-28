@@ -68,7 +68,7 @@ public:
 
 private:
     void InitializeOld(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto module = rp.PopEnum<Module>();
@@ -84,7 +84,7 @@ private:
     }
 
     void FinalizeOld(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto module = rp.PopEnum<Module>();
@@ -101,7 +101,7 @@ private:
     }
 
     void SetAndWaitOld(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto module = rp.PopEnum<Module>();
@@ -120,14 +120,14 @@ private:
     }
 
     void GetOld(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto module = rp.PopEnum<Module>();
 
         for (const auto& session : sessions) {
             if (session.module == module) {
-                IPC::ResponseBuilder rb{ctx, 3};
+                IPC::ResponseBuilder rb{ctx, 2};
                 rb.Push(ResultSuccess);
                 rb.Push(session.min);
                 return;
@@ -140,7 +140,7 @@ private:
     }
 
     void Initialize(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto module = rp.PopEnum<Module>();
@@ -157,7 +157,7 @@ private:
     }
 
     void Finalize(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto id = rp.Pop<u32>();
@@ -174,7 +174,7 @@ private:
     }
 
     void SetAndWait(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto id = rp.Pop<u32>();
@@ -193,7 +193,7 @@ private:
     }
 
     void Get(HLERequestContext& ctx) {
-        LOG_DEBUG(Service_MM, "called");
+        LOG_DEBUG(Service_MM, "(STUBBED) called");
 
         IPC::RequestParser rp{ctx};
         const auto id = rp.Pop<u32>();

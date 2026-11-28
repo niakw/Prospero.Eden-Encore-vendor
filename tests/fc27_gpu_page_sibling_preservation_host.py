@@ -15,12 +15,12 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
-CACHE=(ROOT/"encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h").read_text()
+BASE=(ROOT/"encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h").read_text()
+CACHE=(ROOT/"encore-active/eden/src/video_core/buffer_cache/buffer_cache.h").read_text()
 RANGESET=(ROOT/"sources/eden/src/common/range_sets.h").read_text()
 # Preserve the immutable upstream snapshot and authenticate the native overlay
 # by reversing only the exact reviewed additions.
-HOT=ROOT/"encore-active/eden-core/overrides/buffer-hotpath"
+HOT=ROOT/"encore-active/eden/src"
 assert "Intersects(" not in RANGESET
 native_range=(HOT/"common/range_sets.h").read_text()
 assert native_range.replace("    // Half-open overlap query: one lookup, without enumerating dirty spans.\n    bool Intersects(AddressType base_address, size_t size) const;\n", "", 1) == RANGESET
@@ -42,7 +42,59 @@ assert range_predecessor.replace(range_add,"",1)==(ROOT/"sources/eden/src/common
 native_word=(HOT/"video_core/buffer_cache/word_manager.h").read_text()
 word_add="            // Lichii f0efe663a5: clean words can skip work only when no\n            // CPU tracking notification is owed. GPU masking stays intact.\n            if (word == 0 &&\n                (!clear || ((type != Type::CPU && type != Type::CachedCPU) ||\n                            (untracked_words[index] & mask) == 0))) {\n                return;\n            }\n"
 assert native_word.count(word_add)==1
-assert native_word.replace(word_add,"",1)==(ROOT/"sources/eden/src/video_core/buffer_cache/word_manager.h").read_text()
+
+# Lichii #1518 adds one second, independently reviewed delta to this selected
+# WordManager: guest CPU page UNTRACK protection is collected while the cache
+# mutex owns word state, then applied after that lock is released. Authenticate
+# that delta explicitly before reversing it; do not weaken the frozen-Eden
+# comparison merely because two reviewed fixes now share this header.
+word_predecessor = native_word.replace(word_add, "", 1)
+assert word_predecessor.count('#include "common/assert.h"') == 1
+word_predecessor = word_predecessor.replace('#include "common/assert.h"\n', "", 1)
+
+deferred_begin = word_predecessor.index(
+    "// Page untracking can trigger host memory-protection system calls."
+)
+deferred_end = word_predecessor.index(
+    "template <class DeviceTracker, size_t stack_words, size_t size_bytes>",
+    deferred_begin,
+)
+deferred_owner = word_predecessor[deferred_begin:deferred_end]
+for marker in (
+    "class DeferredPageCaching",
+    "using Apply = void (*)(void*, std::span<const std::pair<VAddr, size_t>>, s32);",
+    "void ApplyAll()",
+    "inline thread_local DeferredPageCaching* t_deferred_page_caching{};",
+):
+    assert marker in deferred_owner, marker
+assert "EDEN_" not in deferred_owner
+word_predecessor = (
+    word_predecessor[:deferred_begin] + word_predecessor[deferred_end:]
+)
+
+defer_apply_begin = word_predecessor.index(
+    "        // Only guest-side page UNTRACK operations may move outside the"
+)
+defer_apply_end = word_predecessor.index(
+    "        // Use batch API to reduce lock acquisitions and contention.",
+    defer_apply_begin,
+)
+defer_apply = word_predecessor[defer_apply_begin:defer_apply_end]
+for marker in (
+    "if (t_deferred_page_caching != nullptr)",
+    "ASSERT_MSG(delta < 0,",
+    "t_deferred_page_caching->Add(",
+    "UpdatePagesCachedBatch(runs, run_delta)",
+):
+    assert marker in defer_apply, marker
+assert "delta > 0" not in defer_apply
+word_predecessor = (
+    word_predecessor[:defer_apply_begin] + word_predecessor[defer_apply_end:]
+)
+
+assert word_predecessor == (
+    ROOT/"sources/eden/src/video_core/buffer_cache/word_manager.h"
+).read_text()
 assert "#ifdef PS5_NATIVE\n    // Native RangeSet owner is selected together with this BufferCache.\n    // Avoid walking every fragmented GPU-written interval under the cache mutex.\n    return gpu_modified_ranges.Intersects(addr, size);\n#else\n    bool is_dirty = false;\n    gpu_modified_ranges.ForEachInRange(addr, size, [&](DAddr, DAddr) { is_dirty = true; });\n    return is_dirty;\n#endif" in CACHE
 # Exhaust the clean-word decision against old state/notification behavior for
 # CPU, CachedCPU, GPU and Preflushable, both clearing modes, all 4-bit masks.
@@ -94,10 +146,10 @@ query_start=CACHE.index("bool BufferCache<P>::IsRegionGpuModified(DAddr addr, si
 query=CACHE[query_start:CACHE.index("\n}\n", query_start)]
 assert "gpu_modified_ranges.ForEachInRange(addr, size," in query
 RASTERS=[
-    ROOT/"encore-active/eden-vulkan/vulkan_rasterizer.cpp",
-    ROOT/"encore-active/eden-core/guest-bridge/vulkan_rasterizer.cpp",
-    ROOT/"encore-active/eden-core/src/video_core/renderer_opengl/gl_rasterizer.cpp",
-    ROOT/"encore-active/eden-core/src/video_core/renderer_opengl/gl_rasterizer_dev.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_rasterizer_deferred.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer.cpp",
+    ROOT/"encore-active/eden/src/video_core/renderer_opengl/gl_rasterizer_dev.cpp",
 ]
 
 assert "void WriteMemory(DAddr device_addr, u64 size, bool keep_page_gpu_data = true);" in BASE

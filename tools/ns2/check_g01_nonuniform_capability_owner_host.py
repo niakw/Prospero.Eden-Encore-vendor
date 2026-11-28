@@ -9,7 +9,7 @@ No console, Vulkan shader submission or dynamic index OOB proof is claimed.
 from pathlib import Path
 import os,subprocess,shutil,tempfile
 ROOT=Path(__file__).resolve().parents[2]
-src=(ROOT/"encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_image.cpp").read_text()
+src=(ROOT/"encore-active/eden/src/shader_recompiler/backend/spirv/emit_spirv_image.cpp").read_text()
 a="enum class NonUniformKind {"
 b="\nclass ImageOperands {"
 assert src.count(a)==src.count(b)==1

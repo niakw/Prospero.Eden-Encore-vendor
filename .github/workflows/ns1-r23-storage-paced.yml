@@ -5,10 +5,10 @@ on:
       - research/ns1-r23-nvdec-storage-pacing-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/core/hle/service/filesystem/fsp/fs_i_storage.cpp"
-      - "encore-active/eden-core/include/core/hle/service/filesystem/fsp/fs_i_storage.h"
-      - "encore-active/eden-core/src/core/hle/service/service.cpp"
-      - "encore-active/eden-core/include/core/hle/service/service.h"
+      - "encore-active/eden/src/core/hle/service/filesystem/fsp/fs_i_storage.cpp"
+      - "encore-active/eden/include/core/hle/service/filesystem/fsp/fs_i_storage.h"
+      - "encore-active/eden/src/core/hle/service/service.cpp"
+      - "encore-active/eden/include/core/hle/service/service.h"
       - "tests/ns1_r23_54_storage_pacing.py"
       - ".github/workflows/ns1-r23-storage-paced.yml"
   workflow_dispatch:

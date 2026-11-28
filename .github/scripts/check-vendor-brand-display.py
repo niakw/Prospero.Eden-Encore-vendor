@@ -17,7 +17,7 @@ BRAND = re.compile(r"\b(NVIDIA|Sony|Nintendo|PlayStation|Microsoft|AMD)\b",
                    re.IGNORECASE)
 SOURCE_SUFFIXES = {".h", ".hpp", ".cpp", ".cc", ".c", ".inc", ".cmake",
                    ".py", ".sh", ".glsl", ".md", ".txt", ".yml", ".yaml"}
-THIRD_PARTY_DIRS = {"amd-fsr31", "ps5-mesa", "compiler-rt", "eden-backports"}
+THIRD_PARTY_ROOTS = {"ps5-mesa", "compiler-rt"}\nTHIRD_PARTY_PREFIXES = {("eden", "externals", "amd-fsr31")}
 counts: Counter[str] = Counter()
 third_party: Counter[str] = Counter()
 display: list[tuple[str, int, str]] = []
@@ -28,7 +28,7 @@ for path in sorted(ACTIVE.rglob("*")):
     if not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
         continue
     rel = path.relative_to(ACTIVE)
-    retained = rel.parts[0] in THIRD_PARTY_DIRS
+    retained = (rel.parts[0] in THIRD_PARTY_ROOTS or\n                any(tuple(rel.parts[:len(prefix)]) == prefix\n                    for prefix in THIRD_PARTY_PREFIXES))
     scanned += 1
     try:
         content = path.read_text(encoding="utf-8")

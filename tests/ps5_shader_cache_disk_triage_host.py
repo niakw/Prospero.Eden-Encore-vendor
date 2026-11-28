@@ -6,9 +6,9 @@ import importlib.util
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
-source = (root / "encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
-reader = (root / "encore-active/eden-core/src/video_core/shader_cache_reader.inc").read_text()
-writer = (root / "encore-active/eden-core/src/video_core/shader_environment.cpp").read_text()
+source = (root / "encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp").read_text()
+reader = (root / "encore-active/eden/src/video_core/shader_cache_reader.inc").read_text()
+writer = (root / "encore-active/eden/src/video_core/shader_environment.cpp").read_text()
 module_path = root / "tools/ps5_shader_cache_log_triage.py"
 spec = importlib.util.spec_from_file_location("ps5_cache_triage", module_path)
 assert spec and spec.loader

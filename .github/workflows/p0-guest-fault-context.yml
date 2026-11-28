@@ -2,8 +2,8 @@ name: P0 guest fault owner context (host source)
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/core/hle/kernel/physical_core_dev.cpp'
-      - 'encore-active/eden-core/src/core/hle/kernel/physical_core_standard.cpp'
+      - 'encore-active/eden/src/core/hle/kernel/physical_core_dev.cpp'
+      - 'encore-active/eden/src/core/hle/kernel/physical_core_standard.cpp'
       - 'tests/p0_guest_fault_context_source.py'
       - '.github/workflows/p0-guest-fault-context.yml'
   workflow_dispatch:

@@ -129,9 +129,6 @@ public:
     /// Returns the latest status of button input from the keyboard modifiers
     KeyboardModifier GetKeyboardModifier() const;
 
-    // Apply guest keyboard lock events to the virtual keyboard state.
-    void ApplyKeyboardLockKeyEvents(u32 flags);
-
     /// Returns the latest status of button input from the mouse
     MouseButton GetMouseButtons() const;
 

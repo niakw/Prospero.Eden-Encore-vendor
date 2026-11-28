@@ -2,7 +2,7 @@ name: NS2 R457 kernel slab direct-backing admission (host source)
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-runtime/sparse-residency/core/hle/kernel/init/init_slab_setup.cpp'
+      - 'encore-active/eden/src/core/hle/kernel/init/init_slab_setup.cpp'
       - 'tests/ns2_r457_kernel_slab_precommit_host.py'
       - '.github/workflows/r457-ns2-kernel-slab-precommit-host.yml'
   workflow_dispatch:

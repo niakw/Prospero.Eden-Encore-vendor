@@ -5,7 +5,7 @@ from pathlib import Path
 import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
-text = (ROOT / "encore-active/eden-vulkan/vulkan_device.cpp").read_text()
+text = (ROOT / "encore-active/eden/src/video_core/vulkan_common/vulkan_device.cpp").read_text()
 
 def git_blob(value: str) -> str:
     data = value.encode()

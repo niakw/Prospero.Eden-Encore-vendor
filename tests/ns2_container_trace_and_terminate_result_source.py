@@ -3,10 +3,10 @@
 """NS2 NUP/ExeFS post-load tracing and release termination evidence, source gate."""
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-core=(R/"encore-active/ns2-runtime/process/core/core.cpp").read_text()
-app=(R/"encore-active/ns2-runtime/am/core/hle/service/am/service/application_functions.cpp").read_text()
-exe=(R/"encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp").read_text()
-os=(R/"encore-active/ns2-runtime/process/core/hle/service/os/process.cpp").read_text()
+core=(R/"encore-active/eden/src/core/core.cpp").read_text()
+app=(R/"encore-active/eden/src/core/hle/service/am/service/application_functions.cpp").read_text()
+exe=(R/"encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp").read_text()
+os=(R/"encore-active/eden/src/core/hle/service/os/process.cpp").read_text()
 block=core.split("        // Create the application process",1)[1].split(
     '        if (app_loader->ReadProgramId(',1)[0]
 for tok in ("if (load_result != Loader::ResultStatus::Success)",

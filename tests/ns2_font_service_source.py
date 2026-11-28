@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-root=R/"encore-active/ns2-runtime/font_service/core/hle/service/ns"
+root=R/"encore-active/eden/src/core/hle/service/ns"
 cpp=(root/"platform_service_manager.cpp").read_text()
 hdr=(root/"platform_service_manager.h").read_text()
 merge=(root/"font_merge.cpp").read_text()

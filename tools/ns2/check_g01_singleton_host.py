@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-src=ROOT/"encore-active/ns2-runtime/ampere/shader_recompiler/backend/spirv/emit_spirv_image.cpp"
+src=ROOT/"encore-active/eden/src/shader_recompiler/backend/spirv/emit_spirv_image.cpp"
 s=src.read_text()
 begin="void CheckSingletonTextureIndex("
 # Test only the singleton owner. The following native range-proof

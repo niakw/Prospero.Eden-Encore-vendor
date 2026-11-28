@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <array>
 #include <random>
-#include <vector>
 
 #include "common/assert.h"
 #include "common/logging.h"
@@ -24,9 +23,7 @@
 #include "core/hle/service/vi/container.h"
 #include "core/hle/service/vi/shared_buffer_manager.h"
 #include "core/hle/service/vi/vi_results.h"
-#include "video_core/capture.h"
 #include "video_core/gpu.h"
-#include "video_core/textures/decoders.h"
 #include "video_core/host1x/host1x.h"
 
 namespace Service::VI {
@@ -253,39 +250,6 @@ void ForEachPoolChunk(Core::System& system, Kernel::KPageGroup& page_group, u64 
     }
 }
 
-template <typename F>
-void ForEachPoolChunkRead(Core::System& system, Kernel::KPageGroup& page_group, u64 offset,
-                          u64 size, F&& reader) {
-    Common::ScratchBuffer<u32> scratch;
-    const u64 range_end = offset + size;
-    u64 pool_pos = 0;
-
-    for (auto& block : page_group) {
-        const u64 block_begin = pool_pos;
-        const u64 block_end = block_begin + block.GetSize();
-        pool_pos = block_end;
-
-        if (block_end <= offset) {
-            continue;
-        }
-        if (block_begin >= range_end) {
-            break;
-        }
-
-        const u64 chunk_begin = (std::max)(block_begin, offset);
-        const u64 chunk_end = (std::min)(block_end, range_end);
-        const u64 chunk_size = chunk_end - chunk_begin;
-
-        const u8* const src =
-            system.DeviceMemory().GetPointer<u8>(block.GetAddress()) + (chunk_begin - block_begin);
-
-        system.GPU().Host1x().MemoryManager().ApplyOpOnPointer(
-            src, scratch, [&](DAddr addr) { (void)system.GPU().OnCPURead(addr, chunk_size); });
-
-        reader(src, chunk_begin - offset, chunk_size);
-    }
-}
-
 void MakeGraphicBuffer(android::BufferQueueProducer& producer, u32 producer_slot, u32 pool_slot, u32 handle) {
     auto buffer = std::make_shared<android::NvGraphicBuffer>();
     buffer->width = SharedBufferWidth;
@@ -327,7 +291,6 @@ Result SharedBufferManager::CreateSession(Kernel::KProcess* owner_process, u64* 
             // Record display id.
             m_display_id = display_id;
 
-            m_capture_written.fill(false);
             for (u32 slot = 0; slot < SharedBufferNumCaptureSlots; slot++) {
                 ForEachPoolChunk(m_system, *m_buffer_page_group, u64{slot} * SharedBufferSlotSize,
                                  SharedBufferSlotSize, [](u8* dst, u64, u64 length) {
@@ -555,8 +518,7 @@ Result SharedBufferManager::GetSharedFrameBufferAcquirableEvent(Kernel::KReadabl
     R_SUCCEED();
 }
 
-Result SharedBufferManager::WriteAppletCaptureBuffer(bool* out_was_written,
-                                                     s32* out_layer_index, CaptureKind kind) {
+Result SharedBufferManager::WriteAppletCaptureBuffer(bool* out_was_written, s32* out_layer_index, CaptureKind kind) {
     std::scoped_lock lk{m_guard};
     R_UNLESS(m_buffer_page_group != nullptr, VI::ResultNotFound);
 
@@ -564,103 +526,21 @@ Result SharedBufferManager::WriteAppletCaptureBuffer(bool* out_was_written,
     const u32 slot = GetCaptureSlot(kind);
 
     if (capture.size() < SharedBufferSlotSize) {
+        //LOG_WARNING(Service_VI, "Capture buffer is {} bytes, expected at least {}; not writing",
+        //            capture.size(), SharedBufferSlotSize);
         *out_was_written = false;
         *out_layer_index = static_cast<s32>(slot);
         R_SUCCEED();
     }
 
     ForEachPoolChunk(m_system, *m_buffer_page_group, u64{slot} * SharedBufferSlotSize,
-                     SharedBufferSlotSize, [&](u8* dst, u64 src_offset, u64 length) {
+                     SharedBufferSlotSize,
+                     [&](u8* dst, u64 src_offset, u64 length) {
                          std::memcpy(dst, capture.data() + src_offset, length);
                      });
 
-    m_capture_written[slot] = true;
     *out_was_written = true;
     *out_layer_index = static_cast<s32>(slot);
-    R_SUCCEED();
-}
-
-Result SharedBufferManager::ReadAppletCaptureBuffer(bool* out_was_written,
-                                                    std::span<u8> out_data, CaptureKind kind) {
-    using namespace VideoCore::Capture;
-
-    constexpr size_t LinearSize = size_t{LinearWidth} * LinearHeight * BytesPerPixel;
-    R_UNLESS(out_data.size() == LinearSize, VI::ResultOperationFailed);
-
-    std::vector<u8> tiled(TiledSize);
-    const u32 slot = GetCaptureSlot(kind);
-
-    {
-        std::scoped_lock lk{m_guard};
-        R_UNLESS(m_buffer_page_group != nullptr, VI::ResultNotFound);
-
-        ForEachPoolChunkRead(
-            m_system, *m_buffer_page_group, u64{slot} * SharedBufferSlotSize,
-            SharedBufferSlotSize, [&](const u8* src, u64 dst_offset, u64 length) {
-                std::memcpy(tiled.data() + dst_offset, src, length);
-            });
-        *out_was_written = m_capture_written[slot];
-    }
-
-    Tegra::Texture::UnswizzleTexture(out_data, tiled, BytesPerPixel, LinearWidth, LinearHeight,
-                                    LinearDepth, BlockHeight, BlockDepth);
-    R_SUCCEED();
-}
-
-Result SharedBufferManager::WriteAppletCaptureBufferToSlot(s32 layer_index,
-                                                           bool screenshot_permitted) {
-    R_UNLESS(layer_index >= 0 && layer_index < static_cast<s32>(SharedBufferNumCaptureSlots),
-             VI::ResultOperationFailed);
-
-    if (!screenshot_permitted) {
-        R_SUCCEED();
-    }
-
-    std::scoped_lock lk{m_guard};
-    R_UNLESS(m_buffer_page_group != nullptr, VI::ResultNotFound);
-
-    const std::vector<u8> capture = m_system.GPU().GetAppletCaptureBuffer();
-    R_UNLESS(capture.size() >= SharedBufferSlotSize, VI::ResultOperationFailed);
-
-    const u32 slot = static_cast<u32>(layer_index);
-    ForEachPoolChunk(m_system, *m_buffer_page_group, u64{slot} * SharedBufferSlotSize,
-                     SharedBufferSlotSize, [&](u8* dst, u64 src_offset, u64 length) {
-                         std::memcpy(dst, capture.data() + src_offset, length);
-                     });
-    m_capture_written[slot] = true;
-    R_SUCCEED();
-}
-
-Result SharedBufferManager::CopyAppletCaptureBuffer(s32 dst_layer_index, s32 src_layer_index) {
-    R_UNLESS(dst_layer_index >= 0 &&
-                 dst_layer_index < static_cast<s32>(SharedBufferNumCaptureSlots) &&
-                 src_layer_index >= 0 &&
-                 src_layer_index < static_cast<s32>(SharedBufferNumCaptureSlots),
-             VI::ResultOperationFailed);
-
-    if (dst_layer_index == src_layer_index) {
-        R_SUCCEED();
-    }
-
-    std::scoped_lock lk{m_guard};
-    R_UNLESS(m_buffer_page_group != nullptr, VI::ResultNotFound);
-
-    std::vector<u8> tiled(SharedBufferSlotSize);
-    const u32 src_slot = static_cast<u32>(src_layer_index);
-    const u32 dst_slot = static_cast<u32>(dst_layer_index);
-
-    ForEachPoolChunkRead(
-        m_system, *m_buffer_page_group, u64{src_slot} * SharedBufferSlotSize,
-        SharedBufferSlotSize, [&](const u8* src, u64 dst_offset, u64 length) {
-            std::memcpy(tiled.data() + dst_offset, src, length);
-        });
-
-    ForEachPoolChunk(m_system, *m_buffer_page_group, u64{dst_slot} * SharedBufferSlotSize,
-                     SharedBufferSlotSize, [&](u8* dst, u64 src_offset, u64 length) {
-                         std::memcpy(dst, tiled.data() + src_offset, length);
-                     });
-
-    m_capture_written[dst_slot] = m_capture_written[src_slot];
     R_SUCCEED();
 }
 
@@ -668,16 +548,16 @@ Result SharedBufferManager::ClearAppletCaptureBuffer(s32 layer_index, u32 color)
     std::scoped_lock lk{m_guard};
     R_UNLESS(m_buffer_page_group != nullptr, VI::ResultNotFound);
 
-    R_UNLESS(layer_index >= 0 && layer_index < static_cast<s32>(SharedBufferNumCaptureSlots),
-             VI::ResultOperationFailed);
+    if (layer_index < 0 || layer_index >= static_cast<s32>(SharedBufferNumCaptureSlots)) {
+        LOG_WARNING(Service_VI, "Couldnt clear non-capture slot {}", layer_index);
+        R_SUCCEED();
+    }
 
-    const u32 slot = static_cast<u32>(layer_index);
-    ForEachPoolChunk(m_system, *m_buffer_page_group, u64{slot} * SharedBufferSlotSize,
+    ForEachPoolChunk(m_system, *m_buffer_page_group, u64{static_cast<u32>(layer_index)} * SharedBufferSlotSize,
                      SharedBufferSlotSize, [&](u8* dst, u64 src_offset, u64 length) {
                          ASSERT(src_offset % sizeof(u32) == 0 && length % sizeof(u32) == 0);
                          std::fill_n(reinterpret_cast<u32*>(dst), length / sizeof(u32), color);
                      });
-    m_capture_written[slot] = true;
 
     R_SUCCEED();
 }

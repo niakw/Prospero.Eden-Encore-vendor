@@ -22,22 +22,22 @@ IBtmUserCore::IBtmUserCore(Core::System& system_)
         {1, nullptr, "GetBleScanFilterParameter"},
         {2, nullptr, "GetBleScanFilterParameter2"},
         {3, nullptr, "StartBleScanForGeneral"},
-        {4, C<&IBtmUserCore::StopOfflineBleScan>, "StopBleScanForGeneral"},
-        {5, C<&IBtmUserCore::GetOfflineBleScanResults>, "GetBleScanResultsForGeneral"},
+        {4, nullptr, "StopBleScanForGeneral"},
+        {5, nullptr, "GetBleScanResultsForGeneral"},
         {6, nullptr, "StartBleScanForPaired"},
-        {7, C<&IBtmUserCore::StopOfflineBleScan>, "StopBleScanForPaired"},
+        {7, nullptr, "StopBleScanForPaired"},
         {8, nullptr, "StartBleScanForSmartDevice"},
-        {9, C<&IBtmUserCore::StopOfflineBleScan>, "StopBleScanForSmartDevice"},
-        {10, C<&IBtmUserCore::GetOfflineBleScanResults>, "GetBleScanResultsForSmartDevice"},
+        {9, nullptr, "StopBleScanForSmartDevice"},
+        {10, nullptr, "GetBleScanResultsForSmartDevice"},
         {17, C<&IBtmUserCore::AcquireBleConnectionEvent>, "AcquireBleConnectionEvent"},
         {18, nullptr, "BleConnect"},
         {19, nullptr, "BleDisconnect"},
-        {20, C<&IBtmUserCore::GetOfflineBleConnectionState>, "BleGetConnectionState"},
-        {21, C<&IBtmUserCore::AcquireBlePairingEvent>, "AcquireBlePairingEvent"},
+        {20, nullptr, "BleGetConnectionState"},
+        {21, nullptr, "AcquireBlePairingEvent"},
         {22, nullptr, "BlePairDevice"},
         {23, nullptr, "BleUnPairDevice"},
         {24, nullptr, "BleUnPairDevice2"},
-        {25, C<&IBtmUserCore::GetOfflineBlePairedDevices>, "BleGetPairedDevices"},
+        {25, nullptr, "BleGetPairedDevices"},
         {26, C<&IBtmUserCore::AcquireBleServiceDiscoveryEvent>, "AcquireBleServiceDiscoveryEvent"},
         {27, nullptr, "GetGattServices"},
         {28, nullptr, "GetGattService"},
@@ -56,7 +56,6 @@ IBtmUserCore::IBtmUserCore(Core::System& system_)
 
     scan_event = service_context.CreateEvent("IBtmUserCore:ScanEvent");
     connection_event = service_context.CreateEvent("IBtmUserCore:ConnectionEvent");
-    pairing_event = service_context.CreateEvent("IBtmUserCore:PairingEvent");
     service_discovery_event = service_context.CreateEvent("IBtmUserCore:DiscoveryEvent");
     config_event = service_context.CreateEvent("IBtmUserCore:ConfigEvent");
 }
@@ -64,14 +63,13 @@ IBtmUserCore::IBtmUserCore(Core::System& system_)
 IBtmUserCore::~IBtmUserCore() {
     service_context.CloseEvent(scan_event);
     service_context.CloseEvent(connection_event);
-    service_context.CloseEvent(pairing_event);
     service_context.CloseEvent(service_discovery_event);
     service_context.CloseEvent(config_event);
 }
 
 Result IBtmUserCore::AcquireBleScanEvent(Out<bool> out_is_valid,
                                          OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
 
     *out_is_valid = true;
     *out_event = &scan_event->GetReadableEvent();
@@ -80,7 +78,7 @@ Result IBtmUserCore::AcquireBleScanEvent(Out<bool> out_is_valid,
 
 Result IBtmUserCore::AcquireBleConnectionEvent(Out<bool> out_is_valid,
                                                OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
 
     *out_is_valid = true;
     *out_event = &connection_event->GetReadableEvent();
@@ -89,7 +87,7 @@ Result IBtmUserCore::AcquireBleConnectionEvent(Out<bool> out_is_valid,
 
 Result IBtmUserCore::AcquireBleServiceDiscoveryEvent(
     Out<bool> out_is_valid, OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
 
     *out_is_valid = true;
     *out_event = &service_discovery_event->GetReadableEvent();
@@ -98,46 +96,10 @@ Result IBtmUserCore::AcquireBleServiceDiscoveryEvent(
 
 Result IBtmUserCore::AcquireBleMtuConfigEvent(Out<bool> out_is_valid,
                                               OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    LOG_DEBUG(Service_BTM, "Returning live BLE service event");
+    LOG_WARNING(Service_BTM, "(STUBBED) called");
 
     *out_is_valid = true;
     *out_event = &config_event->GetReadableEvent();
-    R_SUCCEED();
-}
-
-Result IBtmUserCore::StopOfflineBleScan() {
-    // Guest BLE scanning has no radio backend. Stopping an inactive scan is idempotent.
-    R_SUCCEED();
-}
-
-Result IBtmUserCore::GetOfflineBleScanResults(ClientAppletResourceUserId,
-                                             Out<u8> out_count,
-                                             OutBuffer<BufferAttr_HipcMapAlias> out_results) {
-    // No guest BLE scanner produces records. A zero count means no entries are consumed.
-    *out_count = 0;
-    R_SUCCEED();
-}
-
-Result IBtmUserCore::GetOfflineBleConnectionState(ClientAppletResourceUserId,
-                                                 Out<u8> out_count,
-                                                 OutBuffer<BufferAttr_HipcPointer> out_results) {
-    // Host controller transport is not exposed as a Horizon BLE connection.
-    *out_count = 0;
-    R_SUCCEED();
-}
-
-Result IBtmUserCore::AcquireBlePairingEvent(Out<bool> out_is_valid,
-                                           OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    // Keep a distinct, unsignalled event; never fabricate a completed pairing.
-    *out_is_valid = true;
-    *out_event = &pairing_event->GetReadableEvent();
-    R_SUCCEED();
-}
-
-Result IBtmUserCore::GetOfflineBlePairedDevices(u64, Out<u8> out_count,
-                                               OutBuffer<BufferAttr_HipcPointer> out_results) {
-    // The 8-byte advertisement filter cannot match any guest-paired BLE device.
-    *out_count = 0;
     R_SUCCEED();
 }
 

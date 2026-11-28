@@ -9,7 +9,7 @@ from pathlib import Path
 import hashlib
 
 R=Path(__file__).resolve().parents[1]
-P=R/"encore-active/eden-core/src/hid_core/resources/npad/npad.cpp"
+P=R/"encore-active/eden/src/hid_core/resources/npad/npad.cpp"
 text=P.read_text()
 old_includes="#include <algorithm>\n#include <array>\n#include <cstring>\n"
 new_includes="#include <algorithm>\n#include <array>\n#include <atomic>\n#include <chrono>\n#include <cstdio>\n#include <cstring>\n"

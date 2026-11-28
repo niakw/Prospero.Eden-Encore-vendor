@@ -69,7 +69,6 @@ public:
     Result GetLayerZIndex(u64 layer_id, s32* out_z_index);
     Result SetLayerIsOverlay(u64 layer_id, bool is_overlay);
     Result SetLayerStackMask(u64 layer_id, u32 layer_stack_mask);
-    Result UpdateLayerStack(u64 layer_id, u32 stack_id, bool add);
 
     void LinkVsyncEvent(u64 display_id, Event* event);
     void UnlinkVsyncEvent(u64 display_id, Event* event);

@@ -5,9 +5,8 @@ on:
     paths:
       - 'sources/eden/src/common/net/net.cpp'
       - 'sources/eden/src/common/net/net.h'
-      - 'encore-active/eden-backports/src/common/net/net.cpp'
-      - 'encore-active/eden-backports/src/common/net/net.h'
-      - 'encore-active/eden-backports/manifest.json'
+      - 'encore-active/eden/src/common/net/net.cpp'
+      - 'encore-active/eden/src/common/net/net.h'
       - 'tests/common_net_post_json_source.py'
       - '.github/workflows/common-net-post-json-host.yml'
   workflow_dispatch:

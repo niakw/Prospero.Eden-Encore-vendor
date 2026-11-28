@@ -114,11 +114,8 @@ public:
     bool Exists(const NcaID& id) const;
     bool Write(const NcaID& id, u64 offset, const std::vector<u8>& data) const;
     bool Register(RegisteredCache* cache, const NcaID& placeholder, const NcaID& install) const;
-    bool Revert(RegisteredCache* cache, const NcaID& placeholder,
-                const NcaID& old_content, const NcaID& new_content) const;
     bool CleanAll() const;
     std::optional<std::array<u8, 0x10>> GetRightsID(const NcaID& id) const;
-    std::optional<std::pair<NcaID, u8>> GetRightsIDWithKeyGeneration(const NcaID& id) const;
     u64 Size(const NcaID& id) const;
     bool SetSize(const NcaID& id, u64 new_size) const;
     std::vector<NcaID> List() const;
@@ -192,18 +189,6 @@ public:
     // Removes an existing entry based on title id
     bool RemoveExistingEntry(u64 title_id) const;
     bool Delete(const NcaID& id) const;
-
-    // Direct NCA-id accessors used by the NCM IContentStorage service.
-    bool Exists(const NcaID& id) const;
-    std::optional<u64> Size(const NcaID& id) const;
-    std::optional<std::vector<u8>> ReadContent(const NcaID& id, u64 offset,
-                                               std::size_t size) const;
-    std::vector<NcaID> ListContentIds() const;
-    std::optional<std::pair<NcaID, u8>> GetRightsId(const NcaID& id) const;
-    const CNMT* GetContentMeta(u64 title_id) const;
-    std::optional<NcaID> GetMetaNcaId(u64 title_id) const;
-    std::vector<const CNMT*> ListContentMetas() const;
-    bool ReferencesContent(const NcaID& id) const;
 
 private:
     template <typename T>

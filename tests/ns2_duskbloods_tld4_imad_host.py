@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-OWNER = ROOT / "encore-active/ns2-runtime/ampere/shader_recompiler/frontend/ampere/lower_to_maxwell.h"
+OWNER = ROOT / "encore-active/eden/src/shader_recompiler/frontend/ampere/lower_to_maxwell.h"
 source = OWNER.read_text()
 
 for needle in (
@@ -138,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix="ns2-duskbloods-851-") as td:
         "-fsanitize=undefined",
         "-fno-sanitize-recover=all",
         "-I",
-        str(ROOT / "encore-active/ns2-runtime/ampere"),
+        str(ROOT / "encore-active/eden/src"),
         "-I",
         str(ROOT / "sources/eden/src"),
         str(src),

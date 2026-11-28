@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-active = (root / "encore-active/eden-core/src/core/hle/service/am/window_system.cpp").read_text()
+active = (root / "encore-active/eden/src/core/hle/service/am/window_system.cpp").read_text()
 header = (root / "sources/eden/src/core/hle/service/am/window_system.h").read_text()
 base = (root / "sources/eden/src/core/hle/service/am/window_system.cpp").read_text()
 old = "    if (m_applets.empty()) {\n        m_system.Exit();\n    }"

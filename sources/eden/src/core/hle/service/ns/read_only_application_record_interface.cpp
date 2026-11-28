@@ -4,8 +4,6 @@
 // SPDX-FileCopyrightText: Copyright 2024 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include "core/core.h"
-#include "core/file_sys/registered_cache.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/ns/read_only_application_record_interface.h"
 #include "core/hle/service/ns/ns_types.h"
@@ -30,26 +28,15 @@ IReadOnlyApplicationRecordInterface::~IReadOnlyApplicationRecordInterface() = de
 
 Result IReadOnlyApplicationRecordInterface::HasApplicationRecord(
     Out<bool> out_has_application_record, u64 program_id) {
-    LOG_DEBUG(Service_NS, "called, program_id={:016X}", program_id);
-    const auto records = system.GetContentProviderUnion().ListEntriesFilterOrigin(
-        std::nullopt, FileSys::TitleType::Application, FileSys::ContentRecordType::Program,
-        program_id);
-    *out_has_application_record = !records.empty();
+    LOG_WARNING(Service_NS, "(STUBBED) called, program_id={:016X}", program_id);
+    *out_has_application_record = true;
     R_SUCCEED();
 }
 
 Result IReadOnlyApplicationRecordInterface::IsDataCorruptedResult(
     Out<bool> out_is_data_corrupted_result, Result result) {
-    constexpr u32 DataCorruptedDescriptionMin = 4000;
-    constexpr u32 DataCorruptedDescriptionMax = 4999;
-
-    const auto description = result.GetDescription();
-    *out_is_data_corrupted_result =
-        result.GetModule() == ErrorModule::FS && description >= DataCorruptedDescriptionMin &&
-        description <= DataCorruptedDescriptionMax;
-
-    LOG_DEBUG(Service_NS, "called, result={:#x}, is_data_corrupted={}",
-              result.GetInnerValue(), *out_is_data_corrupted_result);
+    LOG_WARNING(Service_NS, "(STUBBED) called, result={:#x}", result.GetInnerValue());
+    *out_is_data_corrupted_result = false;
     R_SUCCEED();
 }
 

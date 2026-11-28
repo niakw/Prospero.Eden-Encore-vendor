@@ -8,13 +8,9 @@
 
 #include "common/common_types.h"
 #include "common/logging.h"
-#include "core/core.h"
-#include "hid_core/hid_core.h"
-#include "hid_core/frontend/emulated_devices.h"
 #include "common/settings.h"
 #include "core/hle/kernel/k_shared_memory.h"
 #include "core/hle/kernel/k_transfer_memory.h"
-#include "core/hle/kernel/svc_results.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/hid/active_vibration_device_list.h"
@@ -78,12 +74,12 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {70, C<&IHidServer::SetSixAxisSensorFusionParameters>, "SetSixAxisSensorFusionParameters"},
         {71, C<&IHidServer::GetSixAxisSensorFusionParameters>, "GetSixAxisSensorFusionParameters"},
         {72, C<&IHidServer::ResetSixAxisSensorFusionParameters>, "ResetSixAxisSensorFusionParameters"},
-        {73, C<&IHidServer::SetAccelerometerParameters>, "SetAccelerometerParameters"},
-        {74, C<&IHidServer::GetAccelerometerParameters>, "GetAccelerometerParameters"},
-        {75, C<&IHidServer::ResetAccelerometerParameters>, "ResetAccelerometerParameters"},
-        {76, C<&IHidServer::SetAccelerometerPlayMode>, "SetAccelerometerPlayMode"},
-        {77, C<&IHidServer::GetAccelerometerPlayMode>, "GetAccelerometerPlayMode"},
-        {78, C<&IHidServer::ResetAccelerometerPlayMode>, "ResetAccelerometerPlayMode"},
+        {73, nullptr, "SetAccelerometerParameters"},
+        {74, nullptr, "GetAccelerometerParameters"},
+        {75, nullptr, "ResetAccelerometerParameters"},
+        {76, nullptr, "SetAccelerometerPlayMode"},
+        {77, nullptr, "GetAccelerometerPlayMode"},
+        {78, nullptr, "ResetAccelerometerPlayMode"},
         {79, C<&IHidServer::SetGyroscopeZeroDriftMode>, "SetGyroscopeZeroDriftMode"},
         {80, C<&IHidServer::GetGyroscopeZeroDriftMode>, "GetGyroscopeZeroDriftMode"},
         {81, C<&IHidServer::ResetGyroscopeZeroDriftMode>, "ResetGyroscopeZeroDriftMode"},
@@ -144,18 +140,18 @@ IHidServer::IHidServer(Core::System& system_, std::shared_ptr<ResourceManager> r
         {305, C<&IHidServer::StopSevenSixAxisSensor>, "StopSevenSixAxisSensor"},
         {306, C<&IHidServer::InitializeSevenSixAxisSensor>, "InitializeSevenSixAxisSensor"},
         {307, C<&IHidServer::FinalizeSevenSixAxisSensor>, "FinalizeSevenSixAxisSensor"},
-        {308, C<&IHidServer::SetSevenSixAxisSensorFusionStrength>, "SetSevenSixAxisSensorFusionStrength"},
-        {309, C<&IHidServer::GetSevenSixAxisSensorFusionStrength>, "GetSevenSixAxisSensorFusionStrength"},
+        {308, nullptr, "SetSevenSixAxisSensorFusionStrength"},
+        {309, nullptr, "GetSevenSixAxisSensorFusionStrength"},
         {310, C<&IHidServer::ResetSevenSixAxisSensorTimestamp>, "ResetSevenSixAxisSensorTimestamp"},
         {320, nullptr, "EnableNpadImu"}, //21.0.0+
         {321, nullptr, "DisableNpadImu"}, //21.0.0+
         {400, C<&IHidServer::IsUsbFullKeyControllerEnabled>, "IsUsbFullKeyControllerEnabled"},
-        {401, C<&IHidServer::EnableUsbFullKeyController>, "EnableUsbFullKeyController"},
-        {402, C<&IHidServer::IsUsbFullKeyControllerConnected>, "IsUsbFullKeyControllerConnected"},
-        {403, C<&IHidServer::HasBattery>, "HasBattery"},
-        {404, C<&IHidServer::HasLeftRightBattery>, "HasLeftRightBattery"},
-        {405, C<&IHidServer::GetNpadInterfaceType>, "GetNpadInterfaceType"},
-        {406, C<&IHidServer::GetNpadLeftRightInterfaceType>, "GetNpadLeftRightInterfaceType"},
+        {401, nullptr, "EnableUsbFullKeyController"},
+        {402, nullptr, "IsUsbFullKeyControllerConnected"},
+        {403, nullptr, "HasBattery"},
+        {404, nullptr, "HasLeftRightBattery"},
+        {405, nullptr, "GetNpadInterfaceType"},
+        {406, nullptr, "GetNpadLeftRightInterfaceType"},
         {407, nullptr, "GetNpadOfHighestBatteryLevel"},
         {408, nullptr, "GetNpadOfHighestBatteryLevelForJoyRight"},
         {500, C<&IHidServer::GetPalmaConnectionHandle>, "GetPalmaConnectionHandle"},
@@ -307,9 +303,8 @@ Result IHidServer::ActivateKeyboard(ClientAppletResourceUserId aruid) {
     R_RETURN(GetResourceManager()->GetKeyboard()->Activate(aruid.pid));
 }
 
-Result IHidServer::SendKeyboardLockKeyEvent(u32 flags, ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called, flags={:#x}, applet_resource_user_id={}", flags, aruid.pid);
-    system.HIDCore().GetEmulatedDevices()->ApplyKeyboardLockKeyEvents(flags);
+Result IHidServer::SendKeyboardLockKeyEvent(u32 flags) {
+    LOG_WARNING(Service_HID, "(STUBBED) called. flags={}", flags);
     R_SUCCEED();
 }
 
@@ -325,8 +320,7 @@ Result IHidServer::AcquireXpadIdEventHandle(OutCopyHandle<Kernel::KReadableEvent
 Result IHidServer::ReleaseXpadIdEventHandle(ClientAppletResourceUserId aruid) {
     LOG_DEBUG(Service_HID, "called, applet_resource_user_id={}", aruid.pid);
 
-    // Horizon 10.0.0+ keeps this command as an intentional compatibility no-op.
-    // Encore targets HOS 23.x here, so success without state mutation is the contract.
+    // This function has been stubbed since 10.0.0+
     R_SUCCEED();
 }
 
@@ -507,71 +501,6 @@ Result IHidServer::ResetSixAxisSensorFusionParameters(Core::HID::SixAxisSensorHa
     R_TRY(GetResourceManager()->GetSixAxis()->SetSixAxisFusionParameters(sixaxis_handle,
                                                                          fusion_parameters));
     R_RETURN(GetResourceManager()->GetSixAxis()->SetSixAxisFusionEnabled(sixaxis_handle, true));
-}
-
-Result IHidServer::SetAccelerometerParameters(
-    Core::HID::SixAxisSensorHandle sixaxis_handle, AccelerometerParameters parameters,
-    ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, x={}, y={}, "
-              "applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              parameters.x, parameters.y, aruid.pid);
-    accelerometer_parameters = parameters;
-    R_SUCCEED();
-}
-
-Result IHidServer::GetAccelerometerParameters(
-    Out<AccelerometerParameters> out_parameters, Core::HID::SixAxisSensorHandle sixaxis_handle,
-    ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    *out_parameters = accelerometer_parameters;
-    R_SUCCEED();
-}
-
-Result IHidServer::ResetAccelerometerParameters(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                                ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    accelerometer_parameters = {};
-    R_SUCCEED();
-}
-
-Result IHidServer::SetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                            u32 play_mode, ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, play_mode={}, "
-              "applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              play_mode, aruid.pid);
-    accelerometer_play_mode = play_mode;
-    R_SUCCEED();
-}
-
-Result IHidServer::GetAccelerometerPlayMode(Out<u32> out_play_mode,
-                                            Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                            ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    *out_play_mode = accelerometer_play_mode;
-    R_SUCCEED();
-}
-
-Result IHidServer::ResetAccelerometerPlayMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
-                                              ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, npad_type={}, npad_id={}, device_index={}, applet_resource_user_id={}",
-              sixaxis_handle.npad_type, sixaxis_handle.npad_id, sixaxis_handle.device_index,
-              aruid.pid);
-    accelerometer_play_mode = 0;
-    R_SUCCEED();
 }
 
 Result IHidServer::SetGyroscopeZeroDriftMode(Core::HID::SixAxisSensorHandle sixaxis_handle,
@@ -1180,18 +1109,18 @@ Result IHidServer::ActivateConsoleSixAxisSensor(ClientAppletResourceUserId aruid
 Result IHidServer::StartConsoleSixAxisSensor(
     Core::HID::ConsoleSixAxisSensorHandle console_sixaxis_handle,
     ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called, handle=({}, {}), applet_resource_user_id={}",
-              console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
-    GetResourceManager()->GetConsoleSixAxis()->StartSampling(aruid.pid);
+    LOG_WARNING(Service_HID,
+                "(STUBBED) called, unknown_1={}, unknown_2={}, applet_resource_user_id={}",
+                console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
     R_SUCCEED();
 }
 
 Result IHidServer::StopConsoleSixAxisSensor(
     Core::HID::ConsoleSixAxisSensorHandle console_sixaxis_handle,
     ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called, handle=({}, {}), applet_resource_user_id={}",
-              console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
-    GetResourceManager()->GetConsoleSixAxis()->StopSampling(aruid.pid);
+    LOG_WARNING(Service_HID,
+                "(STUBBED) called, unknown_1={}, unknown_2={}, applet_resource_user_id={}",
+                console_sixaxis_handle.unknown_1, console_sixaxis_handle.unknown_2, aruid.pid);
     R_SUCCEED();
 }
 
@@ -1207,11 +1136,13 @@ Result IHidServer::ActivateSevenSixAxisSensor(ClientAppletResourceUserId aruid) 
 }
 
 Result IHidServer::StartSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
-    R_RETURN(GetResourceManager()->GetSevenSixAxis()->StartSampling(aruid.pid));
+    LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
+    R_SUCCEED();
 }
 
 Result IHidServer::StopSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
-    R_RETURN(GetResourceManager()->GetSevenSixAxis()->StopSampling(aruid.pid));
+    LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
+    R_SUCCEED();
 }
 
 Result IHidServer::InitializeSevenSixAxisSensor(ClientAppletResourceUserId aruid, u64 t_mem_1_size,
@@ -1223,32 +1154,24 @@ Result IHidServer::InitializeSevenSixAxisSensor(ClientAppletResourceUserId aruid
                 "applet_resource_user_id={}",
                 t_mem_1_size, t_mem_2_size, aruid.pid);
 
-    R_UNLESS(t_mem_1_size == 0x1000 && t_mem_2_size == 0x7F000, Kernel::ResultInvalidSize);
-    R_UNLESS(t_mem_1.Get() && t_mem_2.Get(), Kernel::ResultInvalidHandle);
+    ASSERT_MSG(t_mem_1_size == 0x1000, "t_mem_1_size is not 0x1000 bytes");
+    ASSERT_MSG(t_mem_2_size == 0x7F000, "t_mem_2_size is not 0x7F000 bytes");
 
-    // Preserve the console resource activation, but do not sample before Start.
-    R_TRY(GetResourceManager()->GetConsoleSixAxis()->Activate());
-    R_TRY(GetResourceManager()->GetSevenSixAxis()->Activate());
-    R_RETURN(GetResourceManager()->GetSevenSixAxis()->InitializeTransferMemory(
-        aruid.pid, t_mem_1.Get(), t_mem_2.Get()));
-}
+    ASSERT_MSG(t_mem_1->GetSize() == 0x1000, "t_mem_1 has incorrect size");
+    ASSERT_MSG(t_mem_2->GetSize() == 0x7F000, "t_mem_2 has incorrect size");
 
-Result IHidServer::FinalizeSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
-    R_RETURN(GetResourceManager()->GetSevenSixAxis()->FinalizeTransferMemory(aruid.pid));
-}
+    // Activate console six axis controller
+    GetResourceManager()->GetConsoleSixAxis()->Activate();
+    GetResourceManager()->GetSevenSixAxis()->Activate();
 
-Result IHidServer::SetSevenSixAxisSensorFusionStrength(
-    f32 strength, ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID, "called, strength={}, applet_resource_user_id={}", strength, aruid.pid);
-    seven_six_axis_sensor_fusion_strength = strength;
+    GetResourceManager()->GetSevenSixAxis()->SetTransferMemoryAddress(t_mem_1->GetSourceAddress(), t_mem_1->GetOwner());
+
     R_SUCCEED();
 }
 
-Result IHidServer::GetSevenSixAxisSensorFusionStrength(
-    Out<f32> out_strength, ClientAppletResourceUserId aruid) {
-    *out_strength = seven_six_axis_sensor_fusion_strength;
-    LOG_DEBUG(Service_HID, "called, strength={}, applet_resource_user_id={}", *out_strength,
-              aruid.pid);
+Result IHidServer::FinalizeSevenSixAxisSensor(ClientAppletResourceUserId aruid) {
+    LOG_WARNING(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
+
     R_SUCCEED();
 }
 
@@ -1259,72 +1182,25 @@ Result IHidServer::ResetSevenSixAxisSensorTimestamp(ClientAppletResourceUserId a
     R_SUCCEED();
 }
 
-Result IHidServer::IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled) {
-    LOG_DEBUG(Service_HID, "called, enabled={}", usb_full_key_controller_enabled);
+Result IHidServer::IsUsbFullKeyControllerEnabled(Out<bool> out_is_enabled,
+                                                 ClientAppletResourceUserId aruid) {
+    LOG_WARNING(Service_HID, "(STUBBED) called");
 
-    *out_is_enabled = usb_full_key_controller_enabled;
+    *out_is_enabled = false;
     R_SUCCEED();
-}
-
-Result IHidServer::EnableUsbFullKeyController(bool is_enabled) {
-    LOG_DEBUG(Service_HID, "called, is_enabled={}", is_enabled);
-
-    usb_full_key_controller_enabled = is_enabled;
-    R_SUCCEED();
-}
-
-Result IHidServer::IsUsbFullKeyControllerConnected(Out<bool> out_is_connected,
-                                                    Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->IsUsbFullKeyControllerConnected(
-        npad_id, *out_is_connected));
-}
-
-Result IHidServer::HasBattery(Out<bool> out_has_battery, Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->HasBattery(npad_id, *out_has_battery));
-}
-
-Result IHidServer::HasLeftRightBattery(Out<bool> out_has_left_battery,
-                                       Out<bool> out_has_right_battery,
-                                       Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->HasLeftRightBattery(
-        npad_id, *out_has_left_battery, *out_has_right_battery));
-}
-
-Result IHidServer::GetNpadInterfaceType(
-    Out<Core::HID::NpadInterfaceType> out_interface_type, Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->GetNpadInterfaceType(
-        npad_id, *out_interface_type));
-}
-
-Result IHidServer::GetNpadLeftRightInterfaceType(
-    Out<Core::HID::NpadInterfaceType> out_left_interface_type,
-    Out<Core::HID::NpadInterfaceType> out_right_interface_type,
-    Core::HID::NpadIdType npad_id) {
-    LOG_DEBUG(Service_HID, "called, npad_id={}", npad_id);
-
-    R_RETURN(GetResourceManager()->GetNpad()->GetNpadLeftRightInterfaceType(
-        npad_id, *out_left_interface_type, *out_right_interface_type));
 }
 
 Result IHidServer::GetPalmaConnectionHandle(Out<Palma::PalmaConnectionHandle> out_handle,
                                             Core::HID::NpadIdType npad_id,
                                             ClientAppletResourceUserId aruid) {
-    LOG_WARNING(Service_HID, "called, npad_id={}, applet_resource_user_id={}", npad_id,
+    LOG_WARNING(Service_HID, "(STUBBED) called, npad_id={}, applet_resource_user_id={}", npad_id,
                 aruid.pid);
 
     R_RETURN(GetResourceManager()->GetPalma()->GetPalmaConnectionHandle(npad_id, *out_handle));
 }
 
 Result IHidServer::InitializePalma(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     R_RETURN(GetResourceManager()->GetPalma()->InitializePalma(connection_handle));
 }
@@ -1332,7 +1208,7 @@ Result IHidServer::InitializePalma(Palma::PalmaConnectionHandle connection_handl
 Result IHidServer::AcquirePalmaOperationCompleteEvent(
     OutCopyHandle<Kernel::KReadableEvent> out_event,
     Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     *out_event =
         &GetResourceManager()->GetPalma()->AcquirePalmaOperationCompleteEvent(connection_handle);
@@ -1342,7 +1218,7 @@ Result IHidServer::AcquirePalmaOperationCompleteEvent(
 Result IHidServer::GetPalmaOperationInfo(Out<Palma::PalmaOperationType> out_operation_type,
                                          Palma::PalmaConnectionHandle connection_handle,
                                          OutBuffer<BufferAttr_HipcMapAlias> out_data) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     R_RETURN(GetResourceManager()->GetPalma()->GetPalmaOperationInfo(
         connection_handle, *out_operation_type, out_data));
@@ -1350,7 +1226,7 @@ Result IHidServer::GetPalmaOperationInfo(Out<Palma::PalmaOperationType> out_oper
 
 Result IHidServer::PlayPalmaActivity(Palma::PalmaConnectionHandle connection_handle,
                                      u64 palma_activity) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}, palma_activity={}",
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, palma_activity={}",
                 connection_handle.npad_id, palma_activity);
 
     R_RETURN(
@@ -1359,77 +1235,75 @@ Result IHidServer::PlayPalmaActivity(Palma::PalmaConnectionHandle connection_han
 
 Result IHidServer::SetPalmaFrModeType(Palma::PalmaConnectionHandle connection_handle,
                                       Palma::PalmaFrModeType fr_mode) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}, fr_mode={}",
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, fr_mode={}",
                 connection_handle.npad_id, fr_mode);
 
     R_RETURN(GetResourceManager()->GetPalma()->SetPalmaFrModeType(connection_handle, fr_mode));
 }
 
 Result IHidServer::ReadPalmaStep(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     R_RETURN(GetResourceManager()->GetPalma()->ReadPalmaStep(connection_handle));
 }
 
 Result IHidServer::EnablePalmaStep(bool is_enabled,
                                    Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}, is_enabled={}",
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, is_enabled={}",
                 connection_handle.npad_id, is_enabled);
 
     R_RETURN(GetResourceManager()->GetPalma()->EnablePalmaStep(connection_handle, is_enabled));
 }
 
 Result IHidServer::ResetPalmaStep(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     R_RETURN(GetResourceManager()->GetPalma()->ResetPalmaStep(connection_handle));
 }
 
 Result IHidServer::ReadPalmaApplicationSection(Palma::PalmaConnectionHandle connection_handle,
                                                u64 offset, u64 size) {
-    // Poké Ball Plus application storage is not modeled by Encore.
-    LOG_DEBUG(Service_HID, "Palma application-section read ignored, connection_handle={}, offset={}, size={}",
-              connection_handle.npad_id, offset, size);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, offset={}, size={}",
+                connection_handle.npad_id, offset, size);
     R_SUCCEED();
 }
 
 Result IHidServer::WritePalmaApplicationSection(
     Palma::PalmaConnectionHandle connection_handle, u64 offset, u64 size,
     InLargeData<Palma::PalmaApplicationSection, BufferAttr_HipcPointer> data) {
-    // Poké Ball Plus application storage is not modeled by Encore.
-    LOG_DEBUG(Service_HID, "Palma application-section write ignored, connection_handle={}, offset={}, size={}",
-              connection_handle.npad_id, offset, size);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, offset={}, size={}",
+                connection_handle.npad_id, offset, size);
     R_SUCCEED();
 }
 
 Result IHidServer::ReadPalmaUniqueCode(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
-    R_RETURN(GetResourceManager()->GetPalma()->ReadPalmaUniqueCode(connection_handle));
+    GetResourceManager()->GetPalma()->ReadPalmaUniqueCode(connection_handle);
+    R_SUCCEED();
 }
 
 Result IHidServer::SetPalmaUniqueCodeInvalid(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
-    R_RETURN(GetResourceManager()->GetPalma()->SetPalmaUniqueCodeInvalid(connection_handle));
+    GetResourceManager()->GetPalma()->SetPalmaUniqueCodeInvalid(connection_handle);
+    R_SUCCEED();
 }
 
 Result IHidServer::WritePalmaActivityEntry(Palma::PalmaConnectionHandle connection_handle,
                                            Palma::PalmaActivityEntry activity_entry) {
-    // Activity-table persistence belongs to physical Palma hardware.
-    LOG_DEBUG(Service_HID, "Palma activity entry ignored, connection_handle={}",
-              connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
     R_SUCCEED();
 }
 
 Result IHidServer::WritePalmaRgbLedPatternEntry(Palma::PalmaConnectionHandle connection_handle,
                                                 u64 unknown,
                                                 InBuffer<BufferAttr_HipcMapAlias> led_pattern) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}, unknown={}",
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, unknown={}",
                 connection_handle.npad_id, unknown);
 
-    R_RETURN(
-        GetResourceManager()->GetPalma()->WritePalmaRgbLedPatternEntry(connection_handle, unknown));
+    GetResourceManager()->GetPalma()->WritePalmaRgbLedPatternEntry(connection_handle, unknown);
+    R_SUCCEED();
 }
 
 Result IHidServer::WritePalmaWaveEntry(Palma::PalmaConnectionHandle connection_handle,
@@ -1439,25 +1313,27 @@ Result IHidServer::WritePalmaWaveEntry(Palma::PalmaConnectionHandle connection_h
 
     LOG_WARNING(
         Service_HID,
-        "called, connection_handle={}, wave_set={}, unknown={}, t_mem_size={}, size={}",
+        "(STUBBED) called, connection_handle={}, wave_set={}, unknown={}, t_mem_size={}, size={}",
         connection_handle.npad_id, wave_set, unknown, t_mem_size, size);
 
-    R_RETURN(GetResourceManager()->GetPalma()->WritePalmaWaveEntry(
-        connection_handle, wave_set, t_mem->GetSourceAddress(), t_mem_size));
+    GetResourceManager()->GetPalma()->WritePalmaWaveEntry(connection_handle, wave_set,
+                                                          t_mem->GetSourceAddress(), t_mem_size);
+    R_SUCCEED();
 }
 
 Result IHidServer::SetPalmaDataBaseIdentificationVersion(
     s32 database_id_version, Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}, database_id_version={}",
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}, database_id_version={}",
                 connection_handle.npad_id, database_id_version);
 
-    R_RETURN(GetResourceManager()->GetPalma()->SetPalmaDataBaseIdentificationVersion(
-        connection_handle, database_id_version));
+    GetResourceManager()->GetPalma()->SetPalmaDataBaseIdentificationVersion(connection_handle,
+                                                                            database_id_version);
+    R_SUCCEED();
 }
 
 Result IHidServer::GetPalmaDataBaseIdentificationVersion(
     Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     R_RETURN(
         GetResourceManager()->GetPalma()->GetPalmaDataBaseIdentificationVersion(connection_handle));
@@ -1465,36 +1341,33 @@ Result IHidServer::GetPalmaDataBaseIdentificationVersion(
 
 Result IHidServer::SuspendPalmaFeature(Palma::PalmaFeature feature,
                                        Palma::PalmaConnectionHandle connection_handle) {
-    // Physical Palma feature suspension has no PS5 equivalent.
-    LOG_DEBUG(Service_HID, "Palma feature suspend ignored, feature={}, connection_handle={}", feature,
-              connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, feature={}, connection_handle={}", feature,
+                connection_handle.npad_id);
     R_SUCCEED();
 }
 
 Result IHidServer::GetPalmaOperationResult(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
     R_RETURN(GetResourceManager()->GetPalma()->GetPalmaOperationResult(connection_handle));
 }
 
 Result IHidServer::ReadPalmaPlayLog(u16 unknown, Palma::PalmaConnectionHandle connection_handle) {
-    // Physical Palma play-log storage is not modeled.
-    LOG_DEBUG(Service_HID, "Palma play-log read ignored, unknown={}, connection_handle={}", unknown,
-              connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, unknown={}, connection_handle={}", unknown,
+                connection_handle.npad_id);
     R_SUCCEED();
 }
 
 Result IHidServer::ResetPalmaPlayLog(u16 unknown, Palma::PalmaConnectionHandle connection_handle) {
-    // Physical Palma play-log storage is not modeled.
-    LOG_DEBUG(Service_HID, "Palma play-log reset ignored, unknown={}, connection_handle={}", unknown,
-              connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, unknown={}, connection_handle={}", unknown,
+                connection_handle.npad_id);
     R_SUCCEED();
 }
 
 Result IHidServer::SetIsPalmaAllConnectable(bool is_palma_all_connectable,
                                             ClientAppletResourceUserId aruid) {
     LOG_WARNING(Service_HID,
-                "called, is_palma_all_connectable={}, applet_resource_user_id={}",
+                "(STUBBED) called, is_palma_all_connectable={}, applet_resource_user_id={}",
                 is_palma_all_connectable, aruid.pid);
 
     GetResourceManager()->GetPalma()->SetIsPalmaAllConnectable(is_palma_all_connectable);
@@ -1503,54 +1376,47 @@ Result IHidServer::SetIsPalmaAllConnectable(bool is_palma_all_connectable,
 
 Result IHidServer::SetIsPalmaPairedConnectable(bool is_palma_paired_connectable,
                                                ClientAppletResourceUserId aruid) {
-    // Pairing policy is irrelevant without physical Palma discovery.
-    LOG_DEBUG(Service_HID,
-              "Palma paired-connectable policy ignored, is_palma_paired_connectable={}, applet_resource_user_id={}",
-              is_palma_paired_connectable, aruid.pid);
+    LOG_WARNING(Service_HID,
+                "(STUBBED) called, is_palma_paired_connectable={}, applet_resource_user_id={}",
+                is_palma_paired_connectable, aruid.pid);
     R_SUCCEED();
 }
 
 Result IHidServer::PairPalma(Palma::PalmaConnectionHandle connection_handle) {
-    LOG_WARNING(Service_HID, "called, connection_handle={}", connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
 
-    R_RETURN(GetResourceManager()->GetPalma()->PairPalma(connection_handle));
+    GetResourceManager()->GetPalma()->PairPalma(connection_handle);
+    R_SUCCEED();
 }
 
 Result IHidServer::SetPalmaBoostMode(bool is_enabled) {
-    // Boost mode controls physical Palma radio/MCU behavior unavailable on PS5.
-    LOG_DEBUG(Service_HID, "Palma boost mode ignored, is_enabled={}", is_enabled);
+    LOG_WARNING(Service_HID, "(STUBBED) called, is_enabled={}", is_enabled);
+
+    GetResourceManager()->GetPalma()->SetPalmaBoostMode(is_enabled);
     R_SUCCEED();
 }
 
 Result IHidServer::CancelWritePalmaWaveEntry(Palma::PalmaConnectionHandle connection_handle) {
-    // No physical wave transfer remains pending in Encore.
-    LOG_DEBUG(Service_HID, "Palma wave-write cancel ignored, connection_handle={}",
-              connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
     R_SUCCEED();
 }
 
 Result IHidServer::EnablePalmaBoostMode(bool is_enabled, ClientAppletResourceUserId aruid) {
-    // Physical Palma boost mode is unavailable on PS5.
-    LOG_DEBUG(Service_HID, "Palma boost-mode enable ignored, is_enabled={}, applet_resource_user_id={}",
-              is_enabled, aruid.pid);
+    LOG_WARNING(Service_HID, "(STUBBED) called, is_enabled={}, applet_resource_user_id={}",
+                is_enabled, aruid.pid);
     R_SUCCEED();
 }
 
 Result IHidServer::GetPalmaBluetoothAddress(Out<Palma::Address> out_bt_address,
                                             Palma::PalmaConnectionHandle connection_handle) {
-    // Encore has no physical Palma Bluetooth peer; never leave guest output uninitialized.
-    *out_bt_address = {};
-    LOG_DEBUG(Service_HID, "Returning empty Palma Bluetooth address, connection_handle={}",
-              connection_handle.npad_id);
+    LOG_WARNING(Service_HID, "(STUBBED) called, connection_handle={}", connection_handle.npad_id);
     R_SUCCEED();
 }
 
 Result IHidServer::SetDisallowedPalmaConnection(
     ClientAppletResourceUserId aruid,
     InArray<Palma::Address, BufferAttr_HipcPointer> disallowed_address) {
-    // There is no physical Palma discovery layer to filter.
-    LOG_DEBUG(Service_HID, "Disallowed Palma address list ignored, applet_resource_user_id={}, count={}",
-              aruid.pid, disallowed_address.size());
+    LOG_DEBUG(Service_HID, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
     R_SUCCEED();
 }
 
@@ -1559,7 +1425,7 @@ Result IHidServer::SetNpadCommunicationMode(ClientAppletResourceUserId aruid,
     LOG_DEBUG(Service_HID, "called, applet_resource_user_id={}, communication_mode={}", aruid.pid,
               communication_mode);
 
-    // Horizon itself treats this command as a no-op from 2.0.0 onward.
+    // This function has been stubbed since 2.0.0+
     R_SUCCEED();
 }
 
@@ -1567,7 +1433,7 @@ Result IHidServer::GetNpadCommunicationMode(Out<NpadCommunicationMode> out_commu
                                             ClientAppletResourceUserId aruid) {
     LOG_DEBUG(Service_HID, "called, applet_resource_user_id={}", aruid.pid);
 
-    // Horizon itself returns the default mode from this no-op command since 2.0.0.
+    // This function has been stubbed since 2.0.0+
     *out_communication_mode = NpadCommunicationMode::Default;
     R_SUCCEED();
 }
@@ -1589,9 +1455,8 @@ Result IHidServer::SetTouchScreenConfiguration(
 Result IHidServer::IsFirmwareUpdateNeededForNotification(Out<bool> out_is_firmware_update_needed,
                                                          s32 unknown,
                                                          ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_HID,
-              "called, unknown={}, applet_resource_user_id={}; controller firmware updater is not modeled",
-              unknown, aruid.pid);
+    LOG_WARNING(Service_HID, "(STUBBED) called, unknown={}, applet_resource_user_id={}", unknown,
+                aruid.pid);
 
     *out_is_firmware_update_needed = false;
     R_SUCCEED();

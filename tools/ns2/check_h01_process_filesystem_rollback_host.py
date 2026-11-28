@@ -3,8 +3,8 @@
 from pathlib import Path
 import os,shutil,subprocess,tempfile
 R=Path(__file__).resolve().parents[2]
-p=(R/"encore-active/ns2-runtime/process/core/hle/service/os/process.cpp").read_text()
-f=(R/"encore-active/eden-core/src/core/hle/service/filesystem/filesystem.cpp").read_text()
+p=(R/"encore-active/eden/src/core/hle/service/os/process.cpp").read_text()
+f=(R/"encore-active/eden/src/core/hle/service/filesystem/filesystem.cpp").read_text()
 def part(s,start,end):
     assert s.count(start)==s.count(end)==1,(start,end)
     return start+s.split(start,1)[1].split(end,1)[0]
@@ -27,8 +27,8 @@ assert "SvcTrace::active_pid.load" in final
 assert "UnregisterProcessIfPresent(" in final
 assert "registrations.erase(process_id)" in erase
 assert "UnregisterProcessIfPresent" in (
-    R/"encore-active/eden-core/overrides/h01-filesystem/core/hle/service/filesystem/filesystem.h").read_text()
-cm=(R/"encore-active/eden-threading/native-hle-overrides.cmake").read_text()
+    R/"encore-active/eden/src/core/hle/service/filesystem/filesystem.h").read_text()
+cm=(R/"encore-active/eden/native-hle-overrides.cmake").read_text()
 assert "_encore_h01_fs_header_root" in cm and "if(PS5_NATIVE)" in cm
 assert "UnregisterProcessIfPresent" not in (
     R/"sources/eden/src/core/hle/service/filesystem/filesystem.h").read_text()

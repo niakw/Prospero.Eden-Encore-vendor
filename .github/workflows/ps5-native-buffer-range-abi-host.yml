@@ -3,15 +3,15 @@ name: PS5 native BufferCache RangeSet ABI (host)
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
-      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h'
+      - 'encore-active/eden/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h'
       - 'tests/fc27_gpu_page_sibling_preservation_host.py'
       - '.github/workflows/ps5-native-buffer-range-abi-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache.h'
-      - 'encore-active/eden-core/src/video_core/buffer_cache/buffer_cache_base.h'
+      - 'encore-active/eden/src/video_core/buffer_cache/buffer_cache.h'
+      - 'encore-active/eden/src/video_core/buffer_cache/buffer_cache_base.h'
       - 'tests/fc27_gpu_page_sibling_preservation_host.py'
       - '.github/workflows/ps5-native-buffer-range-abi-host.yml'
 permissions:

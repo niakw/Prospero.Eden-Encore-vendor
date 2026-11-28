@@ -9,9 +9,9 @@ CPU span before it can become visible in the texture page tables.
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTIVE = ROOT / "encore-active/ns2-astc/include/video_core/texture_cache/texture_cache.h"
-SHADOW = ROOT / "encore-active/eden-vulkan/vulkan-cache/video_core/texture_cache/texture_cache.h"
-RASTER = ROOT / "encore-active/eden-vulkan/vulkan_rasterizer.cpp"
+ACTIVE = ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h"
+SHADOW = ROOT / "encore-active/eden/src/video_core/texture_cache/texture_cache.h"
+RASTER = ROOT / "encore-active/eden/src/video_core/renderer_vulkan/vulkan_rasterizer.cpp"
 
 active = ACTIVE.read_text()
 shadow = SHADOW.read_text()

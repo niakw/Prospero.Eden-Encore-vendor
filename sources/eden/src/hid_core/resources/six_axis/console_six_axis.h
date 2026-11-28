@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <atomic>
-
 #include "hid_core/resources/controller_base.h"
 
 namespace Core::HID {
@@ -26,12 +24,7 @@ public:
     // When the controller is requesting an update for the shared memory
     void OnUpdate(const Core::Timing::CoreTiming& core_timing) override;
 
-    void StartSampling(u64 aruid);
-    void StopSampling(u64 aruid);
-
 private:
     Core::HID::EmulatedConsole* console = nullptr;
-    std::atomic<u64> sampling_aruid{};
-    std::atomic_bool sampling_enabled{};
 };
 } // namespace Service::HID

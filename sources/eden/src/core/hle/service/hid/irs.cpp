@@ -20,8 +20,6 @@
 #include "hid_core/hid_core.h"
 #include "hid_core/hid_result.h"
 #include "hid_core/hid_util.h"
-#include "hid_core/resource_manager.h"
-#include "hid_core/resources/npad/npad.h"
 #include "hid_core/irsensor/clustering_processor.h"
 #include "hid_core/irsensor/image_transfer_processor.h"
 #include "hid_core/irsensor/ir_led_processor.h"
@@ -64,15 +62,12 @@ IRS::IRS(Core::System& system_) : ServiceFramework{system_, "irs"} {
 IRS::~IRS() = default;
 
 Result IRS::ActivateIrsensor(ClientAppletResourceUserId aruid) {
-    // Encore does not expose physical Joy-Con IR-camera hardware. Activation is therefore an
-    // intentional no-op: the emulated IRS shared-memory/service ABI remains available to titles.
-    LOG_DEBUG(Service_IRS, "IR-camera activation ignored, applet_resource_user_id={}", aruid.pid);
+    LOG_WARNING(Service_IRS, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
     R_SUCCEED();
 }
 
 Result IRS::DeactivateIrsensor(ClientAppletResourceUserId aruid) {
-    // No physical IR-camera resource is owned by Encore, so there is nothing to release.
-    LOG_DEBUG(Service_IRS, "IR-camera deactivation ignored, applet_resource_user_id={}", aruid.pid);
+    LOG_WARNING(Service_IRS, "(STUBBED) called, applet_resource_user_id={}", aruid.pid);
     R_SUCCEED();
 }
 
@@ -243,15 +238,14 @@ Result IRS::RunPointingProcessor(
 
 Result IRS::SuspendImageProcessor(Core::IrSensor::IrCameraHandle camera_handle,
                                   ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_IRS,
-              "IR image-processor suspend ignored, npad_type={}, npad_id={}, "
-              "applet_resource_user_id={}",
-              camera_handle.npad_type, camera_handle.npad_id, aruid.pid);
+    LOG_WARNING(Service_IRS,
+                "(STUBBED) called, npad_type={}, npad_id={}, applet_resource_user_id={}",
+                camera_handle.npad_type, camera_handle.npad_id, aruid.pid);
 
     R_TRY(IsIrCameraHandleValid(camera_handle));
 
-    // Encore has no physical IRS capture thread to suspend. Processor state remains intact so a
-    // later resume/run call can continue using the emulated shared-memory state.
+    // TODO: Suspend image processor
+
     R_SUCCEED();
 }
 
@@ -274,15 +268,15 @@ Result IRS::CheckFirmwareVersion(Core::IrSensor::IrCameraHandle camera_handle,
 Result IRS::SetFunctionLevel(Core::IrSensor::IrCameraHandle camera_handle,
                              Core::IrSensor::PackedFunctionLevel function_level,
                              ClientAppletResourceUserId aruid) {
-    LOG_DEBUG(Service_IRS,
-              "IR function level ignored, npad_type={}, npad_id={}, function_level={}, "
-              "applet_resource_user_id={}",
-              camera_handle.npad_type, camera_handle.npad_id, function_level.function_level,
-              aruid.pid);
+    LOG_WARNING(
+        Service_IRS,
+        "(STUBBED) called, npad_type={}, npad_id={}, function_level={}, applet_resource_user_id={}",
+        camera_handle.npad_type, camera_handle.npad_id, function_level.function_level, aruid.pid);
 
     R_TRY(IsIrCameraHandleValid(camera_handle));
 
-    // Function-level negotiation controls physical MCU features that Encore does not expose.
+    // TODO: Set Function level
+
     R_SUCCEED();
 }
 
@@ -351,11 +345,8 @@ Result IRS::StopImageProcessorAsync(Core::IrSensor::IrCameraHandle camera_handle
 
 Result IRS::ActivateIrsensorWithFunctionLevel(Core::IrSensor::PackedFunctionLevel function_level,
                                               ClientAppletResourceUserId aruid) {
-    // Same intentional no-op as ActivateIrsensor: the requested physical MCU function level has
-    // no PS5 equivalent, while the IRS service ABI must remain callable by guest software.
-    LOG_DEBUG(Service_IRS, "IR-camera activation level ignored, function_level={}, "
-                           "applet_resource_user_id={}",
-              function_level.function_level, aruid.pid);
+    LOG_WARNING(Service_IRS, "(STUBBED) called, function_level={}, applet_resource_user_id={}",
+                function_level.function_level, aruid.pid);
     R_SUCCEED();
 }
 
@@ -377,62 +368,17 @@ Core::IrSensor::DeviceFormat& IRS::GetIrCameraSharedMemoryDeviceEntry(
     return shared_memory->device[camera_handle.npad_id];
 }
 
-IRS_SYS::IRS_SYS(Core::System& system_, std::shared_ptr<Service::HID::ResourceManager> resource_manager_)
-    : ServiceFramework{system_, "irs:sys"}, resource_manager{std::move(resource_manager_)} {
+IRS_SYS::IRS_SYS(Core::System& system_) : ServiceFramework{system_, "irs:sys"} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {500, nullptr, "SetAppletResourceUserId"},
-        {501, &IRS_SYS::RegisterAppletResourceUserId, "RegisterAppletResourceUserId"},
-        {502, &IRS_SYS::UnregisterAppletResourceUserId, "UnregisterAppletResourceUserId"},
-        {503, &IRS_SYS::EnableAppletToGetInput, "EnableAppletToGetInput"},
+        {501, nullptr, "RegisterAppletResourceUserId"},
+        {502, nullptr, "UnregisterAppletResourceUserId"},
+        {503, nullptr, "EnableAppletToGetInput"},
     };
     // clang-format on
 
     RegisterHandlers(functions);
-}
-
-
-void IRS_SYS::RegisterAppletResourceUserId(HLERequestContext& ctx) {
-    IPC::RequestParser rp{ctx};
-    struct Parameters {
-        bool enable_input;
-        INSERT_PADDING_WORDS_NOINIT(1);
-        u64 applet_resource_user_id;
-    };
-    static_assert(sizeof(Parameters) == 0x10);
-
-    const auto parameters = rp.PopRaw<Parameters>();
-    const Result result = resource_manager->RegisterAppletResourceUserId(
-        parameters.applet_resource_user_id, parameters.enable_input);
-
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(result);
-}
-
-void IRS_SYS::UnregisterAppletResourceUserId(HLERequestContext& ctx) {
-    IPC::RequestParser rp{ctx};
-    const u64 applet_resource_user_id = rp.Pop<u64>();
-    resource_manager->UnregisterAppletResourceUserId(applet_resource_user_id);
-
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultSuccess);
-}
-
-void IRS_SYS::EnableAppletToGetInput(HLERequestContext& ctx) {
-    IPC::RequestParser rp{ctx};
-    struct Parameters {
-        bool is_enabled;
-        INSERT_PADDING_WORDS_NOINIT(1);
-        u64 applet_resource_user_id;
-    };
-    static_assert(sizeof(Parameters) == 0x10);
-
-    const auto parameters = rp.PopRaw<Parameters>();
-    resource_manager->EnableInput(parameters.applet_resource_user_id, parameters.is_enabled);
-    resource_manager->GetNpad()->EnableAppletToGetInput(parameters.applet_resource_user_id);
-
-    IPC::ResponseBuilder rb{ctx, 2};
-    rb.Push(ResultSuccess);
 }
 
 IRS_SYS::~IRS_SYS() = default;

@@ -4,36 +4,36 @@ on:
   push:
     branches: [main]
     paths:
-      - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
-      - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
-      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
-      - 'encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
+      - 'encore-active/eden/src/video_core/textures/decoders.cpp'
+      - 'encore-active/eden/src/video_core/textures/decoders.h'
+      - 'encore-active/eden/src/video_core/memory_manager.h'
+      - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
       - 'tests/ns2_native_tiling_activation_source.py'
-      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
-      - 'encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
+      - 'encore-active/eden/src/video_core/memory_manager.h'
+      - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
       - 'tests/ns2_native_tiling_activation_source.py'
-      - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
-      - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
-      - 'encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp'
-      - 'encore-active/eden-core/src/video_core/texture_cache/util.cpp'
+      - 'encore-active/eden/src/video_core/engines/engine_upload.cpp'
+      - 'encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp'
+      - 'encore-active/eden/src/video_core/engines/maxwell_dma.cpp'
+      - 'encore-active/eden/src/video_core/texture_cache/util.cpp'
       - 'tests/ns2_sw_blitter_native_tiling_source.py'
-      - 'encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp'
-      - 'encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp'
-      - 'encore-active/eden-core/src/video_core/texture_cache/util.cpp'
+      - 'encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp'
+      - 'encore-active/eden/src/video_core/engines/maxwell_dma.cpp'
+      - 'encore-active/eden/src/video_core/texture_cache/util.cpp'
       - 'tests/ns2_sw_blitter_native_tiling_source.py'
-      - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
-      - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
+      - 'encore-active/eden/src/video_core/engines/engine_upload_deferred.cpp'
+      - 'encore-active/eden/tests/test_ns2_gob16_decoder_public_api.cpp'
       - '.github/workflows/ns2-r3-decoder-host.yml'
   pull_request:
     paths:
       # Validate the shipping combined shim/tiling ABI before merging.
-      - 'encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h'
+      - 'encore-active/eden/src/video_core/memory_manager.h'
       - 'tests/ns2_native_tiling_activation_source.py'
-      - 'encore-active/eden-core/src/video_core/textures/decoders.cpp'
-      - 'encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h'
-      - 'encore-active/eden-core/src/video_core/engines/engine_upload.cpp'
-      - 'encore-active/eden-core/guest-bridge/engine_upload.cpp'
-      - 'encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp'
+      - 'encore-active/eden/src/video_core/textures/decoders.cpp'
+      - 'encore-active/eden/src/video_core/textures/decoders.h'
+      - 'encore-active/eden/src/video_core/engines/engine_upload.cpp'
+      - 'encore-active/eden/src/video_core/engines/engine_upload_deferred.cpp'
+      - 'encore-active/eden/tests/test_ns2_gob16_decoder_public_api.cpp'
       - '.github/workflows/ns2-r3-decoder-host.yml'
   workflow_dispatch:
 
@@ -56,21 +56,21 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             .github/workflows/ns2-r3-decoder-host.yml
-            encore-active/eden-core/src/video_core/textures/decoders.cpp
-            encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h
-            encore-active/eden-core/overrides/native-tiling/video_core/memory_manager.h
-            encore-active/ns2-runtime/nvdrv_gpu/core/hle/service/nvdrv/devices/nvhost_gpu.cpp
-            encore-active/ns2-runtime/gpu_dispatch/video_core/control/channel_state.cpp
+            encore-active/eden/src/video_core/textures/decoders.cpp
+            encore-active/eden/src/video_core/textures/decoders.h
+            encore-active/eden/src/video_core/memory_manager.h
+            encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp
+            encore-active/eden/src/video_core/control/channel_state.cpp
             tests/ns2_native_tiling_activation_source.py
             sources/eden/src/video_core/memory_manager.h
-            encore-active/eden-core/src/video_core/engines/engine_upload.cpp
-            encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp
-            encore-active/eden-core/src/video_core/engines/maxwell_dma.cpp
-            encore-active/eden-core/src/video_core/texture_cache/util.cpp
+            encore-active/eden/src/video_core/engines/engine_upload.cpp
+            encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp
+            encore-active/eden/src/video_core/engines/maxwell_dma.cpp
+            encore-active/eden/src/video_core/texture_cache/util.cpp
             tests/ns2_sw_blitter_native_tiling_source.py
             sources/eden/src/video_core/engines/sw_blitter/blitter.cpp
-            encore-active/eden-core/guest-bridge/engine_upload.cpp
-            encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
+            encore-active/eden/src/video_core/engines/engine_upload_deferred.cpp
+            encore-active/eden/tests/test_ns2_gob16_decoder_public_api.cpp
             sources/eden/src/video_core/textures/decoders.cpp
             sources/eden/src/video_core/textures/decoders.h
             sources/eden/src/common/alignment.h
@@ -80,15 +80,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git hash-object encore-active/eden-core/src/video_core/textures/decoders.cpp)" = '506396c49bc6b8556ef843244694de09cb854ad6'
-          test "$(git hash-object encore-active/eden-core/overrides/native-tiling/video_core/textures/decoders.h)" = 'e45fe0229f34e26f46523bac7c46fb4116cdd8aa'
-          test "$(git hash-object encore-active/eden-core/src/video_core/engines/engine_upload.cpp)" = '72d787df8b83f8d6859afcfd13a0e188e22e8af8'
-          test "$(git hash-object encore-active/eden-core/guest-bridge/engine_upload.cpp)" = '4dc4273c7b7f59bc79d4fcac815df86baa121bf9'
+          test "$(git hash-object encore-active/eden/src/video_core/textures/decoders.cpp)" = '506396c49bc6b8556ef843244694de09cb854ad6'
+          test "$(git hash-object encore-active/eden/src/video_core/textures/decoders.h)" = 'e45fe0229f34e26f46523bac7c46fb4116cdd8aa'
+          test "$(git hash-object encore-active/eden/src/video_core/engines/engine_upload.cpp)" = '72d787df8b83f8d6859afcfd13a0e188e22e8af8'
+          test "$(git hash-object encore-active/eden/src/video_core/engines/engine_upload_deferred.cpp)" = '4dc4273c7b7f59bc79d4fcac815df86baa121bf9'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.cpp)" = '25b0860b0f7a9b31f49b63647c64d8d5493fab71'
           test "$(git hash-object sources/eden/src/video_core/textures/decoders.h)" = '1e14a3875356ed4a2e6c949694618d12be7d77e0'
-          grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/src/video_core/engines/engine_upload.cpp
-          grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden-core/guest-bridge/engine_upload.cpp
-          test "$(grep -cF 'memory_manager.UsesNativeTiling()' encore-active/eden-core/src/video_core/engines/sw_blitter/blitter.cpp)" = 2
+          grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden/src/video_core/engines/engine_upload.cpp
+          grep -F 'memory_manager.UsesNativeTiling()' encore-active/eden/src/video_core/engines/engine_upload_deferred.cpp
+          test "$(grep -cF 'memory_manager.UsesNativeTiling()' encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp)" = 2
           python3 -B tests/ns2_sw_blitter_native_tiling_source.py
           python3 -B tests/ns2_native_tiling_activation_source.py
       - name: Create minimal shims only for unused GPU and assertion dependencies
@@ -118,7 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           shims="${RUNNER_TEMP}/r3-shims"
-          test_file=encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
+          test_file=encore-active/eden/tests/test_ns2_gob16_decoder_public_api.cpp
           for compiler in clang++ g++; do
             for opt in 1 2; do
               outputs=()
@@ -126,13 +126,13 @@ jobs:
                 if [[ "${flavor}" == old ]]; then
                   source_file=sources/eden/src/video_core/textures/decoders.cpp
                 else
-                  source_file=encore-active/eden-core/src/video_core/textures/decoders.cpp
+                  source_file=encore-active/eden/src/video_core/textures/decoders.cpp
                 fi
                 executable="${RUNNER_TEMP}/r3-${compiler//+/p}-O${opt}-${flavor}"
                 "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
                   -fsanitize=address,undefined -fno-sanitize-recover=all \
                   -fno-omit-frame-pointer \
-                  -I"${shims}" $([[ "${flavor}" == maintained ]] && printf %s "-Iencore-active/eden-core/overrides/native-tiling") \
+                  -I"${shims}" $([[ "${flavor}" == maintained ]] && printf %s "-Iencore-active/eden/src") \
                   -Isources/eden/src "${test_file}" "${source_file}" -o "${executable}"
                 result=$("${executable}")
                 echo "${compiler} O${opt} ${flavor}: ${result}"
@@ -147,15 +147,15 @@ jobs:
         run: |
           set -euo pipefail
           shims="${RUNNER_TEMP}/r3-shims"
-          test_file=encore-active/eden-core/tests/test_ns2_gob16_decoder_public_api.cpp
+          test_file=encore-active/eden/tests/test_ns2_gob16_decoder_public_api.cpp
           for compiler in clang++ g++; do
             for opt in 1 2; do
               executable="${RUNNER_TEMP}/r3-native-${compiler//+/p}-O${opt}"
               "${compiler}" -std=c++20 -O"${opt}" -Wall -Wextra -Werror -Wno-unused-parameter \
                 -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
-                -DEDEN_TEST_NATIVE_TILING=1 -I"${shims}" -Iencore-active/eden-core/overrides/native-tiling \
+                -DEDEN_TEST_NATIVE_TILING=1 -I"${shims}" -Iencore-active/eden/src \
                 -Isources/eden/src "${test_file}" \
-                encore-active/eden-core/src/video_core/textures/decoders.cpp -o "${executable}"
+                encore-active/eden/src/video_core/textures/decoders.cpp -o "${executable}"
               output=$("${executable}")
               echo "${compiler} O${opt}: ${output}"
               grep -F "native_tiling=1 mismatch_witness=1" <<<"${output}"

@@ -3,7 +3,7 @@ name: Selected JPEG XR to WebP native C source syntax (host)
 on:
   pull_request:
     paths:
-      - "encore-active/ps5-jxr/**"
+      - "encore-active/jxrlib/**"
       - "sources/jxrlib/**"
       - ".github/workflows/ps5-jxr-native-c-syntax-host.yml"
   push:
@@ -37,7 +37,7 @@ jobs:
               -Isources/jxrlib/image/sys \
               -Isources/jxrlib/image/decode \
               -Isources/jxrlib/image/encode \
-              encore-active/ps5-jxr/jxr_decoder.c
+              encore-active/jxrlib/jxr_decoder.c
             echo JXR_SELECTED_DECODER_HOST_SYNTAX_PASS compiler="$cc"
           done
       - name: Verify selected-only bounds and unmodified codec provenance

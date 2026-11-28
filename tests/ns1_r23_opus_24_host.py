@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
-prefix=root/"encore-active/eden-core/src"
+prefix=root/"encore-active/eden/src"
 h=(prefix/"audio_core/opus/hardware_opus.h").read_text()
 cpp=(prefix/"audio_core/opus/hardware_opus.cpp").read_text()
 decoder=(prefix/"audio_core/opus/decoder.cpp").read_text()

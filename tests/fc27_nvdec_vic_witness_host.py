@@ -7,8 +7,8 @@ from pathlib import Path
 import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
-FF=ROOT/"encore-active/eden-core/src/video_core/host1x/ffmpeg.cpp"
-VIC=ROOT/"encore-active/eden-core/src/video_core/host1x/vic.cpp"
+FF=ROOT/"encore-active/eden/src/video_core/host1x/ffmpeg.cpp"
+VIC=ROOT/"encore-active/eden/src/video_core/host1x/vic.cpp"
 ORIG=ROOT/"sources/eden/src/video_core/host1x/vic.cpp"
 
 def blob(path):

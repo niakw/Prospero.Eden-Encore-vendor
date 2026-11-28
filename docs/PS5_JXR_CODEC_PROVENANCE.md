@@ -8,7 +8,7 @@ All 42 files are imported without source modifications, including
 implementation comes from Microsoft. This is a third-party dependency, not
 an Encore source override. No binary artifacts are committed.
 
-`encore-active/ps5-jxr/jxr_decoder.c` is a modified adaptation of
+`encore-active/jxrlib/jxr_decoder.c` is a modified adaptation of
 ProsperoGallery's `src/jxr.c` at that same commit; it uses the
 original HDR/scRGB/PQ tone mapping logic and decodes to 8-bit SDR RGB.
 It is GPL-3.0-or-later, kept separately from the unmodified BSD codec.

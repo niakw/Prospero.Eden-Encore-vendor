@@ -6,8 +6,6 @@
 
 #pragma once
 
-#include <atomic>
-
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -45,40 +43,14 @@ private:
     void GetInternetConnectionStatus(HLERequestContext& ctx);
     void SetEthernetCommunicationEnabled(HLERequestContext& ctx);
     void IsEthernetCommunicationEnabled(HLERequestContext& ctx);
-    void IsWiredConnectionAvailable(HLERequestContext& ctx);
-    void IsNetworkEmulationFeatureEnabled(HLERequestContext& ctx);
-    void SelectActiveNetworkEmulationProfileIdForDebug(HLERequestContext& ctx);
-    void IsRewriteFeatureEnabled(HLERequestContext& ctx);
-    void CreateRewriteRule(HLERequestContext& ctx);
-    void DestroyRewriteRule(HLERequestContext& ctx);
     void IsAnyInternetRequestAccepted(HLERequestContext& ctx);
     void IsAnyForegroundRequestAccepted(HLERequestContext& ctx);
-    void PutToSleep(HLERequestContext& ctx);
-    void WakeUp(HLERequestContext& ctx);
     void GetSsidListVersion(HLERequestContext& ctx);
-    void SetExclusiveClient(HLERequestContext& ctx);
-    void GetDefaultIpSetting(HLERequestContext& ctx);
-    void SetDefaultIpSetting(HLERequestContext& ctx);
     void GetScanDataV2(HLERequestContext& ctx);
     void ConfirmSystemAvailability(HLERequestContext& ctx);
     void SetBackgroundRequestEnabled(HLERequestContext& ctx);
-    void GetCurrentAccessPointOld(HLERequestContext& ctx);
     void GetCurrentAccessPoint(HLERequestContext& ctx);
-    void Shutdown(HLERequestContext& ctx);
-    void GetTelemetorySystemEventReadableHandle(HLERequestContext& ctx);
-    void GetTelemetryInfo(HLERequestContext& ctx);
-    void GetAllowedChannels(HLERequestContext& ctx);
-    void NotifyApplicationSuspended(HLERequestContext& ctx);
-    void SetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
-    void GetAcceptableNetworkTypeFlag(HLERequestContext& ctx);
-    void NotifyConnectionStateChanged(HLERequestContext& ctx);
-    void SetWowlDelayedWakeTime(HLERequestContext& ctx);
     void GetScanDataV3(HLERequestContext& ctx);
-
-    u32 client_id{};
-    std::atomic<u32> exclusive_client_id{0};
-    std::atomic<u32> acceptable_network_type_flag{0};
-    std::atomic<s32> wowl_delayed_wake_time{0};
 };
 
 } // namespace Service::NIFM

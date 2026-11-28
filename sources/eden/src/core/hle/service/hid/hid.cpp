@@ -85,9 +85,10 @@ void LoopProcess(Core::System& system) {
     server_manager->RegisterNamedService("hidbus", std::make_shared<Hidbus>(system));
 
     server_manager->RegisterNamedService("irs", std::make_shared<IRS::IRS>(system));
-    server_manager->RegisterNamedService(
-        "irs:sys", std::make_shared<IRS::IRS_SYS>(system, resource_manager));
+    server_manager->RegisterNamedService("irs:sys", std::make_shared<IRS::IRS_SYS>(system));
 
+    server_manager->RegisterNamedService("ahid:cd", std::make_shared<AHID_CD>(system));
+    server_manager->RegisterNamedService("ahid:hdr", std::make_shared<AHID_HDR>(system));
 
     server_manager->RegisterNamedService("xcd:sys", std::make_shared<XCD_SYS>(system));
 

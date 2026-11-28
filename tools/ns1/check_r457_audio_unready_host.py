@@ -10,11 +10,11 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[2]
-header = (root / "encore-active/eden-core/overrides/core/memory.h").read_text()
-memory = (root / "encore-active/eden-core/src/core/memory_native_a32.cpp").read_text()
-audio = (root / "encore-active/eden-core/src/audio_core/device/device_session.cpp").read_text()
+header = (root / "encore-active/eden/src/core/memory.h").read_text()
+memory = (root / "encore-active/eden/src/core/memory_native_a32.cpp").read_text()
+audio = (root / "encore-active/eden/src/audio_core/device/device_session.cpp").read_text()
 
-standard_memory = (root / "encore-active/eden-core/src/core/memory_native_standard.cpp").read_text()
+standard_memory = (root / "encore-active/eden/src/core/memory_native_standard.cpp").read_text()
 assert "bool Memory::ReadyForAudioRead() const noexcept" in standard_memory
 assert "return impl && impl->current_page_table != nullptr;" in standard_memory
 # The immutable source pin is deliberately untouched.

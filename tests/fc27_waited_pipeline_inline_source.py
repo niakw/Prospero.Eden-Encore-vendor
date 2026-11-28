@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-compute=(R/"encore-active/eden-vulkan/vk_compute_pipeline_cost.cpp").read_text()
-graphics=(R/"encore-active/eden-vulkan/vk_graphics_pipeline_cost.cpp").read_text()
-ch=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_compute_pipeline.h").read_text()
-gh=(R/"encore-active/eden-vulkan/include/video_core/renderer_vulkan/vk_graphics_pipeline.h").read_text()
+compute=(R/"encore-active/eden/src/video_core/renderer_vulkan/vk_compute_pipeline_cost.cpp").read_text()
+graphics=(R/"encore-active/eden/src/video_core/renderer_vulkan/vk_graphics_pipeline_cost.cpp").read_text()
+ch=(R/"encore-active/eden/src/video_core/renderer_vulkan/vk_compute_pipeline.h").read_text()
+gh=(R/"encore-active/eden/src/video_core/renderer_vulkan/vk_graphics_pipeline.h").read_text()
 cfg=(R/"sources/eden/src/shader_recompiler/frontend/maxwell/control_flow.cpp").read_text()
-structured=(R/"encore-active/eden-shader/src/shader_recompiler/frontend/maxwell/structured_control_flow.cpp").read_text()
+structured=(R/"encore-active/eden/src/shader_recompiler/frontend/maxwell/structured_control_flow.cpp").read_text()
 for cls,src in (("ComputePipeline",compute),("GraphicsPipeline",graphics)):
     assert f"void {cls}::RunBuild()" in src
     assert "build_claimed.exchange(true, std::memory_order_acq_rel)" in src

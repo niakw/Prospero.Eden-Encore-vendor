@@ -22,18 +22,6 @@ public:
     ~IHidDebugServer() override;
 
 private:
-    void RejectUnsupportedDebugCommand(HLERequestContext& ctx);
-    Result DeactivateDebugPad();
-    Result DeactivateMouse();
-    Result DeactivateKeyboard();
-    Result ClearNpadSystemCommonPolicy(ClientAppletResourceUserId aruid);
-    Result ReloadFirmwareDebugSettings();
-    Result DeactivateHomeButton();
-    Result DeactivateSleepButton();
-    Result DeactivateCaptureButton();
-    Result DeactivateConsoleSixAxisSensor();
-    Result DeactivateSevenSixAxisSensor();
-    Result DeactivateDigitizer();
     Result DeactivateTouchScreen();
     Result SetTouchScreenAutoPilotState(
         InArray<TouchState, BufferAttr_HipcMapAlias> auto_pilot_buffer);

@@ -12,7 +12,6 @@
 namespace Service::AM {
 
 struct Applet;
-class IStorage;
 
 class IAppletCommonFunctions final : public ServiceFramework<IAppletCommonFunctions> {
 public:
@@ -20,15 +19,8 @@ public:
     ~IAppletCommonFunctions() override;
 
 private:
-    Result SetTerminateResult(Result terminate_result);
-    Result ReadThemeStorage(Out<u64> out_transfer_size, u64 offset,
-                            OutBuffer<BufferAttr_HipcAutoSelect> out_buffer);
-    Result WriteThemeStorage(u64 offset, InBuffer<BufferAttr_HipcAutoSelect> buffer);
-    Result PushToAppletBoundChannel(SharedPointer<IStorage> storage);
-    Result TryPopFromAppletBoundChannel(Out<SharedPointer<IStorage>> out_storage);
     Result SetHomeButtonDoubleClickEnabled(bool home_button_double_click_enabled);
     Result GetHomeButtonDoubleClickEnabled(Out<bool> out_home_button_double_click_enabled);
-    Result IsHomeButtonShortPressedBlocked(Out<bool> out_is_home_button_short_pressed_blocked);
     Result SetDisplayMagnification(f32 x, f32 y, f32 width, f32 height);
     Result SetCpuBoostRequestPriority(s32 priority);
     Result GetCurrentApplicationId(Out<u64> out_application_id);

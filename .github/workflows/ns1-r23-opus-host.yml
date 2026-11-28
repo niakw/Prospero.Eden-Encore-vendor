@@ -5,8 +5,8 @@ on:
       - research/ns1-r23-opus-24-instances-20261111
   pull_request:
     paths:
-      - "encore-active/eden-core/src/audio_core/opus/**"
-      - "encore-active/eden-core/src/core/hle/service/audio/errors.h"
+      - "encore-active/eden/src/audio_core/opus/**"
+      - "encore-active/eden/src/core/hle/service/audio/errors.h"
       - "tests/ns1_r23_opus_24_host.py"
       - ".github/workflows/ns1-r23-opus-host.yml"
   workflow_dispatch:

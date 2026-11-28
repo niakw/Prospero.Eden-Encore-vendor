@@ -14,7 +14,6 @@
 #include "common/settings.h"
 #include "common/string_util.h"
 #include "core/core.h"
-#include "core/file_sys/bis_factory.h"
 #include "core/file_sys/content_archive.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/nca_metadata.h"
@@ -37,18 +36,6 @@ struct SettingsHeader {
     u32 version;
     u32 reserved;
 };
-
-
-Result ResolveWirelessCertificationFile(FileSys::VirtualFile* out_file, Core::System& system) {
-    FileSys::VirtualDir calibration_file;
-    R_TRY(system.GetFileSystemController().OpenBISPartition(
-        &calibration_file, FileSys::BisPartitionId::CalibrationFile));
-    R_UNLESS(calibration_file, FileSys::ResultPartitionNotFound);
-
-    *out_file = calibration_file->GetFileRelative("Certifications/WirelessCertification.png");
-    R_UNLESS(*out_file, FileSys::ResultPathNotFound);
-    R_SUCCEED();
-}
 
 void SyncGlobalLanguageFromCode(LanguageCode language_code) {
     const auto it = std::find_if(available_language_codes.begin(), available_language_codes.end(),
@@ -128,29 +115,29 @@ Result GetFirmwareVersionImpl(FirmwareVersionFormat& out_firmware, Core::System&
 }
 
 ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
-    : ServiceFramework{system_, "set:sys"}, m_system{system},
-      m_service_context{system_, "ISystemSettingsServer"} {
+    : ServiceFramework{system_, "set:sys"}, m_system{system} {
     // clang-format off
     static const FunctionInfo functions[] = {
         {0, C<&ISystemSettingsServer::SetLanguageCode>, "SetLanguageCode"},
-        {1, C<&ISystemSettingsServer::SetNetworkSettings>, "SetNetworkSettings"},
-        {2, C<&ISystemSettingsServer::GetNetworkSettings>, "GetNetworkSettings"},
+        {1, nullptr, "SetNetworkSettings"},
+        {2, nullptr, "GetNetworkSettings"},
         {3, C<&ISystemSettingsServer::GetFirmwareVersion>, "GetFirmwareVersion"},
         {4, C<&ISystemSettingsServer::GetFirmwareVersion2>, "GetFirmwareVersion2"},
+        {5, nullptr, "GetFirmwareVersionDigest"},
         {7, C<&ISystemSettingsServer::GetLockScreenFlag>, "GetLockScreenFlag"},
         {8, C<&ISystemSettingsServer::SetLockScreenFlag>, "SetLockScreenFlag"},
-        {9, C<&ISystemSettingsServer::GetBacklightSettings>, "GetBacklightSettings"},
-        {10, C<&ISystemSettingsServer::SetBacklightSettings>, "SetBacklightSettings"},
-        {11, C<&ISystemSettingsServer::SetBluetoothDevicesSettings>, "SetBluetoothDevicesSettings"},
-        {12, C<&ISystemSettingsServer::GetBluetoothDevicesSettings>, "GetBluetoothDevicesSettings"},
+        {9, nullptr, "GetBacklightSettings"},
+        {10, nullptr, "SetBacklightSettings"},
+        {11, nullptr, "SetBluetoothDevicesSettings"},
+        {12, nullptr, "GetBluetoothDevicesSettings"},
         {13, C<&ISystemSettingsServer::GetExternalSteadyClockSourceId>, "GetExternalSteadyClockSourceId"},
         {14, C<&ISystemSettingsServer::SetExternalSteadyClockSourceId>, "SetExternalSteadyClockSourceId"},
         {15, C<&ISystemSettingsServer::GetUserSystemClockContext>, "GetUserSystemClockContext"},
         {16, C<&ISystemSettingsServer::SetUserSystemClockContext>, "SetUserSystemClockContext"},
         {17, C<&ISystemSettingsServer::GetAccountSettings>, "GetAccountSettings"},
         {18, C<&ISystemSettingsServer::SetAccountSettings>, "SetAccountSettings"},
-        {19, C<&ISystemSettingsServer::GetAudioVolume>, "GetAudioVolume"},
-        {20, C<&ISystemSettingsServer::SetAudioVolume>, "SetAudioVolume"},
+        {19, nullptr, "GetAudioVolume"},
+        {20, nullptr, "SetAudioVolume"},
         {21, C<&ISystemSettingsServer::GetEulaVersions>, "GetEulaVersions"},
         {22, C<&ISystemSettingsServer::SetEulaVersions>, "SetEulaVersions"},
         {23, C<&ISystemSettingsServer::GetColorSetId>, "GetColorSetId"},
@@ -169,22 +156,22 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {38, C<&ISystemSettingsServer::GetSettingsItemValue>, "GetSettingsItemValue"},
         {39, C<&ISystemSettingsServer::GetTvSettings>, "GetTvSettings"},
         {40, C<&ISystemSettingsServer::SetTvSettings>, "SetTvSettings"},
-        {41, C<&ISystemSettingsServer::GetEdid>, "GetEdid"},
-        {42, C<&ISystemSettingsServer::SetEdid>, "SetEdid"},
+        {41, nullptr, "GetEdid"},
+        {42, nullptr, "SetEdid"},
         {43, C<&ISystemSettingsServer::GetAudioOutputMode>, "GetAudioOutputMode"},
         {44, C<&ISystemSettingsServer::SetAudioOutputMode>, "SetAudioOutputMode"},
         {45, C<&ISystemSettingsServer::GetSpeakerAutoMuteFlag>, "GetSpeakerAutoMuteFlag"},
         {46, C<&ISystemSettingsServer::SetSpeakerAutoMuteFlag>, "SetSpeakerAutoMuteFlag"},
         {47, C<&ISystemSettingsServer::GetQuestFlag>, "GetQuestFlag"},
         {48, C<&ISystemSettingsServer::SetQuestFlag>, "SetQuestFlag"},
-        {49, C<&ISystemSettingsServer::GetDataDeletionSettings>, "GetDataDeletionSettings"},
-        {50, C<&ISystemSettingsServer::SetDataDeletionSettings>, "SetDataDeletionSettings"},
-        {51, C<&ISystemSettingsServer::GetInitialSystemAppletProgramId>, "GetInitialSystemAppletProgramId"},
-        {52, C<&ISystemSettingsServer::GetOverlayDispProgramId>, "GetOverlayDispProgramId"},
+        {49, nullptr, "GetDataDeletionSettings"},
+        {50, nullptr, "SetDataDeletionSettings"},
+        {51, nullptr, "GetInitialSystemAppletProgramId"},
+        {52, nullptr, "GetOverlayDispProgramId"},
         {53, C<&ISystemSettingsServer::GetDeviceTimeZoneLocationName>, "GetDeviceTimeZoneLocationName"},
         {54, C<&ISystemSettingsServer::SetDeviceTimeZoneLocationName>, "SetDeviceTimeZoneLocationName"},
-        {55, C<&ISystemSettingsServer::GetWirelessCertificationFileSize>, "GetWirelessCertificationFileSize"},
-        {56, C<&ISystemSettingsServer::GetWirelessCertificationFile>, "GetWirelessCertificationFile"},
+        {55, nullptr, "GetWirelessCertificationFileSize"},
+        {56, nullptr, "GetWirelessCertificationFile"},
         {57, C<&ISystemSettingsServer::SetRegionCode>, "SetRegionCode"},
         {58, C<&ISystemSettingsServer::GetNetworkSystemClockContext>, "GetNetworkSystemClockContext"},
         {59, C<&ISystemSettingsServer::SetNetworkSystemClockContext>, "SetNetworkSystemClockContext"},
@@ -208,137 +195,137 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
         {77, C<&ISystemSettingsServer::GetDeviceNickName>, "GetDeviceNickName"},
         {78, C<&ISystemSettingsServer::SetDeviceNickName>, "SetDeviceNickName"},
         {79, C<&ISystemSettingsServer::GetProductModel>, "GetProductModel"},
-        {80, C<&ISystemSettingsServer::GetLdnChannel>, "GetLdnChannel"},
-        {81, C<&ISystemSettingsServer::SetLdnChannel>, "SetLdnChannel"},
-        {82, C<&ISystemSettingsServer::AcquireTelemetryDirtyFlagEventHandle>, "AcquireTelemetryDirtyFlagEventHandle"},
-        {83, C<&ISystemSettingsServer::GetTelemetryDirtyFlags>, "GetTelemetryDirtyFlags"},
-        {84, C<&ISystemSettingsServer::GetPtmBatteryLot>, "GetPtmBatteryLot"},
-        {85, C<&ISystemSettingsServer::SetPtmBatteryLot>, "SetPtmBatteryLot"},
-        {86, C<&ISystemSettingsServer::GetPtmFuelGaugeParameter>, "GetPtmFuelGaugeParameter"},
-        {87, C<&ISystemSettingsServer::SetPtmFuelGaugeParameter>, "SetPtmFuelGaugeParameter"},
+        {80, nullptr, "GetLdnChannel"},
+        {81, nullptr, "SetLdnChannel"},
+        {82, nullptr, "AcquireTelemetryDirtyFlagEventHandle"},
+        {83, nullptr, "GetTelemetryDirtyFlags"},
+        {84, nullptr, "GetPtmBatteryLot"},
+        {85, nullptr, "SetPtmBatteryLot"},
+        {86, nullptr, "GetPtmFuelGaugeParameter"},
+        {87, nullptr, "SetPtmFuelGaugeParameter"},
         {88, C<&ISystemSettingsServer::GetBluetoothEnableFlag>, "GetBluetoothEnableFlag"},
         {89, C<&ISystemSettingsServer::SetBluetoothEnableFlag>, "SetBluetoothEnableFlag"},
         {90, C<&ISystemSettingsServer::GetMiiAuthorId>, "GetMiiAuthorId"},
-        {91, C<&ISystemSettingsServer::SetShutdownRtcValue>, "SetShutdownRtcValue"},
-        {92, C<&ISystemSettingsServer::GetShutdownRtcValue>, "GetShutdownRtcValue"},
-        {93, C<&ISystemSettingsServer::AcquireFatalDirtyFlagEventHandle>, "AcquireFatalDirtyFlagEventHandle"},
-        {94, C<&ISystemSettingsServer::GetFatalDirtyFlags>, "GetFatalDirtyFlags"},
+        {91, nullptr, "SetShutdownRtcValue"},
+        {92, nullptr, "GetShutdownRtcValue"},
+        {93, nullptr, "AcquireFatalDirtyFlagEventHandle"},
+        {94, nullptr, "GetFatalDirtyFlags"},
         {95, C<&ISystemSettingsServer::GetAutoUpdateEnableFlag>, "GetAutoUpdateEnableFlag"},
         {96, C<&ISystemSettingsServer::SetAutoUpdateEnableFlag>, "SetAutoUpdateEnableFlag"},
-        {97, C<&ISystemSettingsServer::GetNxControllerSettings>, "GetNxControllerSettings"},
-        {98, C<&ISystemSettingsServer::SetNxControllerSettings>, "SetNxControllerSettings"},
+        {97, nullptr, "GetNxControllerSettings"},
+        {98, nullptr, "SetNxControllerSettings"},
         {99, C<&ISystemSettingsServer::GetBatteryPercentageFlag>, "GetBatteryPercentageFlag"},
         {100, C<&ISystemSettingsServer::SetBatteryPercentageFlag>, "SetBatteryPercentageFlag"},
-        {101, C<&ISystemSettingsServer::GetExternalRtcResetFlag>, "GetExternalRtcResetFlag"},
-        {102, C<&ISystemSettingsServer::SetExternalRtcResetFlag>, "SetExternalRtcResetFlag"},
-        {103, C<&ISystemSettingsServer::GetUsbFullKeyEnableFlag>, "GetUsbFullKeyEnableFlag"},
-        {104, C<&ISystemSettingsServer::SetUsbFullKeyEnableFlag>, "SetUsbFullKeyEnableFlag"},
+        {101, nullptr, "GetExternalRtcResetFlag"},
+        {102, nullptr, "SetExternalRtcResetFlag"},
+        {103, nullptr, "GetUsbFullKeyEnableFlag"},
+        {104, nullptr, "SetUsbFullKeyEnableFlag"},
         {105, C<&ISystemSettingsServer::SetExternalSteadyClockInternalOffset>, "SetExternalSteadyClockInternalOffset"},
         {106, C<&ISystemSettingsServer::GetExternalSteadyClockInternalOffset>, "GetExternalSteadyClockInternalOffset"},
-        {107, C<&ISystemSettingsServer::GetBacklightSettingsEx>, "GetBacklightSettingsEx"},
-        {108, C<&ISystemSettingsServer::SetBacklightSettingsEx>, "SetBacklightSettingsEx"},
-        {109, C<&ISystemSettingsServer::GetHeadphoneVolumeWarningCount>, "GetHeadphoneVolumeWarningCount"},
-        {110, C<&ISystemSettingsServer::SetHeadphoneVolumeWarningCount>, "SetHeadphoneVolumeWarningCount"},
-        {111, C<&ISystemSettingsServer::GetBluetoothAfhEnableFlag>, "GetBluetoothAfhEnableFlag"},
-        {112, C<&ISystemSettingsServer::SetBluetoothAfhEnableFlag>, "SetBluetoothAfhEnableFlag"},
-        {113, C<&ISystemSettingsServer::GetBluetoothBoostEnableFlag>, "GetBluetoothBoostEnableFlag"},
-        {114, C<&ISystemSettingsServer::SetBluetoothBoostEnableFlag>, "SetBluetoothBoostEnableFlag"},
-        {115, C<&ISystemSettingsServer::GetInRepairProcessEnableFlag>, "GetInRepairProcessEnableFlag"},
-        {116, C<&ISystemSettingsServer::SetInRepairProcessEnableFlag>, "SetInRepairProcessEnableFlag"},
-        {117, C<&ISystemSettingsServer::GetHeadphoneVolumeUpdateFlag>, "GetHeadphoneVolumeUpdateFlag"},
-        {118, C<&ISystemSettingsServer::SetHeadphoneVolumeUpdateFlag>, "SetHeadphoneVolumeUpdateFlag"},
+        {107, nullptr, "GetBacklightSettingsEx"},
+        {108, nullptr, "SetBacklightSettingsEx"},
+        {109, nullptr, "GetHeadphoneVolumeWarningCount"},
+        {110, nullptr, "SetHeadphoneVolumeWarningCount"},
+        {111, nullptr, "GetBluetoothAfhEnableFlag"},
+        {112, nullptr, "SetBluetoothAfhEnableFlag"},
+        {113, nullptr, "GetBluetoothBoostEnableFlag"},
+        {114, nullptr, "SetBluetoothBoostEnableFlag"},
+        {115, nullptr, "GetInRepairProcessEnableFlag"},
+        {116, nullptr, "SetInRepairProcessEnableFlag"},
+        {117, nullptr, "GetHeadphoneVolumeUpdateFlag"},
+        {118, nullptr, "SetHeadphoneVolumeUpdateFlag"},
         {119, nullptr, "NeedsToUpdateHeadphoneVolume"},
         {120, C<&ISystemSettingsServer::GetPushNotificationActivityModeOnSleep>, "GetPushNotificationActivityModeOnSleep"},
         {121, C<&ISystemSettingsServer::SetPushNotificationActivityModeOnSleep>, "SetPushNotificationActivityModeOnSleep"},
-        {122, C<&ISystemSettingsServer::GetServiceDiscoveryControlSettings>, "GetServiceDiscoveryControlSettings"},
-        {123, C<&ISystemSettingsServer::SetServiceDiscoveryControlSettings>, "SetServiceDiscoveryControlSettings"},
+        {122, nullptr, "GetServiceDiscoveryControlSettings"},
+        {123, nullptr, "SetServiceDiscoveryControlSettings"},
         {124, C<&ISystemSettingsServer::GetErrorReportSharePermission>, "GetErrorReportSharePermission"},
         {125, C<&ISystemSettingsServer::SetErrorReportSharePermission>, "SetErrorReportSharePermission"},
         {126, C<&ISystemSettingsServer::GetAppletLaunchFlags>, "GetAppletLaunchFlags"},
         {127, C<&ISystemSettingsServer::SetAppletLaunchFlags>, "SetAppletLaunchFlags"},
-        {128, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationBias>, "GetConsoleSixAxisSensorAccelerationBias"},
-        {129, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationBias>, "SetConsoleSixAxisSensorAccelerationBias"},
-        {130, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityBias>, "GetConsoleSixAxisSensorAngularVelocityBias"},
-        {131, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityBias>, "SetConsoleSixAxisSensorAngularVelocityBias"},
-        {132, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationGain>, "GetConsoleSixAxisSensorAccelerationGain"},
-        {133, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationGain>, "SetConsoleSixAxisSensorAccelerationGain"},
-        {134, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityGain>, "GetConsoleSixAxisSensorAngularVelocityGain"},
-        {135, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityGain>, "SetConsoleSixAxisSensorAngularVelocityGain"},
+        {128, nullptr, "GetConsoleSixAxisSensorAccelerationBias"},
+        {129, nullptr, "SetConsoleSixAxisSensorAccelerationBias"},
+        {130, nullptr, "GetConsoleSixAxisSensorAngularVelocityBias"},
+        {131, nullptr, "SetConsoleSixAxisSensorAngularVelocityBias"},
+        {132, nullptr, "GetConsoleSixAxisSensorAccelerationGain"},
+        {133, nullptr, "SetConsoleSixAxisSensorAccelerationGain"},
+        {134, nullptr, "GetConsoleSixAxisSensorAngularVelocityGain"},
+        {135, nullptr, "SetConsoleSixAxisSensorAngularVelocityGain"},
         {136, C<&ISystemSettingsServer::GetKeyboardLayout>, "GetKeyboardLayout"},
         {137, C<&ISystemSettingsServer::SetKeyboardLayout>, "SetKeyboardLayout"},
-        {138, C<&ISystemSettingsServer::GetWebInspectorFlag>, "GetWebInspectorFlag"},
-        {139, C<&ISystemSettingsServer::GetAllowedSslHosts>, "GetAllowedSslHosts"},
-        {140, C<&ISystemSettingsServer::GetHostFsMountPoint>, "GetHostFsMountPoint"},
-        {141, C<&ISystemSettingsServer::GetRequiresRunRepairTimeReviser>, "GetRequiresRunRepairTimeReviser"},
-        {142, C<&ISystemSettingsServer::SetRequiresRunRepairTimeReviser>, "SetRequiresRunRepairTimeReviser"},
-        {143, C<&ISystemSettingsServer::SetBlePairingSettings>, "SetBlePairingSettings"},
-        {144, C<&ISystemSettingsServer::GetBlePairingSettings>, "GetBlePairingSettings"},
-        {145, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityTimeBias>, "GetConsoleSixAxisSensorAngularVelocityTimeBias"},
-        {146, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityTimeBias>, "SetConsoleSixAxisSensorAngularVelocityTimeBias"},
-        {147, C<&ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration>, "GetConsoleSixAxisSensorAngularAcceleration"},
-        {148, C<&ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration>, "SetConsoleSixAxisSensorAngularAcceleration"},
+        {138, nullptr, "GetWebInspectorFlag"},
+        {139, nullptr, "GetAllowedSslHosts"},
+        {140, nullptr, "GetHostFsMountPoint"},
+        {141, nullptr, "GetRequiresRunRepairTimeReviser"},
+        {142, nullptr, "SetRequiresRunRepairTimeReviser"},
+        {143, nullptr, "SetBlePairingSettings"},
+        {144, nullptr, "GetBlePairingSettings"},
+        {145, nullptr, "GetConsoleSixAxisSensorAngularVelocityTimeBias"},
+        {146, nullptr, "SetConsoleSixAxisSensorAngularVelocityTimeBias"},
+        {147, nullptr, "GetConsoleSixAxisSensorAngularAcceleration"},
+        {148, nullptr, "SetConsoleSixAxisSensorAngularAcceleration"},
         {149, C<&ISystemSettingsServer::GetRebootlessSystemUpdateVersion>, "GetRebootlessSystemUpdateVersion"},
         {150, C<&ISystemSettingsServer::GetDeviceTimeZoneLocationUpdatedTime>, "GetDeviceTimeZoneLocationUpdatedTime"},
         {151, C<&ISystemSettingsServer::SetDeviceTimeZoneLocationUpdatedTime>, "SetDeviceTimeZoneLocationUpdatedTime"},
         {152, C<&ISystemSettingsServer::GetUserSystemClockAutomaticCorrectionUpdatedTime>, "GetUserSystemClockAutomaticCorrectionUpdatedTime"},
         {153, C<&ISystemSettingsServer::SetUserSystemClockAutomaticCorrectionUpdatedTime>, "SetUserSystemClockAutomaticCorrectionUpdatedTime"},
-        {154, C<&ISystemSettingsServer::GetAccountOnlineStorageSettings>, "GetAccountOnlineStorageSettings"},
-        {155, C<&ISystemSettingsServer::SetAccountOnlineStorageSettings>, "SetAccountOnlineStorageSettings"},
-        {156, C<&ISystemSettingsServer::GetPctlReadyFlag>, "GetPctlReadyFlag"},
-        {157, C<&ISystemSettingsServer::SetPctlReadyFlag>, "SetPctlReadyFlag"},
-        {158, C<&ISystemSettingsServer::GetAnalogStickUserCalibrationL>, "GetAnalogStickUserCalibrationL"},
-        {159, C<&ISystemSettingsServer::SetAnalogStickUserCalibrationL>, "SetAnalogStickUserCalibrationL"},
-        {160, C<&ISystemSettingsServer::GetAnalogStickUserCalibrationR>, "GetAnalogStickUserCalibrationR"},
-        {161, C<&ISystemSettingsServer::SetAnalogStickUserCalibrationR>, "SetAnalogStickUserCalibrationR"},
-        {162, C<&ISystemSettingsServer::GetPtmBatteryVersion>, "GetPtmBatteryVersion"},
-        {163, C<&ISystemSettingsServer::SetPtmBatteryVersion>, "SetPtmBatteryVersion"},
-        {164, C<&ISystemSettingsServer::GetUsb30HostEnableFlag>, "GetUsb30HostEnableFlag"},
-        {165, C<&ISystemSettingsServer::SetUsb30HostEnableFlag>, "SetUsb30HostEnableFlag"},
-        {166, C<&ISystemSettingsServer::GetUsb30DeviceEnableFlag>, "GetUsb30DeviceEnableFlag"},
-        {167, C<&ISystemSettingsServer::SetUsb30DeviceEnableFlag>, "SetUsb30DeviceEnableFlag"},
-        {168, C<&ISystemSettingsServer::GetThemeId>, "GetThemeId"},
-        {169, C<&ISystemSettingsServer::SetThemeId>, "SetThemeId"},
+        {154, nullptr, "GetAccountOnlineStorageSettings"},
+        {155, nullptr, "SetAccountOnlineStorageSettings"},
+        {156, nullptr, "GetPctlReadyFlag"},
+        {157, nullptr, "SetPctlReadyFlag"},
+        {158, nullptr, "GetAnalogStickUserCalibrationL"},
+        {159, nullptr, "SetAnalogStickUserCalibrationL"},
+        {160, nullptr, "GetAnalogStickUserCalibrationR"},
+        {161, nullptr, "SetAnalogStickUserCalibrationR"},
+        {162, nullptr, "GetPtmBatteryVersion"},
+        {163, nullptr, "SetPtmBatteryVersion"},
+        {164, nullptr, "GetUsb30HostEnableFlag"},
+        {165, nullptr, "SetUsb30HostEnableFlag"},
+        {166, nullptr, "GetUsb30DeviceEnableFlag"},
+        {167, nullptr, "SetUsb30DeviceEnableFlag"},
+        {168, nullptr, "GetThemeId"},
+        {169, nullptr, "SetThemeId"},
         {170, C<&ISystemSettingsServer::GetChineseTraditionalInputMethod>, "GetChineseTraditionalInputMethod"},
-        {171, C<&ISystemSettingsServer::SetChineseTraditionalInputMethod>, "SetChineseTraditionalInputMethod"},
-        {172, C<&ISystemSettingsServer::GetPtmCycleCountReliability>, "GetPtmCycleCountReliability"},
-        {173, C<&ISystemSettingsServer::SetPtmCycleCountReliability>, "SetPtmCycleCountReliability"},
+        {171, nullptr, "SetChineseTraditionalInputMethod"},
+        {172, nullptr, "GetPtmCycleCountReliability"},
+        {173, nullptr, "SetPtmCycleCountReliability"},
         {174, C<&ISystemSettingsServer::GetHomeMenuScheme>, "GetHomeMenuScheme"},
-        {175, C<&ISystemSettingsServer::GetThemeSettings>, "GetThemeSettings"},
-        {176, C<&ISystemSettingsServer::SetThemeSettings>, "SetThemeSettings"},
-        {177, C<&ISystemSettingsServer::GetThemeKey>, "GetThemeKey"},
-        {178, C<&ISystemSettingsServer::SetThemeKey>, "SetThemeKey"},
-        {179, C<&ISystemSettingsServer::GetZoomFlag>, "GetZoomFlag"},
-        {180, C<&ISystemSettingsServer::SetZoomFlag>, "SetZoomFlag"},
-        {181, C<&ISystemSettingsServer::GetT>, "GetT"},
-        {182, C<&ISystemSettingsServer::SetT>, "SetT"},
+        {175, nullptr, "GetThemeSettings"},
+        {176, nullptr, "SetThemeSettings"},
+        {177, nullptr, "GetThemeKey"},
+        {178, nullptr, "SetThemeKey"},
+        {179, nullptr, "GetZoomFlag"},
+        {180, nullptr, "SetZoomFlag"},
+        {181, nullptr, "GetT"},
+        {182, nullptr, "SetT"},
         {183, C<&ISystemSettingsServer::GetPlatformRegion>, "GetPlatformRegion"},
         {184, C<&ISystemSettingsServer::SetPlatformRegion>, "SetPlatformRegion"},
         {185, C<&ISystemSettingsServer::GetHomeMenuSchemeModel>, "GetHomeMenuSchemeModel"},
-        {186, C<&ISystemSettingsServer::GetMemoryUsageRateFlag>, "GetMemoryUsageRateFlag"},
+        {186, nullptr, "GetMemoryUsageRateFlag"},
         {187, C<&ISystemSettingsServer::GetTouchScreenMode>, "GetTouchScreenMode"},
         {188, C<&ISystemSettingsServer::SetTouchScreenMode>, "SetTouchScreenMode"},
-        {189, C<&ISystemSettingsServer::GetButtonConfigSettingsFull>, "GetButtonConfigSettingsFull"},
-        {190, C<&ISystemSettingsServer::SetButtonConfigSettingsFull>, "SetButtonConfigSettingsFull"},
-        {191, C<&ISystemSettingsServer::GetButtonConfigSettingsEmbedded>, "GetButtonConfigSettingsEmbedded"},
-        {192, C<&ISystemSettingsServer::SetButtonConfigSettingsEmbedded>, "SetButtonConfigSettingsEmbedded"},
-        {193, C<&ISystemSettingsServer::GetButtonConfigSettingsLeft>, "GetButtonConfigSettingsLeft"},
-        {194, C<&ISystemSettingsServer::SetButtonConfigSettingsLeft>, "SetButtonConfigSettingsLeft"},
-        {195, C<&ISystemSettingsServer::GetButtonConfigSettingsRight>, "GetButtonConfigSettingsRight"},
-        {196, C<&ISystemSettingsServer::SetButtonConfigSettingsRight>, "SetButtonConfigSettingsRight"},
-        {197, C<&ISystemSettingsServer::GetButtonConfigRegisteredSettingsEmbedded>, "GetButtonConfigRegisteredSettingsEmbedded"},
-        {198, C<&ISystemSettingsServer::SetButtonConfigRegisteredSettingsEmbedded>, "SetButtonConfigRegisteredSettingsEmbedded"},
-        {199, C<&ISystemSettingsServer::GetButtonConfigRegisteredSettings>, "GetButtonConfigRegisteredSettings"},
-        {200, C<&ISystemSettingsServer::SetButtonConfigRegisteredSettings>, "SetButtonConfigRegisteredSettings"},
+        {189, nullptr, "GetButtonConfigSettingsFull"},
+        {190, nullptr, "SetButtonConfigSettingsFull"},
+        {191, nullptr, "GetButtonConfigSettingsEmbedded"},
+        {192, nullptr, "SetButtonConfigSettingsEmbedded"},
+        {193, nullptr, "GetButtonConfigSettingsLeft"},
+        {194, nullptr, "SetButtonConfigSettingsLeft"},
+        {195, nullptr, "GetButtonConfigSettingsRight"},
+        {196, nullptr, "SetButtonConfigSettingsRight"},
+        {197, nullptr, "GetButtonConfigRegisteredSettingsEmbedded"},
+        {198, nullptr, "SetButtonConfigRegisteredSettingsEmbedded"},
+        {199, nullptr, "GetButtonConfigRegisteredSettings"},
+        {200, nullptr, "SetButtonConfigRegisteredSettings"},
         {201, C<&ISystemSettingsServer::GetFieldTestingFlag>, "GetFieldTestingFlag"},
-        {202, C<&ISystemSettingsServer::SetFieldTestingFlag>, "SetFieldTestingFlag"},
+        {202, nullptr, "SetFieldTestingFlag"},
         {203, C<&ISystemSettingsServer::GetPanelCrcMode>, "GetPanelCrcMode"},
         {204, C<&ISystemSettingsServer::SetPanelCrcMode>, "SetPanelCrcMode"},
-        {205, C<&ISystemSettingsServer::GetNxControllerSettingsEx>, "GetNxControllerSettingsEx"},
-        {206, C<&ISystemSettingsServer::SetNxControllerSettingsEx>, "SetNxControllerSettingsEx"},
-        {207, C<&ISystemSettingsServer::GetHearingProtectionSafeguardFlag>, "GetHearingProtectionSafeguardFlag"},
-        {208, C<&ISystemSettingsServer::SetHearingProtectionSafeguardFlag>, "SetHearingProtectionSafeguardFlag"},
-        {209, C<&ISystemSettingsServer::GetHearingProtectionSafeguardRemainingTime>, "GetHearingProtectionSafeguardRemainingTime"},
-        {210, C<&ISystemSettingsServer::SetHearingProtectionSafeguardRemainingTime>, "SetHearingProtectionSafeguardRemainingTime"},
+        {205, nullptr, "GetNxControllerSettingsEx"},
+        {206, nullptr, "SetNxControllerSettingsEx"},
+        {207, nullptr, "GetHearingProtectionSafeguardFlag"},
+        {208, nullptr, "SetHearingProtectionSafeguardFlag"},
+        {209, nullptr, "GetHearingProtectionSafeguardRemainingTime"},
+        {210, nullptr, "SetHearingProtectionSafeguardRemainingTime"},
         {221, nullptr, "GetForceMonauralOutputFlag"}, //17.0.0+
         {222, nullptr, "SetForceMonauralOutputFlag"}, //17.0.0+
         {251, nullptr, "GetAccountIdentificationSettings"}, //18.0.0+
@@ -361,9 +348,6 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
 
     RegisterHandlers(functions);
 
-    m_telemetry_dirty_event = m_service_context.CreateEvent("SET:TelemetryDirtyFlag");
-    m_fatal_dirty_event = m_service_context.CreateEvent("SET:FatalDirtyFlag");
-
     SetupSettings();
 
     m_system_settings.region_code =
@@ -381,8 +365,6 @@ ISystemSettingsServer::ISystemSettingsServer(Core::System& system_)
 }
 
 ISystemSettingsServer::~ISystemSettingsServer() {
-    m_service_context.CloseEvent(m_telemetry_dirty_event);
-    m_service_context.CloseEvent(m_fatal_dirty_event);
     SetSaveNeeded();
 }
 
@@ -578,43 +560,6 @@ Result ISystemSettingsServer::SetAccountSettings(AccountSettings account_setting
     LOG_INFO(Service_SET, "called, account_settings_flags={}", account_settings.flags);
 
     m_system_settings.account_settings = account_settings;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetAudioVolume(Out<std::array<u8, 0x8>> out_volume,
-                                                  u32 device) {
-    switch (device) {
-    case 0:
-        *out_volume = m_system_settings.audio_volume_type0;
-        break;
-    case 1:
-        *out_volume = m_system_settings.audio_volume_type1;
-        break;
-    case 2:
-        *out_volume = m_system_settings.audio_volume_type2;
-        break;
-    default:
-        R_THROW(ResultUnknown);
-    }
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetAudioVolume(u32 device,
-                                                  const std::array<u8, 0x8>& volume) {
-    switch (device) {
-    case 0:
-        m_system_settings.audio_volume_type0 = volume;
-        break;
-    case 1:
-        m_system_settings.audio_volume_type1 = volume;
-        break;
-    case 2:
-        m_system_settings.audio_volume_type2 = volume;
-        break;
-    default:
-        R_THROW(ResultUnknown);
-    }
     SetSaveNeeded();
     R_SUCCEED();
 }
@@ -939,10 +884,11 @@ Result ISystemSettingsServer::SetQuestFlag(QuestFlag quest_flag) {
 
 Result ISystemSettingsServer::GetRebootlessSystemUpdateVersion(
     Out<RebootlessSystemUpdateVersion> out_rebootless_system_update) {
-    // Encore does not install Horizon rebootless-update packages. Report the explicit empty state.
-    *out_rebootless_system_update = {};
+    LOG_INFO(Service_SET, "(STUBBED) called");
+
+    out_rebootless_system_update->version = 0;
     strcpy(out_rebootless_system_update->display_version, "0.0.0");
-    LOG_DEBUG(Service_SET, "No rebootless system update installed");
+
     R_SUCCEED();
 }
 
@@ -960,28 +906,6 @@ Result ISystemSettingsServer::SetDeviceTimeZoneLocationName(
 
     m_system_settings.device_time_zone_location_name = name;
     SetSaveNeeded();
-    R_SUCCEED();
-}
-
-
-Result ISystemSettingsServer::GetWirelessCertificationFileSize(Out<u64> out_size) {
-    FileSys::VirtualFile file;
-    R_TRY(ResolveWirelessCertificationFile(&file, m_system));
-    *out_size = static_cast<u64>(file->GetSize());
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetWirelessCertificationFile(
-    Out<u64> out_size, OutBuffer<BufferAttr_HipcMapAlias> out_file) {
-    FileSys::VirtualFile file;
-    R_TRY(ResolveWirelessCertificationFile(&file, m_system));
-
-    const auto file_size = file->GetSize();
-    R_UNLESS(out_file.size() >= file_size, FileSys::ResultOutOfRange);
-
-    const auto read_size = file->Read(out_file.data(), file_size, 0);
-    R_UNLESS(read_size == file_size, FileSys::ResultOutOfRange);
-    *out_size = static_cast<u64>(read_size);
     R_SUCCEED();
 }
 
@@ -1176,814 +1100,6 @@ Result ISystemSettingsServer::SetAutomaticApplicationDownloadFlag(bool flag) {
     R_SUCCEED();
 }
 
-Result ISystemSettingsServer::GetLdnChannel(Out<s32> out_value) {
-    LOG_DEBUG(Service_SET, "GetLdnChannel called");
-    *out_value = m_system_settings.ldn_channel;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetLdnChannel(s32 value) {
-    LOG_DEBUG(Service_SET, "SetLdnChannel called");
-    m_system_settings.ldn_channel = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetExternalRtcResetFlag(Out<bool> out_value) {
-    LOG_DEBUG(Service_SET, "GetExternalRtcResetFlag called");
-    *out_value = m_system_settings.external_rtc_reset_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetExternalRtcResetFlag(bool value) {
-    LOG_DEBUG(Service_SET, "SetExternalRtcResetFlag called");
-    m_system_settings.external_rtc_reset_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetUsbFullKeyEnableFlag(Out<bool> out_value) {
-    LOG_DEBUG(Service_SET, "GetUsbFullKeyEnableFlag called");
-    *out_value = m_system_settings.usb_full_key_enable_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetUsbFullKeyEnableFlag(bool value) {
-    LOG_DEBUG(Service_SET, "SetUsbFullKeyEnableFlag called");
-    m_system_settings.usb_full_key_enable_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetHeadphoneVolumeWarningCount(Out<s32> out_value) {
-    LOG_DEBUG(Service_SET, "GetHeadphoneVolumeWarningCount called");
-    *out_value = m_system_settings.headphone_volume_warning_count;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetHeadphoneVolumeWarningCount(s32 value) {
-    LOG_DEBUG(Service_SET, "SetHeadphoneVolumeWarningCount called");
-    m_system_settings.headphone_volume_warning_count = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetBluetoothAfhEnableFlag(Out<bool> out_value) {
-    LOG_DEBUG(Service_SET, "GetBluetoothAfhEnableFlag called");
-    *out_value = m_system_settings.bluetooth_afh_enable_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetBluetoothAfhEnableFlag(bool value) {
-    LOG_DEBUG(Service_SET, "SetBluetoothAfhEnableFlag called");
-    m_system_settings.bluetooth_afh_enable_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetBluetoothBoostEnableFlag(Out<bool> out_value) {
-    LOG_DEBUG(Service_SET, "GetBluetoothBoostEnableFlag called");
-    *out_value = m_system_settings.bluetooth_boost_enable_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetBluetoothBoostEnableFlag(bool value) {
-    LOG_DEBUG(Service_SET, "SetBluetoothBoostEnableFlag called");
-    m_system_settings.bluetooth_boost_enable_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetHeadphoneVolumeUpdateFlag(Out<bool> out_value) {
-    LOG_DEBUG(Service_SET, "GetHeadphoneVolumeUpdateFlag called");
-    *out_value = m_system_settings.heaphone_volume_update_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetHeadphoneVolumeUpdateFlag(bool value) {
-    LOG_DEBUG(Service_SET, "SetHeadphoneVolumeUpdateFlag called");
-    m_system_settings.heaphone_volume_update_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetPctlReadyFlag(Out<bool> out_value) {
-    LOG_DEBUG(Service_SET, "GetPctlReadyFlag called");
-    *out_value = m_system_settings.pctl_ready_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetPctlReadyFlag(bool value) {
-    LOG_DEBUG(Service_SET, "SetPctlReadyFlag called");
-    m_system_settings.pctl_ready_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetDataDeletionSettings(
-    Out<std::array<u8, 0x8>> out_settings) {
-    *out_settings = m_system_settings.data_deletion_settings;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetDataDeletionSettings(
-    const std::array<u8, 0x8>& settings) {
-    m_system_settings.data_deletion_settings = settings;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetInitialSystemAppletProgramId(Out<u64> out_program_id) {
-    u64 id{};
-    std::memcpy(&id, m_system_settings.initial_system_applet_program_id.data(), sizeof(id));
-    *out_program_id = id;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetOverlayDispProgramId(Out<u64> out_program_id) {
-    u64 id{};
-    std::memcpy(&id, m_system_settings.overlay_disp_program_id.data(), sizeof(id));
-    *out_program_id = id;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::AcquireTelemetryDirtyFlagEventHandle(
-    OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    // Encore has no telemetry-settings producer. Keep a valid non-auto-clear event
-    // object for ABI compatibility, but do not signal it spuriously.
-    *out_event = &m_telemetry_dirty_event->GetReadableEvent();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetTelemetryDirtyFlags(Out<u64> out_flags_0,
-                                                      Out<u64> out_flags_1) {
-    *out_flags_0 = 0;
-    *out_flags_1 = 0;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::AcquireFatalDirtyFlagEventHandle(
-    OutCopyHandle<Kernel::KReadableEvent> out_event) {
-    // Same policy for fatal-settings changes: no local producer means the valid
-    // event remains unsignalled and the dirty mask stays empty.
-    *out_event = &m_fatal_dirty_event->GetReadableEvent();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetFatalDirtyFlags(Out<u64> out_flags_0,
-                                                  Out<u64> out_flags_1) {
-    *out_flags_0 = 0;
-    *out_flags_1 = 0;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetPtmBatteryLot(Out<BatteryLot> out_lot) {
-    std::memcpy(out_lot->lot_number.data(), m_device_settings.ptm_battery_lot.data(),
-                m_device_settings.ptm_battery_lot.size());
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetPtmBatteryLot(const BatteryLot& lot) {
-    std::memcpy(m_device_settings.ptm_battery_lot.data(), lot.lot_number.data(),
-                m_device_settings.ptm_battery_lot.size());
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetPtmFuelGaugeParameter(
-    Out<std::array<u8, 0x18>> out_parameter) {
-    *out_parameter = m_device_settings.ptm_fuel_gauge_parameter;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetPtmFuelGaugeParameter(
-    const std::array<u8, 0x18>& parameter) {
-    m_device_settings.ptm_fuel_gauge_parameter = parameter;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetShutdownRtcValue(s64 value) {
-    m_private_settings.shutdown_rtc_value = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetShutdownRtcValue(Out<s64> out_value) {
-    *out_value = m_private_settings.shutdown_rtc_value;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetAnalogStickUserCalibrationL(Out<std::array<u8, 0x10>> out_value) {
-    *out_value = m_system_settings.analog_stick_user_calibration_left;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetAnalogStickUserCalibrationL(const std::array<u8, 0x10>& value) {
-    m_system_settings.analog_stick_user_calibration_left = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetAnalogStickUserCalibrationR(Out<std::array<u8, 0x10>> out_value) {
-    *out_value = m_system_settings.analog_stick_user_calibration_right;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetAnalogStickUserCalibrationR(const std::array<u8, 0x10>& value) {
-    m_system_settings.analog_stick_user_calibration_right = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetPtmBatteryVersion(Out<u8> out_value) {
-    *out_value = m_device_settings.ptm_battery_version;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetPtmBatteryVersion(u8 value) {
-    m_device_settings.ptm_battery_version = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetUsb30HostEnableFlag(Out<bool> out_value) {
-    *out_value = m_system_settings.usb_30_host_enable_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetUsb30HostEnableFlag(bool value) {
-    m_system_settings.usb_30_host_enable_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetUsb30DeviceEnableFlag(Out<bool> out_value) {
-    *out_value = m_system_settings.usb_30_device_enable_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetUsb30DeviceEnableFlag(bool value) {
-    m_system_settings.usb_30_device_enable_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationBias(Out<Common::Vec<f32, 3>> out_value) {
-    *out_value = m_system_settings.console_six_axis_sensor_acceleration_bias;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationBias(const Common::Vec<f32, 3>& value) {
-    m_system_settings.console_six_axis_sensor_acceleration_bias = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityBias(Out<Common::Vec<f32, 3>> out_value) {
-    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_bias;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityBias(const Common::Vec<f32, 3>& value) {
-    m_system_settings.console_six_axis_sensor_angular_velocity_bias = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetConsoleSixAxisSensorAccelerationGain(Out<std::array<u8, 0x24>> out_value) {
-    *out_value = m_system_settings.console_six_axis_sensor_acceleration_gain;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetConsoleSixAxisSensorAccelerationGain(const std::array<u8, 0x24>& value) {
-    m_system_settings.console_six_axis_sensor_acceleration_gain = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityGain(Out<std::array<u8, 0x24>> out_value) {
-    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_gain;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityGain(const std::array<u8, 0x24>& value) {
-    m_system_settings.console_six_axis_sensor_angular_velocity_gain = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularVelocityTimeBias(Out<Common::Vec<f32, 3>> out_value) {
-    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_time_bias;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularVelocityTimeBias(const Common::Vec<f32, 3>& value) {
-    m_system_settings.console_six_axis_sensor_angular_velocity_time_bias = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetConsoleSixAxisSensorAngularAcceleration(Out<std::array<u8, 0x24>> out_value) {
-    *out_value = m_system_settings.console_six_axis_sensor_angular_velocity_acceleration;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetConsoleSixAxisSensorAngularAcceleration(const std::array<u8, 0x24>& value) {
-    m_system_settings.console_six_axis_sensor_angular_velocity_acceleration = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetBacklightSettings(
-    Out<std::array<u8, 0x28>> out_settings) {
-    // Legacy layout omits current_brightness_for_vr_mode at Ex offset 0x8.
-    std::memcpy(out_settings->data(), m_system_settings.backlight_settings_mixed_up.data(), 0x8);
-    std::memcpy(out_settings->data() + 0x8,
-                m_system_settings.backlight_settings_mixed_up.data() + 0xC, 0x20);
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetBacklightSettings(
-    const std::array<u8, 0x28>& settings) {
-    // Preserve the Ex-only current_brightness_for_vr_mode field at 0x8..0xB.
-    std::memcpy(m_system_settings.backlight_settings_mixed_up.data(), settings.data(), 0x8);
-    std::memcpy(m_system_settings.backlight_settings_mixed_up.data() + 0xC,
-                settings.data() + 0x8, 0x20);
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetButtonConfigSettingsFull(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.button_config_settings_count),
-        (std::min)(m_system_settings.button_config_settings.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.button_config_settings.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetButtonConfigSettingsFull(
-    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.button_config_settings.size(), ResultUnknown);
-    m_system_settings.button_config_settings_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.button_config_settings.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetButtonConfigSettingsEmbedded(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.button_config_settings_embedded_count),
-        (std::min)(m_system_settings.button_config_settings_embedded.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.button_config_settings_embedded.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetButtonConfigSettingsEmbedded(
-    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.button_config_settings_embedded.size(),
-             ResultUnknown);
-    m_system_settings.button_config_settings_embedded_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.button_config_settings_embedded.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetButtonConfigSettingsLeft(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.button_config_settings_left_count),
-        (std::min)(m_system_settings.button_config_settings_left.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.button_config_settings_left.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetButtonConfigSettingsLeft(
-    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.button_config_settings_left.size(),
-             ResultUnknown);
-    m_system_settings.button_config_settings_left_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.button_config_settings_left.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetButtonConfigSettingsRight(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.button_config_settings_right_count),
-        (std::min)(m_system_settings.button_config_settings_right.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.button_config_settings_right.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetButtonConfigSettingsRight(
-    InArray<std::array<u8, 0x5A8>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.button_config_settings_right.size(),
-             ResultUnknown);
-    m_system_settings.button_config_settings_right_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.button_config_settings_right.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetButtonConfigRegisteredSettingsEmbedded(
-    OutLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings) {
-    *out_settings = m_system_settings.button_config_registered_settings_embedded;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetButtonConfigRegisteredSettingsEmbedded(
-    InLargeData<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings) {
-    m_system_settings.button_config_registered_settings_embedded = *settings;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetButtonConfigRegisteredSettings(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.button_config_registered_settings_count),
-        (std::min)(m_system_settings.button_config_registered_settings.size(),
-                   out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.button_config_registered_settings.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetButtonConfigRegisteredSettings(
-    InArray<std::array<u8, 0x5C8>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.button_config_registered_settings.size(),
-             ResultUnknown);
-    m_system_settings.button_config_registered_settings_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.button_config_registered_settings.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetNetworkSettings(
-    InArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.network_settings_1B0.size(), ResultUnknown);
-    m_system_settings.network_setting_count = static_cast<u32>(settings.size());
-    for (std::size_t i = 0; i < settings.size(); ++i) {
-        m_system_settings.network_settings_1B0[i].fill(0);
-        std::memcpy(m_system_settings.network_settings_1B0[i].data(), settings[i].data(),
-                    settings[i].size());
-    }
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetNetworkSettings(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x1B0>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.network_setting_count),
-        (std::min)(m_system_settings.network_settings_1B0.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        std::memcpy(out_settings[i].data(), m_system_settings.network_settings_1B0[i].data(),
-                    out_settings[i].size());
-    }
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetBluetoothDevicesSettings(
-    InArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.bluetooth_device_settings_first_10.size(),
-             ResultUnknown);
-    const u32 count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.bluetooth_device_settings_count.data(), &count, sizeof(count));
-    std::memcpy(m_system_settings.bluetooth_device_settings_first_10.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetBluetoothDevicesSettings(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x200>, BufferAttr_HipcMapAlias> out_settings) {
-    u32 stored_count{};
-    std::memcpy(&stored_count, m_system_settings.bluetooth_device_settings_count.data(),
-                sizeof(stored_count));
-    const auto count = (std::min)(
-        static_cast<std::size_t>(stored_count),
-        (std::min)(m_system_settings.bluetooth_device_settings_first_10.size(),
-                   out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.bluetooth_device_settings_first_10.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetNxControllerSettings(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.nx_controller_settings_count),
-        (std::min)(m_system_settings.nx_controller_legacy_settings.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        std::memcpy(out_settings[i].data(), m_system_settings.nx_controller_legacy_settings[i].data(),
-                    out_settings[i].size());
-    }
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetNxControllerSettings(
-    InArray<std::array<u8, 0x29>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.nx_controller_legacy_settings.size(),
-             ResultUnknown);
-    m_system_settings.nx_controller_settings_count = static_cast<u32>(settings.size());
-    for (std::size_t i = 0; i < settings.size(); ++i) {
-        m_system_settings.nx_controller_legacy_settings[i].fill(0);
-        std::memcpy(m_system_settings.nx_controller_legacy_settings[i].data(), settings[i].data(),
-                    settings[i].size());
-    }
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetNxControllerSettingsEx(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.nx_controller_settings_count),
-        (std::min)(m_system_settings.nx_controller_settings_data_from_offset_30.size(),
-                   out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        std::memcpy(out_settings[i].data(),
-                    m_system_settings.nx_controller_settings_data_from_offset_30[i].data(),
-                    out_settings[i].size());
-    }
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetNxControllerSettingsEx(
-    InArray<std::array<u8, 0x42C>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.nx_controller_settings_data_from_offset_30.size(),
-             ResultUnknown);
-    m_system_settings.nx_controller_settings_count = static_cast<u32>(settings.size());
-    for (std::size_t i = 0; i < settings.size(); ++i) {
-        m_system_settings.nx_controller_settings_data_from_offset_30[i].fill(0);
-        std::memcpy(m_system_settings.nx_controller_settings_data_from_offset_30[i].data(),
-                    settings[i].data(), settings[i].size());
-    }
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetBacklightSettingsEx(
-    Out<std::array<u8, 0x2C>> out_settings) {
-    *out_settings = m_system_settings.backlight_settings_mixed_up;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetBacklightSettingsEx(
-    const std::array<u8, 0x2C>& settings) {
-    m_system_settings.backlight_settings_mixed_up = settings;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetEdid(
-    OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> out_edid) {
-    *out_edid = m_system_settings.edid;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetEdid(
-    InLargeData<std::array<u8, 0x100>, BufferAttr_HipcPointer> edid) {
-    m_system_settings.edid = *edid;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetAllowedSslHosts(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_hosts) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.allowed_ssl_host_count),
-        (std::min)(m_system_settings.allowed_ssl_hosts.size(), out_hosts.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_hosts.data(), m_system_settings.allowed_ssl_hosts.data(),
-                count * sizeof(out_hosts[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetHostFsMountPoint(
-    OutLargeData<std::array<u8, 0x100>, BufferAttr_HipcMapAlias> out_mount_point) {
-    *out_mount_point = m_system_settings.host_fs_mount_point;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetBlePairingSettings(
-    InArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.ble_pairing_settings.size(), ResultUnknown);
-    m_system_settings.ble_pairing_settings_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.ble_pairing_settings.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetBlePairingSettings(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x80>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.ble_pairing_settings_count),
-        (std::min)(m_system_settings.ble_pairing_settings.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.ble_pairing_settings.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetAccountOnlineStorageSettings(
-    Out<s32> out_count,
-    OutArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> out_settings) {
-    const auto count = (std::min)(
-        static_cast<std::size_t>(m_system_settings.account_online_storage_settings_count),
-        (std::min)(m_system_settings.account_online_storage_settings.size(), out_settings.size()));
-    *out_count = static_cast<s32>(count);
-    std::memcpy(out_settings.data(), m_system_settings.account_online_storage_settings.data(),
-                count * sizeof(out_settings[0]));
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetAccountOnlineStorageSettings(
-    InArray<std::array<u8, 0x40>, BufferAttr_HipcMapAlias> settings) {
-    R_UNLESS(settings.size() <= m_system_settings.account_online_storage_settings.size(),
-             ResultUnknown);
-    m_system_settings.account_online_storage_settings_count = static_cast<u32>(settings.size());
-    std::memcpy(m_system_settings.account_online_storage_settings.data(), settings.data(),
-                settings.size() * sizeof(settings[0]));
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetInRepairProcessEnableFlag(Out<bool> out_value) {
-    *out_value = m_appln_settings.in_repair_process_enable_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetInRepairProcessEnableFlag(bool value) {
-    m_appln_settings.in_repair_process_enable_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetServiceDiscoveryControlSettings(Out<u32> out_value) {
-    *out_value = m_appln_settings.service_discovery_control_settings;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetServiceDiscoveryControlSettings(u32 value) {
-    m_appln_settings.service_discovery_control_settings = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetThemeKey(Out<std::array<u8, 0x10>> out_value) {
-    *out_value = m_system_settings.theme_key;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetThemeKey(const std::array<u8, 0x10>& value) {
-    m_system_settings.theme_key = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetThemeId(Out<std::array<u64, 0x10>> out_value, s32 type) {
-    // The HOS ThemeId carries 16 u64s, not a byte-aligned IPC array.
-    R_UNLESS(type == 0 || type == 1, ResultUnknown);
-    const auto& source = type == 0 ? m_system_settings.theme_id_type0
-                                    : m_system_settings.theme_id_type1;
-    std::memcpy(out_value->data(), source.data(), source.size());
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetThemeId(s32 type, const std::array<u64, 0x10>& value) {
-    // Following the s32 selector, this aligned type starts at HIPC raw offset 8.
-    R_UNLESS(type == 0 || type == 1, ResultUnknown);
-    auto& target = type == 0 ? m_system_settings.theme_id_type0
-                             : m_system_settings.theme_id_type1;
-    std::memcpy(target.data(), value.data(), target.size());
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetRequiresRunRepairTimeReviser(Out<bool> out_value) {
-    *out_value = m_system_settings.requires_run_repair_time_reviser;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetRequiresRunRepairTimeReviser(bool value) {
-    m_system_settings.requires_run_repair_time_reviser = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetHearingProtectionSafeguardFlag(Out<bool> out_value) {
-    *out_value = m_system_settings.hearing_protection_safeguard_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetHearingProtectionSafeguardFlag(bool value) {
-    m_system_settings.hearing_protection_safeguard_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetHearingProtectionSafeguardRemainingTime(Out<s64> out_value) {
-    *out_value = m_system_settings.hearing_protection_safeguard_remaining_time;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetHearingProtectionSafeguardRemainingTime(s64 value) {
-    m_system_settings.hearing_protection_safeguard_remaining_time = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetWebInspectorFlag(Out<bool> out_value) {
-    *out_value = m_system_settings.web_inspector_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetChineseTraditionalInputMethod(ChineseTraditionalInputMethod value) {
-    m_system_settings.chinese_traditional_input_method = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetPtmCycleCountReliability(Out<u32> out_value) {
-    *out_value = m_device_settings.ptm_cycle_count_reliability;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetPtmCycleCountReliability(u32 value) {
-    m_device_settings.ptm_cycle_count_reliability = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetThemeSettings(Out<std::array<u8, 0x8>> out_value) {
-    *out_value = m_system_settings.theme_settings;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetThemeSettings(const std::array<u8, 0x8>& value) {
-    m_system_settings.theme_settings = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetZoomFlag(Out<bool> out_value) {
-    *out_value = m_system_settings.zoom_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetZoomFlag(bool value) {
-    m_system_settings.zoom_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetMemoryUsageRateFlag(Out<bool> out_value) {
-    *out_value = m_system_settings.memory_usage_rate_flag;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetFieldTestingFlag(bool value) {
-    m_system_settings.field_testing_flag = value;
-    SetSaveNeeded();
-    R_SUCCEED();
-}
-
 Result ISystemSettingsServer::GetUsb30EnableFlag(Out<bool> out_usb30_enable_flag) {
     LOG_INFO(Service_SET, "called, usb30_enable_flag={}", m_system_settings.usb_30_enable_flag);
     *out_usb30_enable_flag = m_system_settings.usb_30_enable_flag;
@@ -2080,9 +1196,9 @@ Result ISystemSettingsServer::SetDeviceNickName(
 }
 
 Result ISystemSettingsServer::GetProductModel(Out<u32> out_product_model) {
-    // Encore presents the guest with a stable retail Switch-compatible product model.
-    constexpr u32 product_model = 1;
-    LOG_DEBUG(Service_SET, "Returning synthetic product_model={}", product_model);
+    // Most certainly should be 1 -- definitely should not be 2, but it's worth tinkering with anyways
+    u32 const product_model = 1;
+    LOG_WARNING(Service_SET, "(STUBBED) called, product_model={}", product_model);
     *out_product_model = product_model;
     R_SUCCEED();
 }
@@ -2277,7 +1393,8 @@ Result ISystemSettingsServer::GetChineseTraditionalInputMethod(
 }
 
 Result ISystemSettingsServer::GetHomeMenuScheme(Out<HomeMenuScheme> out_home_menu_scheme) {
-    // No Horizon HOME-menu theme database is emulated; provide one stable default palette.
+    LOG_DEBUG(Service_SET, "(STUBBED) called");
+
     *out_home_menu_scheme = {
         .main = 0xFF323232,
         .back = 0xFF323232,
@@ -2285,53 +1402,25 @@ Result ISystemSettingsServer::GetHomeMenuScheme(Out<HomeMenuScheme> out_home_men
         .bezel = 0xFFFFFFFF,
         .extra = 0xFF000000,
     };
-    LOG_DEBUG(Service_SET, "Returning synthetic default HOME-menu scheme");
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::GetT(Out<bool> out_is_terra) {
-    auto region = static_cast<PlatformRegion>(m_private_settings.platform_region);
-    if (region != PlatformRegion::Global && region != PlatformRegion::Terra) {
-        region = PlatformRegion::Global;
-        m_private_settings.platform_region = static_cast<s32>(region);
-        SetSaveNeeded();
-    }
-    *out_is_terra = region == PlatformRegion::Terra;
-    R_SUCCEED();
-}
-
-Result ISystemSettingsServer::SetT(bool is_terra) {
-    m_private_settings.platform_region =
-        static_cast<s32>(is_terra ? PlatformRegion::Terra : PlatformRegion::Global);
-    SetSaveNeeded();
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::GetPlatformRegion(Out<PlatformRegion> out_platform_region) {
-    const auto stored = static_cast<PlatformRegion>(m_private_settings.platform_region);
-    if (stored != PlatformRegion::Global && stored != PlatformRegion::Terra) {
-        m_private_settings.platform_region = static_cast<s32>(PlatformRegion::Global);
-        SetSaveNeeded();
-    }
-    *out_platform_region = static_cast<PlatformRegion>(m_private_settings.platform_region);
-    LOG_DEBUG(Service_SET, "called, platform_region={}", *out_platform_region);
+    LOG_WARNING(Service_SET, "(STUBBED) called");
+
+    *out_platform_region = PlatformRegion::Global;
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::SetPlatformRegion(PlatformRegion platform_region) {
-    if (platform_region != PlatformRegion::Global && platform_region != PlatformRegion::Terra) {
-        platform_region = PlatformRegion::Global;
-    }
-    m_private_settings.platform_region = static_cast<s32>(platform_region);
-    SetSaveNeeded();
-    LOG_DEBUG(Service_SET, "called, platform_region={}", platform_region);
+    LOG_WARNING(Service_SET, "(STUBBED) called");
     R_SUCCEED();
 }
 
 Result ISystemSettingsServer::GetHomeMenuSchemeModel(Out<u32> out_home_menu_scheme_model) {
-    // Mirrors the synthetic default scheme above; no model-specific HOME theme is exposed.
+    LOG_WARNING(Service_SET, "(STUBBED) called");
+
     *out_home_menu_scheme_model = 0;
-    LOG_DEBUG(Service_SET, "Returning default HOME-menu scheme model=0");
     R_SUCCEED();
 }
 

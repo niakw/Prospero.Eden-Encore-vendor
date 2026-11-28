@@ -432,33 +432,6 @@ bool PlaceholderCache::Register(RegisteredCache* cache, const NcaID& placeholder
     return Delete(placeholder);
 }
 
-bool PlaceholderCache::Revert(RegisteredCache* cache, const NcaID& placeholder,
-                              const NcaID& old_content, const NcaID& new_content) const {
-    if (cache == nullptr || cache->GetFileAtID(new_content) != nullptr || Exists(placeholder)) {
-        return false;
-    }
-
-    const auto source = cache->GetFileAtID(old_content);
-    if (source == nullptr || !Create(placeholder, source->GetSize())) {
-        return false;
-    }
-
-    const auto path = GetRelativePathFromNcaID(placeholder, false, true, false);
-    const auto destination = dir->GetFileRelative(path);
-    if (destination == nullptr ||
-        !VfsRawCopy(source, destination, VFS_RC_LARGE_COPY_BLOCK)) {
-        Delete(placeholder);
-        return false;
-    }
-
-    if (!cache->Delete(old_content)) {
-        Delete(placeholder);
-        return false;
-    }
-    cache->Refresh();
-    return true;
-}
-
 bool PlaceholderCache::CleanAll() const {
     return dir->GetParentDirectory()->CleanSubdirectoryRecursive(dir->GetName());
 }
@@ -482,22 +455,6 @@ std::optional<std::array<u8, 0x10>> PlaceholderCache::GetRightsID(const NcaID& i
         return std::nullopt;
 
     return rights_id;
-}
-
-std::optional<std::pair<NcaID, u8>> PlaceholderCache::GetRightsIDWithKeyGeneration(
-    const NcaID& id) const {
-    const auto path = GetRelativePathFromNcaID(id, false, true, false);
-    const auto file = dir->GetFileRelative(path);
-    if (file == nullptr) {
-        return std::nullopt;
-    }
-
-    NCA nca{file};
-    if (nca.GetStatus() != Loader::ResultStatus::Success &&
-        nca.GetStatus() != Loader::ResultStatus::ErrorMissingBKTRBaseRomFS) {
-        return std::nullopt;
-    }
-    return std::pair{NcaID{nca.GetRightsId()}, nca.GetKeyGeneration()};
 }
 
 u64 PlaceholderCache::Size(const NcaID& id) const {
@@ -1066,104 +1023,6 @@ bool RegisteredCache::Delete(const NcaID& id) const {
     }
 
     return true;
-}
-
-bool RegisteredCache::Exists(const NcaID& id) const {
-    return GetFileAtID(id) != nullptr;
-}
-
-std::optional<u64> RegisteredCache::Size(const NcaID& id) const {
-    const auto file = GetFileAtID(id);
-    if (file == nullptr) {
-        return std::nullopt;
-    }
-    return static_cast<u64>(file->GetSize());
-}
-
-std::optional<std::vector<u8>> RegisteredCache::ReadContent(const NcaID& id, u64 offset,
-                                                            std::size_t size) const {
-    const auto file = GetFileAtID(id);
-    if (file == nullptr || offset > file->GetSize()) {
-        return std::nullopt;
-    }
-    const auto start = static_cast<std::size_t>(offset);
-    if (size > file->GetSize() - start) {
-        return std::nullopt;
-    }
-
-    std::vector<u8> data(size);
-    if (size != 0 && file->Read(data.data(), size, start) != size) {
-        return std::nullopt;
-    }
-    return data;
-}
-
-std::vector<NcaID> RegisteredCache::ListContentIds() const {
-    auto ids = AccumulateFiles();
-    std::sort(ids.begin(), ids.end());
-    ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-    return ids;
-}
-
-std::optional<std::pair<NcaID, u8>> RegisteredCache::GetRightsId(const NcaID& id) const {
-    const auto file = GetFileAtID(id);
-    if (file == nullptr) {
-        return std::nullopt;
-    }
-
-    NCA nca{parser(file, id)};
-    if (nca.GetStatus() != Loader::ResultStatus::Success &&
-        nca.GetStatus() != Loader::ResultStatus::ErrorMissingBKTRBaseRomFS) {
-        return std::nullopt;
-    }
-    return std::pair{NcaID{nca.GetRightsId()}, nca.GetKeyGeneration()};
-}
-
-const CNMT* RegisteredCache::GetContentMeta(u64 title_id) const {
-    if (const auto it = meta.find(title_id); it != meta.end()) {
-        return &it->second;
-    }
-    if (const auto it = yuzu_meta.find(title_id); it != yuzu_meta.end()) {
-        return &it->second;
-    }
-    return nullptr;
-}
-
-std::optional<NcaID> RegisteredCache::GetMetaNcaId(u64 title_id) const {
-    if (const auto it = meta_id.find(title_id); it != meta_id.end()) {
-        return it->second;
-    }
-    return std::nullopt;
-}
-
-std::vector<const CNMT*> RegisteredCache::ListContentMetas() const {
-    std::vector<const CNMT*> out;
-    out.reserve(meta.size() + yuzu_meta.size());
-    for (const auto& [title_id, cnmt] : meta) {
-        (void)title_id;
-        out.push_back(&cnmt);
-    }
-    for (const auto& [title_id, cnmt] : yuzu_meta) {
-        if (meta.find(title_id) == meta.end()) {
-            out.push_back(&cnmt);
-        }
-    }
-    return out;
-}
-
-bool RegisteredCache::ReferencesContent(const NcaID& id) const {
-    const auto contains = [&id](const auto& database) {
-        for (const auto& [title_id, cnmt] : database) {
-            (void)title_id;
-            const auto& records = cnmt.GetContentRecords();
-            if (std::any_of(records.begin(), records.end(),
-                            [&id](const ContentRecord& record) { return record.nca_id == id; })) {
-                return true;
-            }
-        }
-        return false;
-    };
-    return contains(meta) || contains(yuzu_meta);
 }
 
 InstallResult RegisteredCache::RawInstallNCA(const NCA& nca, const VfsCopyFunction& copy,

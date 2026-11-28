@@ -7,7 +7,7 @@ NoSyncpoint sentinel before any image ownership transfer. Host fixture only.
 from pathlib import Path
 import os,subprocess,shutil,tempfile
 ROOT=Path(__file__).resolve().parents[2]
-source=(ROOT/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
+source=(ROOT/"encore-active/eden/src/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
 def cut(first,after):
  assert source.count(first)==source.count(after)==1,(first,after)
  return first+source.split(first,1)[1].split(after,1)[0]

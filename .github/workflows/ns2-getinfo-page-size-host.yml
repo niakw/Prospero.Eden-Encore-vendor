@@ -3,8 +3,8 @@ name: NS2 GetInfo 0x21 page-size source contract
 on:
   pull_request:
     paths:
-      - 'encore-active/eden-backports/src/core/hle/kernel/svc_types.h'
-      - 'encore-active/eden-backports/src/core/hle/kernel/svc/svc_info.cpp'
+      - 'encore-active/eden/src/core/hle/kernel/svc_types.h'
+      - 'encore-active/eden/src/core/hle/kernel/svc/svc_info.cpp'
       - 'tests/ns2_getinfo_page_size_source.py'
       - '.github/workflows/ns2-getinfo-page-size-host.yml'
   workflow_dispatch:

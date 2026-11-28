@@ -36,21 +36,10 @@ private:
     Result AcquireBleMtuConfigEvent(Out<bool> out_is_valid,
                                     OutCopyHandle<Kernel::KReadableEvent> out_event);
 
-    Result StopOfflineBleScan();
-    Result GetOfflineBleScanResults(ClientAppletResourceUserId aruid, Out<u8> out_count,
-                                    OutBuffer<BufferAttr_HipcMapAlias> out_results);
-    Result GetOfflineBleConnectionState(ClientAppletResourceUserId aruid, Out<u8> out_count,
-                                        OutBuffer<BufferAttr_HipcPointer> out_results);
-    Result AcquireBlePairingEvent(Out<bool> out_is_valid,
-                                  OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result GetOfflineBlePairedDevices(u64 filter, Out<u8> out_count,
-                                      OutBuffer<BufferAttr_HipcPointer> out_results);
-
     KernelHelpers::ServiceContext service_context;
 
     Kernel::KEvent* scan_event;
     Kernel::KEvent* connection_event;
-    Kernel::KEvent* pairing_event;
     Kernel::KEvent* service_discovery_event;
     Kernel::KEvent* config_event;
 };

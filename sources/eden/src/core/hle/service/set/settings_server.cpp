@@ -13,7 +13,6 @@
 #include "core/hle/service/ipc_helpers.h"
 #include "core/hle/service/set/key_code_map.h"
 #include "core/hle/service/set/settings_server.h"
-#include "core/hle/service/set/system_settings_server.h"
 
 namespace Service::Set {
 namespace {
@@ -103,7 +102,7 @@ ISettingsServer::ISettingsServer(Core::System& system_) : ServiceFramework{syste
         {7, C<&ISettingsServer::GetKeyCodeMap>, "GetKeyCodeMap"},
         {8, C<&ISettingsServer::GetQuestFlag>, "GetQuestFlag"},
         {9, C<&ISettingsServer::GetKeyCodeMap2>, "GetKeyCodeMap2"},
-        {10, C<&ISettingsServer::GetFirmwareVersionForDebug>, "GetFirmwareVersionForDebug"},
+        {10, nullptr, "GetFirmwareVersionForDebug"},
         {11, C<&ISettingsServer::GetDeviceNickName>, "GetDeviceNickName"},
         {12, C<&ISettingsServer::GetKeyCodeMapByPort>, "GetKeyCodeMapByPort"},
     };
@@ -230,12 +229,6 @@ Result ISettingsServer::GetKeyCodeMap2(
     }
 
     R_RETURN(GetKeyCodeMapImpl(*out_key_code_map, key_code->second, key_code->first));
-}
-
-Result ISettingsServer::GetFirmwareVersionForDebug(
-    OutLargeData<FirmwareVersionFormat, BufferAttr_HipcPointer> out_firmware_data) {
-    LOG_DEBUG(Service_SET, "called");
-    R_RETURN(GetFirmwareVersionImpl(*out_firmware_data, system, GetFirmwareVersionType::Version2));
 }
 
 Result ISettingsServer::GetDeviceNickName(

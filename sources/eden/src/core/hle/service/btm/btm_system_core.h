@@ -33,22 +33,12 @@ public:
 private:
     Result StartGamepadPairing();
     Result CancelGamepadPairing();
-    Result ClearGamepadPairingDatabase();
-    Result GetPairedGamepadCount(Out<u8> out_count);
-    Result AcquireGamepadPairingEvent(Out<bool> out_is_valid,
-                                      OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result IsGamepadPairingStarted(Out<bool> out_is_started);
     Result EnableRadio();
     Result DisableRadio();
     Result IsRadioEnabled(Out<bool> out_is_enabled);
 
     Result AcquireRadioEvent(Out<bool> out_is_valid, OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result StartAudioDeviceDiscovery();
-    Result StopAudioDeviceDiscovery();
-    Result IsDiscoveringAudioDevice(Out<bool> out_active);
-    Result IsConnectingAudioDevice(Out<bool> out_active);
-    Result AcquirePairedAudioDeviceInfoChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
-    Result GetDiscoveredAudioDevice(Out<s32> out_total, OutBuffer<BufferAttr_HipcPointer>);
+    Result GetDiscoveredAudioDevice(OutArray<std::array<u8, 0xFF>, BufferAttr_HipcPointer> out_audio_devices, s32 count, Out<s32> out_total);
     Result AcquireAudioDeviceConnectionEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
 
     Result GetConnectedAudioDevices(
@@ -65,11 +55,7 @@ private:
     KernelHelpers::ServiceContext service_context;
 
     Kernel::KEvent* radio_event;
-    Kernel::KEvent* gamepad_pairing_event;
     Kernel::KEvent* audio_device_connection_event;
-    Kernel::KEvent* paired_audio_info_event;
-    bool audio_discovery_active{};
-    bool gamepad_pairing_started{};
     std::shared_ptr<Service::Set::ISystemSettingsServer> m_set_sys;
 };
 

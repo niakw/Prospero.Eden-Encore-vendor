@@ -6,8 +6,8 @@ on:
       - fix/nov13-ns2-kprocess-unlinked-failed-load
   pull_request:
     paths:
-      - "encore-active/ns2-runtime/process/core/hle/service/os/process.cpp"
-      - "encore-active/eden-threading/src/core/hle/kernel/slab_helpers.h"
+      - "encore-active/eden/src/core/hle/service/os/process.cpp"
+      - "encore-active/eden/src/core/hle/kernel/slab_helpers.h"
       - "tests/ns2_kprocess_failed_load_list_host.py"
       - ".github/workflows/ns2-kprocess-failed-load-list-host.yml"
   workflow_dispatch:

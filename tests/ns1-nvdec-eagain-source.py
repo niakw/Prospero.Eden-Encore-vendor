@@ -5,8 +5,8 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[1]
 import hashlib
 
-src_file = root / "encore-active/eden-core/src/video_core/host1x/ffmpeg.cpp"
-header_file = root / "encore-active/eden-core/overrides/video_core/host1x/ffmpeg.h"
+src_file = root / "encore-active/eden/src/video_core/host1x/ffmpeg.cpp"
+header_file = root / "encore-active/eden/src/video_core/host1x/ffmpeg.h"
 src = src_file.read_text()
 header = header_file.read_text()
 def git_blob(raw: bytes) -> str:

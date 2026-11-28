@@ -2,20 +2,20 @@ name: NS2 pre-kernel generation source qualification
 on:
   pull_request:
     paths:
-      - 'encore-active/ns2-runtime/process/core/core.cpp'
-      - 'encore-active/ns2-runtime/process/core/hle/kernel/k_process.cpp'
-      - 'encore-active/ns2-runtime/metadata/core/file_sys/program_metadata.cpp'
-      - 'encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp'
+      - 'encore-active/eden/src/core/core.cpp'
+      - 'encore-active/eden/src/core/hle/kernel/k_process.cpp'
+      - 'encore-active/eden/src/core/file_sys/program_metadata.cpp'
+      - 'encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp'
       - 'tests/ns2-prekernel-generation-source.py'
       - 'tests/ns2-kprocess-memory-budget-source.py'
       - '.github/workflows/ns2-prekernel-generation-host.yml'
   push:
     branches: [main]
     paths:
-      - 'encore-active/ns2-runtime/process/core/core.cpp'
-      - 'encore-active/ns2-runtime/process/core/hle/kernel/k_process.cpp'
-      - 'encore-active/ns2-runtime/metadata/core/file_sys/program_metadata.cpp'
-      - 'encore-active/ns2-runtime/metadata/core/loader/deconstructed_rom_directory.cpp'
+      - 'encore-active/eden/src/core/core.cpp'
+      - 'encore-active/eden/src/core/hle/kernel/k_process.cpp'
+      - 'encore-active/eden/src/core/file_sys/program_metadata.cpp'
+      - 'encore-active/eden/src/core/loader/deconstructed_rom_directory.cpp'
       - 'tests/ns2-prekernel-generation-source.py'
       - 'tests/ns2-kprocess-memory-budget-source.py'
       - '.github/workflows/ns2-prekernel-generation-host.yml'

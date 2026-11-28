@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PATH = ROOT / "encore-active/eden-core/src/core/file_sys/fsmitm_romfsbuild.cpp"
+PATH = ROOT / "encore-active/eden/src/core/file_sys/fsmitm_romfsbuild.cpp"
 source = PATH.read_text()
 before = "RomFSBuildContext::~RomFSBuildContext() = default;"
 after = """// Cut sibling/child shared-owner chains before vectors release the nodes.

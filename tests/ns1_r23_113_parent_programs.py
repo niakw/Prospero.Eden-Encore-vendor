@@ -4,14 +4,14 @@ from pathlib import Path
 import hashlib, os, subprocess, tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-BASE=ROOT/"encore-active/eden-core"
+BASE=ROOT/"encore-active/eden"
 OWNERS={
 "src/core/file_sys/patch_manager.cpp":"9481f60c318912a5f667758ad334dd957d71fbfd",
 "include/core/file_sys/patch_manager.h":"6819a1a3e794537cff6554978565e772a0c99e89",
 "src/core/file_sys/registered_cache.cpp":"2658884ef0332ec7dc579824d9c89925f9168891",
 "include/core/file_sys/registered_cache.h":"89140a2e950ff369136d1febf46c2093d545d787",
-"src/core/file_sys/savedata_factory.cpp":"dba4ff1e9ee98566aaeb0e2d2a75ae831f9692bd",
-"include/core/file_sys/savedata_factory.h":"6f63815a1bacaca2f5c74ee7dd17a37022158afc"
+"src/core/file_sys/savedata_factory.cpp":"825df37c9134b4f2c9ffa80a0ed0e47b8784bb16",
+"include/core/file_sys/savedata_factory.h":"36c09ce2ac14737c21447cd85cc68c47a8055a93"
 }
 def sha(data):
  return hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()

@@ -7,8 +7,8 @@ import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
-cpp=root/"encore-active/eden-core/src/dynarmic/backend/x64/constant_pool.cpp"
-h=root/"encore-active/eden-core/include/dynarmic/backend/x64/constant_pool.h"
+cpp=root/"encore-active/eden/src/dynarmic/src/dynarmic/backend/x64/constant_pool.cpp"
+h=root/"encore-active/eden/include/dynarmic/backend/x64/constant_pool.h"
 s=cpp.read_text()
 head=h.read_text()
 def gitsha(value):

@@ -14,10 +14,6 @@ namespace Core::HID {
 class EmulatedController;
 } // namespace Core::HID
 
-namespace Service::HID {
-class ResourceManager;
-}
-
 namespace Service::IRS {
 
 class IRS final : public ServiceFramework<IRS> {
@@ -114,7 +110,7 @@ private:
     void MakeProcessor(const Core::IrSensor::IrCameraHandle& handle,
                        Core::IrSensor::DeviceFormat& device_state) {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index >= processors.size()) {
+        if (index > sizeof(processors)) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return;
         }
@@ -125,7 +121,7 @@ private:
     void MakeProcessorWithCoreContext(const Core::IrSensor::IrCameraHandle& handle,
                                       Core::IrSensor::DeviceFormat& device_state) {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index >= processors.size()) {
+        if (index > sizeof(processors)) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return;
         }
@@ -141,7 +137,7 @@ private:
     template <typename T>
     T& GetProcessor(const Core::IrSensor::IrCameraHandle& handle) {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index >= processors.size()) {
+        if (index > sizeof(processors)) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return static_cast<T&>(*processors[0]);
         }
@@ -151,7 +147,7 @@ private:
     template <typename T>
     const T& GetProcessor(const Core::IrSensor::IrCameraHandle& handle) const {
         const auto index = static_cast<std::size_t>(handle.npad_id);
-        if (index >= processors.size()) {
+        if (index > sizeof(processors)) {
             LOG_CRITICAL(Service_IRS, "Invalid index {}", index);
             return static_cast<T&>(*processors[0]);
         }
@@ -165,16 +161,8 @@ private:
 
 class IRS_SYS final : public ServiceFramework<IRS_SYS> {
 public:
-    explicit IRS_SYS(Core::System& system,
-                     std::shared_ptr<Service::HID::ResourceManager> resource_manager);
+    explicit IRS_SYS(Core::System& system);
     ~IRS_SYS() override;
-
-private:
-    void RegisterAppletResourceUserId(HLERequestContext& ctx);
-    void UnregisterAppletResourceUserId(HLERequestContext& ctx);
-    void EnableAppletToGetInput(HLERequestContext& ctx);
-
-    std::shared_ptr<Service::HID::ResourceManager> resource_manager;
 };
 
 } // namespace Service::IRS

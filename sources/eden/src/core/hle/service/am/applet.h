@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <array>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -69,7 +68,6 @@ struct Applet : std::enable_shared_from_this<Applet> {
 
     // Applet common functions
     Result terminate_result{};
-    s32 last_application_exit_reason{};
     s32 display_logical_width{};
     s32 display_logical_height{};
     Common::Rectangle<f32> display_magnification{0, 0, 1, 1};
@@ -83,17 +81,13 @@ struct Applet : std::enable_shared_from_this<Applet> {
     bool handling_capture_button_short_pressed_message_enabled_for_applet{};
     bool handling_capture_button_long_pressed_message_enabled_for_applet{};
     u32 application_core_usage_mode{};
-    s64 applet_gpu_time_slice{};
 
     // Application functions
     bool game_play_recording_supported{};
     bool media_playback_state{};
     GamePlayRecordingState game_play_recording_state{GamePlayRecordingState::Disabled};
-    bool game_movie_resource_reserved{};
     bool jit_service_launched{};
     bool application_crash_report_enabled{};
-    bool all_thread_dump_on_crash_enabled{};
-    bool hdcp_authentication_activated{};
 
     // Common state
     bool sleep_lock_enabled{};
@@ -107,9 +101,6 @@ struct Applet : std::enable_shared_from_this<Applet> {
     std::vector<std::vector<u8>> user_channel_launch_parameter{};
     std::vector<std::vector<u8>> preselected_user_launch_parameter{};
     std::vector<std::vector<u8>> friend_invitation_storage_channel{};
-    std::vector<std::vector<u8>> notification_storage_channel{};
-    std::vector<std::vector<u8>> applet_bound_channel{};
-    std::array<u8, 0x400> theme_storage{};
 
     // Context Stack
     std::stack<SharedPointer<IStorage>> context_stack{};
@@ -129,13 +120,9 @@ struct Applet : std::enable_shared_from_this<Applet> {
     s32 fatal_section_count{};
     Capture::AlbumImageOrientation album_image_orientation{};
     bool handles_request_to_display{};
-    bool controller_firmware_update_section{};
-    u32 desirable_keyboard_layout{};
     ScreenshotPermission screenshot_permission{};
     IdleTimeDetectionExtension idle_time_detection_extension{};
     bool auto_sleep_disabled{};
-    bool sleep_disabled_till_shutdown{};
-    u64 sleep_disable_suppressed_until_ns{};
     u64 suspended_ticks{};
     bool album_image_taken_notification_enabled{};
     bool record_volume_muted{};

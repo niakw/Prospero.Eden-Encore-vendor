@@ -5,9 +5,9 @@ from pathlib import Path
 import hashlib
 
 ROOT=Path(__file__).resolve().parents[1]
-profile=(ROOT/"encore-active/eden-shader/src/shader_recompiler/profile.h").read_text()
-warp=(ROOT/"encore-active/eden-shader/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp").read_text()
-pipeline=(ROOT/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
+profile=(ROOT/"encore-active/eden/src/shader_recompiler/profile.h").read_text()
+warp=(ROOT/"encore-active/eden/src/shader_recompiler/backend/spirv/emit_spirv_warp.cpp").read_text()
+pipeline=(ROOT/"encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp").read_text()
 
 # Newer Lichii/Eglantine architecture: broken fragment shuffles are lowered
 # through broadcast/select rather than dropping the complete pipeline.

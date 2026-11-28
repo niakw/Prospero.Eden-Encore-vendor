@@ -15,11 +15,11 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-WAIT = ROOT / "encore-active/ns2-runtime/kernel_wait64/core/hle/kernel"
-KPROCESS = ROOT / "encore-active/ns2-runtime/process/core/hle/kernel/k_process.cpp"
-PAGE_SOURCE = ROOT / "encore-active/eden-core/src/core/hle/kernel/k_page_table_base.cpp"
-ADDR_SOURCE = ROOT / "encore-active/ns2-runtime/kernel/core/hle/kernel/k_address_space_info.cpp"
-SVC_INFO = ROOT / "encore-active/eden-backports/src/core/hle/kernel/svc/svc_info.cpp"
+WAIT = ROOT / "encore-active/eden/src/core/hle/kernel"
+KPROCESS = ROOT / "encore-active/eden/src/core/hle/kernel/k_process.cpp"
+PAGE_SOURCE = ROOT / "encore-active/eden/src/core/hle/kernel/k_page_table_base.cpp"
+ADDR_SOURCE = ROOT / "encore-active/eden/src/core/hle/kernel/k_address_space_info.cpp"
+SVC_INFO = ROOT / "encore-active/eden/src/core/hle/kernel/svc/svc_info.cpp"
 
 address = ADDR_SOURCE.read_text()
 address_h = (WAIT / "k_address_space_info.h").read_text()

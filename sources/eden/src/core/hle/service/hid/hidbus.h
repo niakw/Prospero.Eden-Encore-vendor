@@ -11,10 +11,6 @@
 #include "hid_core/hid_types.h"
 #include "hid_core/hidbus/hidbus_base.h"
 
-namespace Kernel {
-class KTransferMemory;
-}
-
 namespace Core::Timing {
 struct EventType;
 } // namespace Core::Timing
@@ -102,7 +98,6 @@ private:
         bool is_device_initialized{};
         BusHandle handle{};
         std::unique_ptr<HidbusBase> device{nullptr};
-        Kernel::KTransferMemory* polling_memory{};
     };
 
     Result GetBusHandle(Out<bool> out_is_valid, Out<BusHandle> out_bus_handle,
@@ -138,7 +133,6 @@ private:
 
     Result SetStatusManagerType(StatusManagerType manager_type);
 
-    void ReleasePollingMemory(HidbusDevice& entry);
     void UpdateHidbus(std::chrono::nanoseconds ns_late);
     std::optional<std::size_t> GetDeviceIndexFromHandle(BusHandle handle) const;
 
@@ -150,12 +144,11 @@ private:
         }
     }
 
-    // Devices close their events through this context; it must outlive them.
-    KernelHelpers::ServiceContext service_context;
     bool is_hidbus_enabled{false};
     HidbusStatusManager hidbus_status{};
     std::array<HidbusDevice, max_number_of_handles> devices{};
     std::shared_ptr<Core::Timing::EventType> hidbus_update_event;
+    KernelHelpers::ServiceContext service_context;
 };
 
 } // namespace Service::HID

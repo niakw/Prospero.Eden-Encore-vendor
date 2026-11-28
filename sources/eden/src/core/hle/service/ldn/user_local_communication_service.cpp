@@ -44,11 +44,11 @@ IUserLocalCommunicationService::IUserLocalCommunicationService(Core::System& sys
             {202, D<&IUserLocalCommunicationService::CreateNetwork>, "CreateNetwork"},
             {203, D<&IUserLocalCommunicationService::CreateNetworkPrivate>, "CreateNetworkPrivate"},
             {204, D<&IUserLocalCommunicationService::DestroyNetwork>, "DestroyNetwork"},
-            {205, D<&IUserLocalCommunicationService::Reject>, "Reject"},
+            {205, nullptr, "Reject"},
             {206, D<&IUserLocalCommunicationService::SetAdvertiseData>, "SetAdvertiseData"},
             {207, D<&IUserLocalCommunicationService::SetStationAcceptPolicy>, "SetStationAcceptPolicy"},
             {208, D<&IUserLocalCommunicationService::AddAcceptFilterEntry>, "AddAcceptFilterEntry"},
-            {209, D<&IUserLocalCommunicationService::ClearAcceptFilter>, "ClearAcceptFilter"},
+            {209, nullptr, "ClearAcceptFilter"},
             {300, D<&IUserLocalCommunicationService::OpenStation>, "OpenStation"},
             {301, D<&IUserLocalCommunicationService::CloseStation>, "CloseStation"},
             {302, D<&IUserLocalCommunicationService::Connect>, "Connect"},
@@ -196,8 +196,7 @@ Result IUserLocalCommunicationService::SetProtocol(u32 protocol) {
 
 Result IUserLocalCommunicationService::SetWirelessControllerRestriction(
     WirelessControllerRestriction wireless_restriction) {
-    LOG_DEBUG(Service_LDN, "called, restriction={}", wireless_restriction);
-    // Compatibility no-op: guest LDN must not change the PS5 host radio policy.
+    LOG_WARNING(Service_LDN, "(STUBBED) called");
     R_SUCCEED();
 }
 
@@ -235,14 +234,6 @@ Result IUserLocalCommunicationService::DestroyNetwork() {
     R_RETURN(lan_discovery.DestroyNetwork());
 }
 
-Result IUserLocalCommunicationService::Reject(u32 node_id) {
-    // ldn_mitm and disabled-network clients accept Reject without a host-side action. Encore's
-    // LANDiscovery currently has no per-node rejection primitive, so keep the ABI explicit and
-    // preserve compatibility without fabricating a disconnect reason.
-    LOG_DEBUG(Service_LDN, "called, node_id={} (no per-node reject backend)", node_id);
-    R_SUCCEED();
-}
-
 Result IUserLocalCommunicationService::SetAdvertiseData(
     InBuffer<BufferAttr_HipcAutoSelect> buffer_data) {
     LOG_INFO(Service_LDN, "called");
@@ -251,18 +242,12 @@ Result IUserLocalCommunicationService::SetAdvertiseData(
 }
 
 Result IUserLocalCommunicationService::SetStationAcceptPolicy(AcceptPolicy accept_policy) {
-    LOG_DEBUG(Service_LDN, "called, policy={}", accept_policy);
-    // Match ldn_mitm's compatibility contract until LANDiscovery exposes admission filtering.
+    LOG_WARNING(Service_LDN, "(STUBBED) called");
     R_SUCCEED();
 }
 
 Result IUserLocalCommunicationService::AddAcceptFilterEntry(MacAddress mac_address) {
-    LOG_DEBUG(Service_LDN, "called (compatibility no-op)");
-    R_SUCCEED();
-}
-
-Result IUserLocalCommunicationService::ClearAcceptFilter() {
-    LOG_DEBUG(Service_LDN, "called (compatibility no-op)");
+    LOG_WARNING(Service_LDN, "(STUBBED) called");
     R_SUCCEED();
 }
 

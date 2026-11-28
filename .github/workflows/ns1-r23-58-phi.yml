@@ -5,8 +5,8 @@ on:
       - research/ns1-r23-conditional-phi-bindless-20261111
   pull_request:
     paths:
-      - "encore-active/eden-shader/include/shader_recompiler/frontend/ir/breadth_first_search.h"
-      - "encore-active/eden-shader/src/shader_recompiler/ir_opt/texture_pass.cpp"
+      - "encore-active/eden/src/shader_recompiler/frontend/ir/breadth_first_search.h"
+      - "encore-active/eden/src/shader_recompiler/ir_opt/texture_pass.cpp"
       - "tests/ns1_r23_58_conditional_phi.py"
       - ".github/workflows/ns1-r23-58-phi.yml"
   workflow_dispatch:

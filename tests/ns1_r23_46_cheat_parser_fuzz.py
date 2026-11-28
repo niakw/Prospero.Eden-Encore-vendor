@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 root=Path(__file__).resolve().parents[1]
-src=root/"encore-active/eden-core/src/core/memory/cheat_engine.cpp"
+src=root/"encore-active/eden/src/core/memory/cheat_engine.cpp"
 s=src.read_text()
 data=s.encode()
 sha=hashlib.sha1(b"blob "+str(len(data)).encode()+bytes([0])+data).hexdigest()

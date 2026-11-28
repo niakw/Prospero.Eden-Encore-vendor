@@ -17,22 +17,7 @@ ConsoleSixAxis::~ConsoleSixAxis() = default;
 
 void ConsoleSixAxis::OnInit() {}
 
-void ConsoleSixAxis::OnRelease() {
-    sampling_enabled.store(false, std::memory_order_release);
-    sampling_aruid.store(0, std::memory_order_relaxed);
-}
-
-void ConsoleSixAxis::StartSampling(u64 aruid) {
-    sampling_aruid.store(aruid, std::memory_order_relaxed);
-    sampling_enabled.store(true, std::memory_order_release);
-}
-
-void ConsoleSixAxis::StopSampling(u64 aruid) {
-    if (sampling_aruid.load(std::memory_order_relaxed) == aruid) {
-        sampling_enabled.store(false, std::memory_order_release);
-        sampling_aruid.store(0, std::memory_order_relaxed);
-    }
-}
+void ConsoleSixAxis::OnRelease() {}
 
 void ConsoleSixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
     std::scoped_lock shared_lock{*shared_mutex};
@@ -43,13 +28,11 @@ void ConsoleSixAxis::OnUpdate(const Core::Timing::CoreTiming& core_timing) {
         return;
     }
 
-    if (!IsControllerActivated() ||
-        !sampling_enabled.load(std::memory_order_acquire) ||
-        sampling_aruid.load(std::memory_order_relaxed) != aruid) {
+    ConsoleSixAxisSensorSharedMemoryFormat& shared_memory = data->shared_memory_format->console;
+
+    if (!IsControllerActivated()) {
         return;
     }
-
-    ConsoleSixAxisSensorSharedMemoryFormat& shared_memory = data->shared_memory_format->console;
 
     const auto motion_status = console->GetMotion();
 

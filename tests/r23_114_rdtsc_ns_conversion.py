@@ -10,8 +10,8 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-SOURCE=ROOT/"encore-active/eden-core/src/common/cpu_features.cpp"
-HEADER=ROOT/"encore-active/eden-core/include/common/cpu_features.h"
+SOURCE=ROOT/"encore-active/eden/src/common/cpu_features.cpp"
+HEADER=ROOT/"encore-active/eden/include/common/cpu_features.h"
 s=SOURCE.read_text()
 h=HEADER.read_text()
 start="u64 WallClock::NsToTicks(std::chrono::nanoseconds ns) const {"

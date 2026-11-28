@@ -7,9 +7,9 @@ import subprocess
 import tempfile
 root=Path(__file__).resolve().parents[1]
 files={
-"encore-active/eden-shader/src/shader_recompiler/ir_opt/vendor_workaround_pass.cpp":"5842f6135b8db659764c52e25cd5ec577358e28b",
-"encore-active/eden-shader/src/shader_recompiler/ir_opt/passes.h":"068d7fdfe8382de0934fb14597be980c0390f141",
-"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp":"71f536fe851f9543c7244f76e08bae694926739c"
+"encore-active/eden/src/shader_recompiler/ir_opt/vendor_workaround_pass.cpp":"5842f6135b8db659764c52e25cd5ec577358e28b",
+"encore-active/eden/src/shader_recompiler/ir_opt/passes.h":"068d7fdfe8382de0934fb14597be980c0390f141",
+"encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp":"71f536fe851f9543c7244f76e08bae694926739c"
 }
 for p,sha in files.items():
  d=(root/p).read_bytes()
@@ -23,8 +23,8 @@ for p,sha in files.items():
    assert "GeometryCompactionPass" in text,(p,"lost subgroup geometry support")
   else:
    assert "support_shuffle_relative" in text and "single_lane_geometry_subgroups" in text,(p,"lost subgroup policy")
-shader=(root/"encore-active/eden-shader/src/shader_recompiler/ir_opt/vendor_workaround_pass.cpp").read_text()
-pipeline=(root/"encore-active/eden-vulkan/vk_pipeline_cache_cost.cpp").read_text()
+shader=(root/"encore-active/eden/src/shader_recompiler/ir_opt/vendor_workaround_pass.cpp").read_text()
+pipeline=(root/"encore-active/eden/src/video_core/renderer_vulkan/vk_pipeline_cache_cost.cpp").read_text()
 assert "device.GetDriverID() != VK_DRIVER_ID_NVIDIA_PROPRIETARY" in pipeline
 assert "Shader::Optimization::HasBrokenPattern(programs[index])" in pipeline
 start="bool HasBrokenPattern(const IR::Program& program) {"

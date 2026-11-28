@@ -60,8 +60,8 @@ ICommonStateGetter::ICommonStateGetter(Core::System& system_, std::shared_ptr<Ap
         {67, nullptr, "CancelCpuBoostMode"},
         {68, D<&ICommonStateGetter::GetBuiltInDisplayType>, "GetBuiltInDisplayType"},
         {80, D<&ICommonStateGetter::PerformSystemButtonPressingIfInFocus>, "PerformSystemButtonPressingIfInFocus"},
-        {90, D<&ICommonStateGetter::SetPerformanceConfigurationChangedNotification>, "SetPerformanceConfigurationChangedNotification"},
-        {91, D<&ICommonStateGetter::GetCurrentPerformanceConfiguration>, "GetCurrentPerformanceConfiguration"},
+        {90, nullptr, "SetPerformanceConfigurationChangedNotification"},
+        {91, nullptr, "GetCurrentPerformanceConfiguration"},
         {100, D<&ICommonStateGetter::SetHandlingHomeButtonShortPressedEnabled>, "SetHandlingHomeButtonShortPressedEnabled"},
         {110, nullptr, "OpenMyGpuErrorHandler"},
         {120, D<&ICommonStateGetter::GetAppletLaunchedHistory>, "GetAppletLaunchedHistory"}, //13.0.0+
@@ -123,22 +123,22 @@ Result ICommonStateGetter::GetCurrentFocusState(Out<FocusState> out_focus_state)
 }
 
 Result ICommonStateGetter::RequestToAcquireSleepLock() {
-    LOG_DEBUG(Service_AM, "called; sleep lock is acquired immediately");
+    LOG_WARNING(Service_AM, "(STUBBED) called");
 
-    // Encore has no separate host sleep arbiter; acquisition is immediate.
+    // Sleep lock is acquired immediately.
     m_applet->sleep_lock_event.Signal(system.Kernel());
     R_SUCCEED();
 }
 
 Result ICommonStateGetter::ReleaseSleepLock() {
-    LOG_DEBUG(Service_AM, "called");
+    LOG_WARNING(Service_AM, "(STUBBED) called");
 
     m_applet->sleep_lock_event.Clear(system.Kernel());
     R_SUCCEED();
 }
 
 Result ICommonStateGetter::ReleaseSleepLockTransiently() {
-    LOG_DEBUG(Service_AM, "called; transient reacquire is not modeled");
+    LOG_WARNING(Service_AM, "(STUBBED) called");
 
     m_applet->sleep_lock_event.Clear(system.Kernel());
     R_SUCCEED();
@@ -198,23 +198,6 @@ Result ICommonStateGetter::GetPerformanceMode(Out<APM::PerformanceMode> out_perf
     R_SUCCEED();
 }
 
-Result ICommonStateGetter::SetPerformanceConfigurationChangedNotification(bool enabled) {
-    LOG_DEBUG(Service_AM, "called, enabled={}", enabled);
-    std::scoped_lock lk{m_applet->lock};
-    m_applet->lifecycle_manager.SetPerformanceModeChangedNotificationEnabled(system.Kernel(),
-                                                                             enabled);
-    R_SUCCEED();
-}
-
-Result ICommonStateGetter::GetCurrentPerformanceConfiguration(
-    Out<APM::PerformanceConfiguration> out_performance_configuration) {
-    LOG_DEBUG(Service_AM, "called");
-    auto& controller = system.GetAPMController();
-    *out_performance_configuration =
-        controller.GetCurrentPerformanceConfiguration(controller.GetCurrentPerformanceMode());
-    R_SUCCEED();
-}
-
 Result ICommonStateGetter::GetBootMode(Out<PM::SystemBootMode> out_boot_mode) {
     LOG_DEBUG(Service_AM, "called");
     *out_boot_mode = Service::PM::SystemBootMode::Normal;
@@ -243,14 +226,14 @@ Result ICommonStateGetter::SetLcdBacklighOffEnabled(bool is_lcd_backlight_off_en
 }
 
 Result ICommonStateGetter::BeginVrModeEx() {
-    LOG_DEBUG(Service_AM, "called");
+    LOG_WARNING(Service_AM, "(STUBBED) called");
     std::scoped_lock lk{m_applet->lock};
     m_applet->vr_mode_enabled = true;
     R_SUCCEED();
 }
 
 Result ICommonStateGetter::EndVrModeEx() {
-    LOG_DEBUG(Service_AM, "called");
+    LOG_WARNING(Service_AM, "(STUBBED) called");
     std::scoped_lock lk{m_applet->lock};
     m_applet->vr_mode_enabled = false;
     R_SUCCEED();
@@ -258,10 +241,8 @@ Result ICommonStateGetter::EndVrModeEx() {
 
 Result ICommonStateGetter::IsInControllerFirmwareUpdateSection(
     Out<bool> out_is_in_controller_firmware_update_section) {
-    LOG_DEBUG(Service_AM, "called");
-    std::scoped_lock lk{m_applet->lock};
-    *out_is_in_controller_firmware_update_section =
-        m_applet->controller_firmware_update_section;
+    LOG_INFO(Service_AM, "called");
+    *out_is_in_controller_firmware_update_section = false;
     R_SUCCEED();
 }
 

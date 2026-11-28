@@ -2,7 +2,7 @@ name: PS5 Vulkan usage tracker partial 64-byte ranges (host)
 on:
   pull_request:
     paths:
-      - "encore-active/eden-core/overrides/usage-tracker/**"
+      - "encore-active/eden/src/**"
       - "tests/ps5_buffer_usage_granularity_host.py"
       - ".github/workflows/ps5-buffer-usage-granularity-host.yml"
   push:

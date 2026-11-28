@@ -6,7 +6,7 @@ import re
 
 ROOT=Path(__file__).resolve().parents[1]
 PINNED=ROOT/"sources/eden/src/video_core/texture_cache/descriptor_table.h"
-ACTIVE=ROOT/"encore-active/eden-core/src/video_core/texture_cache/descriptor_table.h"
+ACTIVE=ROOT/"encore-active/eden/src/video_core/texture_cache/descriptor_table.h"
 MEM=ROOT/"sources/eden/src/video_core/memory_manager.h"
 COREMEM=ROOT/"sources/eden/src/core/memory.h"
 

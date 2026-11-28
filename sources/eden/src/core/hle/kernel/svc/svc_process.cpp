@@ -40,10 +40,8 @@ Result GetProcessId(Core::System& system, u64* out_process_id, Handle handle) {
         // The object is a thread, so we want to use its parent.
         process = reinterpret_cast<KThread*>(obj.GetPointerUnsafe())->GetOwnerProcess();
     } else {
-        // Encore does not expose kernel debug objects. A non-process/non-thread handle
-        // therefore cannot name a supported GetProcessId target; fail in the guest
-        // instead of reaching a host-side UNIMPLEMENTED path.
-        R_THROW(ResultInvalidHandle);
+        // TODO(bunnei): This should also handle debug objects before returning.
+        UNIMPLEMENTED_MSG("Debug objects not implemented");
     }
 
     // Make sure the target process exists.

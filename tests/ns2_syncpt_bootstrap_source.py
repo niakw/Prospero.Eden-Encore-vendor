@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 from pathlib import Path
 R=Path(__file__).resolve().parents[1]
-cpp=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
-hdr=(R/"encore-active/ns2-runtime/graphics_supervisor/core/hle/service/am/service/graphics_supervisor.h").read_text()
+cpp=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.cpp").read_text()
+hdr=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor.h").read_text()
 host=(R/"sources/eden/src/video_core/host1x/syncpoint_manager.h").read_text()
-proto=(R/"encore-active/ns2-runtime/hle/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
+proto=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_supervisor_protocol.h").read_text()
 for marker in (
     '{202, &IGraphicsSupervisor::OpenSyncptSession, "OpenSyncptSession"}',
     '{204, &IGraphicsSupervisor::AttachSyncptMemory, "AttachSyncptMemory"}',
@@ -182,7 +182,7 @@ assert vi2_handler.index("token_hi = packet[3]") < vi2_handler.index("NativeTipc
 assert "IPC::ResponseBuilder rb{ctx, static_cast<u32>(2 + words.size())};" in cpp
 assert "rb.PushRaw<u32>(ResultSuccess.raw);" in cpp
 assert "std::memset(cmdbuf, 0, sizeof(u32) * IPC::COMMAND_BUFFER_LENGTH);" in (
-    R/"encore-active/eden-core/include/core/hle/service/ipc_helpers.h").read_text()
+    R/"encore-active/eden/include/core/hle/service/ipc_helpers.h").read_text()
 # Session registration must not strand KSession and quota after a failed
 # server RegisterSession, including host allocation failures.
 meta = cpp.split("static Result CreateMetadataSession(", 1)[1].split("static void NativeTipcReplyWords(", 1)[0]
@@ -327,8 +327,8 @@ assert nvsrv.index('result = Kernel::ResultOutOfResource;') < nvsrv.index(
     'std::shared_ptr<Nvidia::NVDRV> handler{')
 # The independent GPU session also keeps a ref to the same process-generation
 # key. After this child closes, 497 may remain live with no lost epoch.
-shared=(R/"encore-active/ns2-runtime/gpu_session/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
-registry=(R/"encore-active/ns2-runtime/hle/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
+shared=(R/"encore-active/eden/src/core/hle/service/am/service/gpu_worker_shared.cpp").read_text()
+registry=(R/"encore-active/eden/src/core/hle/service/nvdrv/devices/native_gpu_process_registry.h").read_text()
 assert "native_registered = Nvidia::Devices::NativeGpuProcessRegistry::Instance().Register(process);" in shared
 assert "if (--it->second.references == 0) owners.erase(it);" in registry
 # 1402 must reject a second active user session (firmware 0x200f3),
@@ -491,24 +491,29 @@ assert "std::numeric_limits<u64>::max();" in slot_owner
 assert "GraphicsSupervisorProtocol::DecodeSyncpointWait(" in slot_owner
 assert slot_owner.index("Cancel(request);",slot_owner.index("void RequestSlotEvent")) < slot_owner.index("if (syncpoint >= HostSyncpoints)")
 cancel=slot_owner.split("bool Cancel(SlotRequest& request)",1)[1]
-assert "if (request.handle != 0)" in cancel and "DeregisterNativeGuestAction" in cancel
+assert "if (request.handle != 0)" in cancel
+assert "DeregisterNativeGuestAction" in cancel and "DeregisterGuestAction" in cancel
 assert "if (!request.pending.exchange" not in cancel
 
-# Native wait must retain all 64 bits and mode from libounce 201.
-assert "manager.RegisterNativeGuestAction(" in slot_owner
-assert "syncpoint, value, wait->wide," in slot_owner
-assert "GetNativeGuestSyncpointValue(syncpoint)" in slot_owner
+# libounce command 103 advertises mode 0. Keep its producer value and 201
+# event on the command-processor guest counter, matching Lichii/Eglantine.
+# Explicit mode 1 waits retain the renderer-retired native 64-bit path.
+assert "GetGuestSyncpointValue(syncpoint)" in slot_owner
+assert "request.wide = wait->wide;" in slot_owner
+assert "wait->wide" in slot_owner
+assert "manager.RegisterNativeGuestAction(syncpoint, value, true" in slot_owner
+assert "manager.RegisterGuestAction(syncpoint, static_cast<u32>(value)" in slot_owner
 assert "GetNativeGuestSyncpointValue(id)" in mirror
 
 # GSV producer completion follows Host1x retirement, not the command-parser
 # guest/max-like edge. OunceVK joins this counter with a GPU-written marker.
-sync_owner=(R/"encore-active/eden-core/src/video_core/host1x/syncpoint_manager.cpp").read_text()
+sync_owner=(R/"encore-active/eden/src/video_core/host1x/syncpoint_manager.cpp").read_text()
 guest_inc=sync_owner.split("void SyncpointManager::IncrementGuest(u32 id) {",1)[1].split("\n}",1)[0]
 host_inc=sync_owner.split("void SyncpointManager::IncrementHost(u32 id) {",1)[1].split("\n}",1)[0]
 assert "guest_action_storage[id]);" in guest_inc
 assert "guest_action_storage[id], id)" not in guest_inc
 assert "host_action_storage[id], id)" in host_inc
-video=(R/"encore-active/ns2-runtime/video_decoder/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
+video=(R/"encore-active/eden/src/core/hle/service/am/service/graphics_video_decoder_session.cpp").read_text()
 video_publish=video.split("m_available.erase(ready);",1)[1].split("m_ready->SetRoom",1)[0]
 assert video_publish.index("syncpoints.IncrementGuest(m_syncpoint);") < video_publish.index(
     "syncpoints.IncrementHost(m_syncpoint);")
@@ -619,7 +624,7 @@ with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
     _compile = _subprocess.run(
         [_gpu_cc, "-std=c++20", "-O2", "-Wall", "-Wextra", "-Werror",
          "-fsanitize=undefined", "-fno-sanitize-recover=all",
-         "-I" + str(R / "encore-active/ns2-runtime/hle"),
+         "-I" + str(R / "encore-active/eden/src"),
          "-I" + str(R / "sources/eden/src"),
          str(_source), "-o", str(_output)],
         capture_output=True, text=True, timeout=70,
@@ -627,5 +632,39 @@ with _tempfile.TemporaryDirectory(prefix="eden-ns2-gpu-time-") as _dir:
     assert _compile.returncode == 0, _compile.stderr[-5000:]
     _run = _subprocess.run([str(_output)], capture_output=True, text=True, timeout=15)
     assert _run.returncode == 0, _run.stderr[-5000:]
+
+# VI2 present ordering is generic: no title ID is allowed to select current
+# vs previous-frame behavior. Current-frame waits escape only when the GPU
+# scheduler proves a native semaphore is CPU-blocked; previous-frame wait
+# then bounds the guest to one frame ahead.
+_vi2 = cpp.split("class IVi2Session final", 1)[1].split(
+    "class INativeChatGsvSession final", 1)[0]
+for forbidden in (
+    "DonkeyKongBananzaProgramId",
+    "OcarinaOfTimeProgramId",
+    "WaitForBananzaPresentFence",
+):
+    assert forbidden not in _vi2, forbidden
+for marker in (
+    "bool WaitForPresentFence(",
+    "m_context.CreateEvent(\"nx2:vi2 present fence\")",
+    "syncpoints.RegisterGuestAction(",
+    "DeregisterGuestAction(",
+    "std::chrono::milliseconds{3}",
+    "std::chrono::seconds{4}",
+    "system.GPU().HasCpuBlockedNativeChannels()",
+    "Kernel::KSynchronizationObject::Wait(",
+    "WaitForPresentFence(\n                                            fence, p[24], true)",
+    "m_previous_present_fence_id",
+    "m_previous_present_fence_value",
+    "WaitForPresentFence(\n                                                m_previous_present_fence_id,",
+):
+    assert marker in _vi2, marker
+assert ".WaitGuest(" not in _vi2
+assert _vi2.index("WaitForPresentFence(\n                                            fence, p[24], true)") < _vi2.index("if(!c->producer)")
+assert _vi2.index("CancelPresentFenceWait();") < _vi2.index(
+    "m_context.CloseEvent(m_present_wait_event)")
+print("NS2_GENERIC_PRESENT_FENCE_SOURCE_PASS policy=gpu_producer_or_previous no_title_ids=1 deadline=4s")
+
 print("NS2_GPU_TIME_TIPC11_HOST_PASS scheduled_interval=saturated reverse=zero malformed=rejected")
 print("NS2_VI2_FIXED_RATE_CAPABILITY_HOST_PASS commands=107,301,354 supported=60Hz_SDR")

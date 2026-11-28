@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 ROOT=Path(__file__).resolve().parents[1]
-active=ROOT/"encore-active/eden-core/src/core/file_sys"
+active=ROOT/"encore-active/eden/src/core/file_sys"
 original=ROOT/"sources/eden/src/core/file_sys"
 def extract(path,start,end):
     s=path.read_text()

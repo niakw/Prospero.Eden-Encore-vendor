@@ -13,7 +13,6 @@
 namespace Service::AM {
 
 class AppletDataBroker;
-class IApplicationAccessor;
 struct Applet;
 class IStorage;
 
@@ -31,17 +30,13 @@ private:
     Result GetAppletStateChangedEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);
     Result IsCompleted(Out<bool> out_is_completed);
     Result GetResult();
-    Result SetOutOfFocusApplicationSuspendingEnabled(bool enabled);
     Result PresetLibraryAppletGpuTimeSliceZero();
     Result Start();
     Result RequestExit();
     Result Terminate();
-    Result GetCurrentChildLibraryApplet(Out<SharedPointer<IApplicationAccessor>> out_accessor);
-    Result NeedsToExitProcess(Out<bool> out_needs_to_exit);
     Result Unknown90();
     Result PushInData(SharedPointer<IStorage> storage);
     Result PopOutData(Out<SharedPointer<IStorage>> out_storage);
-    Result PushExtraStorage(SharedPointer<IStorage> storage);
     Result PushInteractiveInData(SharedPointer<IStorage> storage);
     Result PopInteractiveOutData(Out<SharedPointer<IStorage>> out_storage);
     Result GetPopOutDataEvent(OutCopyHandle<Kernel::KReadableEvent> out_event);

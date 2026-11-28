@@ -3,7 +3,7 @@
 from pathlib import Path
 import hashlib,re
 
-root=Path(__file__).resolve().parents[1]/"encore-active/eden-backports/src/core/hle/service/ns"
+root=Path(__file__).resolve().parents[1]/"encore-active/eden/src/core/hle/service/ns"
 source=root/"application_manager_interface.cpp"
 header=root/"application_manager_interface.h"
 def blob(path):
