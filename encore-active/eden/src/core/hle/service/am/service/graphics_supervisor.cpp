@@ -3812,17 +3812,18 @@ void IGraphicsSupervisor::CalculateFeatureImagePoolRequirements(HLERequestContex
     rb.Push(request ? static_cast<u32>(request->alignment >> 32) : 0u);
 }
 
-static std::optional<NativeImageRequirements> ParseNativeImageRequest(HLERequestContext& ctx) {
-    // Native image preferences are exactly sixteen u32 words followed by
-    // a single image count. The maintained layout helper verifies known
-    // image types, width, height, pitch, block alignment and multiplication.
-    // Reject malformed TIPC packets rather than returning fabricated sizes.
+static std::optional<NativeImageRequirements> ParseNativeImageSizingRequest(
+    HLERequestContext& ctx) {
+    // 435/1510 only size storage. They must not inherit 429's publication
+    // whitelist: NVN needs a non-zero bounded layout before it can create the
+    // window/image objects that 429 validates against real NVMap backing.
     const u32* const data = ctx.CommandBuffer();
     if (data[1] != 17) return {};
-    return CalculateNativeImageRequirements(std::span<const u32>{data + 2, 16}, data[18]);
+    return CalculateNativeImageSizingRequirements(
+        std::span<const u32>{data + 2, 16}, data[18]);
 }
 void IGraphicsSupervisor::CalculateNativeImageSize(HLERequestContext& ctx) {
-    const auto request = ParseNativeImageRequest(ctx);
+    const auto request = ParseNativeImageSizingRequest(ctx);
     const Result result = request ? ResultSuccess : Kernel::ResultInvalidCombination;
     IPC::ResponseBuilder rb{ctx, 4};
     rb.Push(result.raw);
@@ -3830,7 +3831,7 @@ void IGraphicsSupervisor::CalculateNativeImageSize(HLERequestContext& ctx) {
     rb.Push(request ? static_cast<u32>(request->size >> 32) : 0u);
 }
 void IGraphicsSupervisor::CalculateNativeImageRequirements(HLERequestContext& ctx) {
-    const auto request = ParseNativeImageRequest(ctx);
+    const auto request = ParseNativeImageSizingRequest(ctx);
     const Result result = request ? ResultSuccess : Kernel::ResultInvalidCombination;
     IPC::ResponseBuilder rb{ctx, 6};
     rb.Push(result.raw);

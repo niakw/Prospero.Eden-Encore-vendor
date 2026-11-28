@@ -1908,6 +1908,13 @@ gsv_source = (R / "encore-active/eden/src/core/hle/service/am/service/graphics_s
 assert "preference[6] != 1 && preference[6] != 4 && preference[6] != 5" in layout_source
 assert "const u64 bytes_per_pixel = preference[6] == 5 ? 8 : 4;" in layout_source
 assert "const u64 requested_images = std::max<u64>(count, 1);" in layout_source
+assert "CalculateNativeImageSizingRequirements" in layout_source
+assert "ParseNativeImageSizingRequest" in gsv_source
+assert gsv_source.count("CalculateNativeImageSizingRequirements(") == 1
+strict_create = gsv_source.split("void IGraphicsSupervisor::CreateNativeImage(",1)[1].split(
+    "void IGraphicsSupervisor::ConfigureNativeWindowImagePool",1)[0]
+assert "CalculateNativeImageRequirements(preferences, count)" in strict_create
+assert "CalculateNativeImageSizingRequirements" not in strict_create
 assert "const u32 count = std::max<u32>(packet[18], 1);" in gsv_source
 assert "if (handle && handle->allocated && handle->size >= requirements->size)" in gsv_source
 assert "if (result.IsError())" in gsv_source
@@ -1920,6 +1927,7 @@ cpp = r"""
 #include <cassert>
 #include "core/hle/service/am/service/native_image_layout.h"
 using Service::AM::CalculateNativeImageRequirements;
+using Service::AM::CalculateNativeImageSizingRequirements;
 using Service::AM::NativeImageLedger;
 int main() {
     std::array<u32,16> pref{};
@@ -1949,10 +1957,25 @@ int main() {
     assert(!ledger.Create(11, fp16->size-1,*fp16,pref,1,1));
     const auto id=ledger.Create(11,fp16->size,*fp16,pref,1,1);
     assert(id && *id==1 && ledger.Get(*id)->offset==0);
+    // Publication remains fail-closed for an unreviewed format.
     pref[6]=99;
     assert(!CalculateNativeImageRequirements(pref,1));
+    const auto unknown_size = CalculateNativeImageSizingRequirements(pref,1);
+    assert(unknown_size && unknown_size->size==rgba->size &&
+           unknown_size->alignment==4096);
+
+    // Broken raw block geometry gets a bounded 64-byte pitch / 128-row
+    // sizing fallback instead of a zero NativeWindow requirement.
+    pref[6]=1; pref[4]=0; pref[5]=0;
+    assert(!CalculateNativeImageRequirements(pref,1));
+    const auto fallback = CalculateNativeImageSizingRequirements(pref,1);
+    assert(fallback && fallback->size==120ull*64*1152 &&
+           fallback->alignment==8192);
+
+    // The same sizing tolerance never authorizes 429 publication.
     pref[6]=5; pref[5]=0;
     assert(!CalculateNativeImageRequirements(pref,1));
+    assert(CalculateNativeImageSizingRequirements(pref,1));
 }
 """
 compilers = list(dict.fromkeys(x for x in (shutil.which("clang++"),shutil.which("g++")) if x))

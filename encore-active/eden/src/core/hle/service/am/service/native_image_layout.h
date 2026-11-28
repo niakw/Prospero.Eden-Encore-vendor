@@ -56,6 +56,59 @@ inline std::optional<NativeImageRequirements> CalculateNativeImageRequirements(
     return NativeImageRequirements{image_size * requested_images, 4096};
 }
 
+// GSV 1510/435 only size storage; they do not authorize image publication.
+// Lichii/Eglantine observed a null NativeWindow when this query returned a
+// zero/failed requirement. Preserve the strict helper above for 429, while
+// using the SDK's general block-linear geometry for sizing-only requests.
+inline std::optional<NativeImageRequirements> CalculateNativeImageSizingRequirements(
+    std::span<const u32> preference, u32 requested_count) {
+    if (preference.size() != 16) return std::nullopt;
+
+    // Keep every already-qualified request byte-for-byte equivalent.
+    if (const auto strict = CalculateNativeImageRequirements(preference, requested_count))
+        return strict;
+
+    const u64 width = (preference[2] & 0xffffU) + 1;
+    const u64 height = (preference[2] >> 16) + 1;
+    // Maintained upstream treats every non-FP16 native colour format as 4 Bpp
+    // for the requirements query. 429 still rejects unknown formats.
+    const u64 bytes_per_pixel = preference[6] == 5 ? 8 : 4;
+    if (width > std::numeric_limits<u64>::max() / bytes_per_pixel)
+        return std::nullopt;
+    const u64 row_bytes = width * bytes_per_pixel;
+    const u64 minimum_gobs = (row_bytes + 63) / 64;
+
+    u32 block_log2 = preference[4];
+    u64 pitch{};
+    if (block_log2 <= 8 && preference[5] >= minimum_gobs &&
+        preference[5] <= 4096) {
+        pitch = u64{preference[5]} * 64;
+    } else {
+        block_log2 = 7;
+        if (row_bytes > std::numeric_limits<u64>::max() - 63)
+            return std::nullopt;
+        pitch = (row_bytes + 63) & ~u64{63};
+    }
+
+    const u64 block_rows = u64{1} << block_log2;
+    if (height > std::numeric_limits<u64>::max() - (block_rows - 1))
+        return std::nullopt;
+    const u64 aligned_height = (height + block_rows - 1) & ~(block_rows - 1);
+    if (!pitch || aligned_height > std::numeric_limits<u64>::max() / pitch)
+        return std::nullopt;
+    const u64 image_size = pitch * aligned_height;
+
+    const u64 count = std::max<u64>(requested_count, 1);
+    constexpr u64 MaxSizingImages = 1024;
+    constexpr u64 MaxSizingBytes = 1ULL << 48;
+    if (count > MaxSizingImages || !image_size ||
+        image_size > MaxSizingBytes / count)
+        return std::nullopt;
+
+    const u64 alignment = std::max<u64>(4096, 64 * block_rows);
+    return NativeImageRequirements{image_size * count, alignment};
+}
+
 // Feature-image pool requirements used by the common GSV server template
 // (391/691/1291/1691 in Lichii). This is sizing only: it does not create,
 // map or publish an image. Lichii observes preference format 1=RGBA8,
