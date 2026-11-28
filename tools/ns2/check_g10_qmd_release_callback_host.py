@@ -23,6 +23,10 @@ end="    std::string_view error;"
 assert method.count(begin)==method.count(end)==1
 owner=begin+method.split(begin,1)[1].split(end,1)[0]
 assert "QueueNativeSemaphoreRelease(pusher," in owner
+assert "BeginGpuSemaphoreRelease(" in owner
+assert "EndGpuSemaphoreRelease(" in owner
+assert "GpuToCpuAddress(addr, sizeof(u32))" in owner
+assert owner.index("BeginGpuSemaphoreRelease(") < owner.index("QueueNativeSemaphoreRelease(pusher,")
 assert "auto failure = std::current_exception();" in owner
 assert "RecordGpuFailure(failure)" in owner
 assert ".ReportFault(channel)" in owner
@@ -44,6 +48,17 @@ cpp=r"""
 #include <utility>
 #include <vector>
 #include <algorithm>
+template<class F> struct ScopeExit {
+    F f;
+    ~ScopeExit(){ f(); }
+};
+struct ScopeExitTag {};
+template<class F> ScopeExit<F> operator+(ScopeExitTag, F&& f) {
+    return ScopeExit<F>{std::forward<F>(f)};
+}
+#define EDEN_JOIN2(a,b) a##b
+#define EDEN_JOIN(a,b) EDEN_JOIN2(a,b)
+#define SCOPE_EXIT auto EDEN_JOIN(scope_exit_,__LINE__) = ScopeExitTag{} + [&]()
 using u8=std::uint8_t;
 using u32=std::uint32_t;
 using u64=std::uint64_t;
@@ -72,12 +87,26 @@ public:
 };
 class NativeGpuProcessRegistry {
 public:
+    unsigned begins{},ends{},pending{};
+    bool admit{true};
     static NativeGpuProcessRegistry& Instance(){
         static NativeGpuProcessRegistry r;
         return r;
     }
     std::optional<u64> SemaphoreMirrorAddress(unsigned, u64) const {
         return std::nullopt;
+    }
+    bool BeginGpuSemaphoreRelease(unsigned, u64 address, u64 device) {
+        if (!admit || address != 0x1000 || device != 0x9000) return false;
+        ++begins;
+        ++pending;
+        return true;
+    }
+    void EndGpuSemaphoreRelease(unsigned, u64 address, u64 device) {
+        assert(address == 0x1000 && device == 0x9000);
+        ++ends;
+        assert(pending != 0);
+        --pending;
     }
 };
 }
@@ -95,6 +124,9 @@ struct MemoryManager {
     u8* GetPointer(u64 address){
         return cpu_backed&&IsFullyMappedRange(address,4)
             ?reinterpret_cast<u8*>(remapped?&reused_word:&word):nullptr;
+    }
+    std::optional<u64> GpuToCpuAddress(u64 address,std::size_t size) {
+        return IsFullyMappedRange(address,size) ? std::optional<u64>{0x9000} : std::nullopt;
     }
     template<class T> T Read(u64 address){
         assert(IsFullyMappedRange(address,sizeof(T))&&cpu_backed);
@@ -141,7 +173,9 @@ static bool QueueNativeSemaphoreRelease(
 }
 int main() {
     using Registry=Service::Nvidia::Devices::NativeGpuChannelRegistry;
+    using ProcessRegistry=Service::Nvidia::Devices::NativeGpuProcessRegistry;
     auto ticket=std::optional<Registry::Ticket>{Registry::Ticket{}};
+    auto& process_registry=ProcessRegistry::Instance();
     DmaPusher pusher;
     Rasterizer renderer;
     pusher.rasterizer=&renderer;
@@ -151,6 +185,8 @@ int main() {
     renderer.RetireOne();
     assert(renderer.callbacks.empty() && pusher.memory_manager.word==19);
     assert(Eden::failures==0 && pusher.memory_manager.writes==1);
+    assert(process_registry.begins==1 && process_registry.ends==1 &&
+           process_registry.pending==0);
     assert(release(0x1000,2,1U<<26)); // atomic add after GPU retire
     renderer.RetireOne();
     assert(pusher.memory_manager.word==21);
@@ -207,8 +243,13 @@ int main() {
     assert(!release(0x1001,47,0));
     assert(!release(0,47,0));
     renderer.strict_available=false;
+    const unsigned begin_before_queue_failure=process_registry.begins;
+    const unsigned end_before_queue_failure=process_registry.ends;
     assert(!release(0x1000,88,0));
     assert(renderer.callbacks.empty() && pusher.memory_manager.word==30);
+    assert(process_registry.begins==begin_before_queue_failure+1);
+    assert(process_registry.ends==end_before_queue_failure+1);
+    assert(process_registry.pending==0);
     renderer.strict_available=true;
     std::puts("G10_QMD3_REAL_OWNER_RETIRE_CALLBACK_PASS"
               " signal_after_fence=1 reduction_add=1 reduction_max=1"

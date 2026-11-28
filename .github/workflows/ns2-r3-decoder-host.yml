@@ -12,6 +12,11 @@ on:
       - 'encore-active/eden/src/video_core/memory_manager.h'
       - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp'
       - 'tests/ns2_native_tiling_activation_source.py'
+      - 'encore-active/eden/src/video_core/framebuffer_config.h'
+      - 'sources/eden/src/video_core/framebuffer_config.h'
+      - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvdisp_disp0.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vulkan_present_layer.cpp'
+      - 'encore-active/eden/src/video_core/engines/puller.cpp'
       - 'encore-active/eden/src/video_core/engines/engine_upload.cpp'
       - 'encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp'
       - 'encore-active/eden/src/video_core/engines/maxwell_dma.cpp'
@@ -29,6 +34,11 @@ on:
       # Validate the shipping combined shim/tiling ABI before merging.
       - 'encore-active/eden/src/video_core/memory_manager.h'
       - 'tests/ns2_native_tiling_activation_source.py'
+      - 'encore-active/eden/src/video_core/framebuffer_config.h'
+      - 'sources/eden/src/video_core/framebuffer_config.h'
+      - 'encore-active/eden/src/core/hle/service/nvdrv/devices/nvdisp_disp0.cpp'
+      - 'encore-active/eden/src/video_core/renderer_vulkan/vulkan_present_layer.cpp'
+      - 'encore-active/eden/src/video_core/engines/puller.cpp'
       - 'encore-active/eden/src/video_core/textures/decoders.cpp'
       - 'encore-active/eden/src/video_core/textures/decoders.h'
       - 'encore-active/eden/src/video_core/engines/engine_upload.cpp'
@@ -62,6 +72,11 @@ jobs:
             encore-active/eden/src/core/hle/service/nvdrv/devices/nvhost_gpu.cpp
             encore-active/eden/src/video_core/control/channel_state.cpp
             tests/ns2_native_tiling_activation_source.py
+            encore-active/eden/src/video_core/framebuffer_config.h
+            sources/eden/src/video_core/framebuffer_config.h
+            encore-active/eden/src/core/hle/service/nvdrv/devices/nvdisp_disp0.cpp
+            encore-active/eden/src/video_core/renderer_vulkan/vulkan_present_layer.cpp
+            encore-active/eden/src/video_core/engines/puller.cpp
             sources/eden/src/video_core/memory_manager.h
             encore-active/eden/src/video_core/engines/engine_upload.cpp
             encore-active/eden/src/video_core/engines/sw_blitter/blitter.cpp
