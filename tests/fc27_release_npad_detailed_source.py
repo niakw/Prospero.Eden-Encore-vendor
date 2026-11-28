@@ -35,5 +35,4 @@ assert prior.count(new_includes)==1
 prior=prior.replace(new_includes,old_includes,1)
 raw=prior.encode()
 blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
-assert blob=="454138c445bc140568068737646349cac98a686d",blob
-print("FC27_RELEASE_NPAD_DETAILED_SOURCE_PASS plus=edge_only cap=64 quiet=zero_clock old_blob=454138c4")
+# Canonical NS1 convergence adds reviewed NPad resource/interface queries and\n# SetAppletResourceUserId outside this diagnostic block. The release logging\n# layer must still reverse exactly to that functional owner.\nassert blob=="f57c8eb2d6bc73d1419496126462be50dc79949f",blob\nprint("FC27_RELEASE_NPAD_DETAILED_SOURCE_PASS plus=edge_only cap=64 quiet=zero_clock functional_blob=f57c8eb2")
